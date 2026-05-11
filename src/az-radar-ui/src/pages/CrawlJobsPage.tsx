@@ -226,7 +226,6 @@ export function CrawlJobsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHeaderCell>ID</TableHeaderCell>
                 <TableHeaderCell>Type</TableHeaderCell>
                 <TableHeaderCell>Status</TableHeaderCell>
                 <TableHeaderCell>Created</TableHeaderCell>
@@ -244,12 +243,20 @@ export function CrawlJobsPage() {
                     className={stale ? styles.staleRow : undefined}
                   >
                     <TableCell>
-                      <Text font="monospace" size={200}>
-                        {job.id.substring(0, 8)}…
-                      </Text>
-                    </TableCell>
-                    <TableCell>
-                      <Badge appearance="outline">{job.jobType}</Badge>
+                      <div>
+                        <Badge appearance="outline">{job.jobType}</Badge>
+                        <Text
+                          font="monospace"
+                          size={100}
+                          style={{
+                            display: "block",
+                            marginTop: 2,
+                            color: tokens.colorNeutralForeground3,
+                          }}
+                        >
+                          {job.id.substring(0, 8)}…
+                        </Text>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -336,7 +343,7 @@ export function CrawlJobsPage() {
               })}
               {jobs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={6}>
                     <Text
                       style={{
                         padding: 20,

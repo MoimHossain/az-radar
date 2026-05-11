@@ -11,18 +11,14 @@ import {
   Dropdown,
   Option,
   Button,
-  Dialog,
-  DialogSurface,
-  DialogBody,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Table,
   TableBody,
   TableCell,
   TableHeader,
   TableHeaderCell,
   TableRow,
+  Tab,
+  TabList,
 } from "@fluentui/react-components";
 import {
   SearchRegular,
@@ -36,8 +32,6 @@ import {
   ArrowTrendingRegular,
   OpenRegular,
   CodeRegular,
-  ChevronDownRegular,
-  ChevronRightRegular,
 } from "@fluentui/react-icons";
 import { useEffect, useState, useMemo } from "react";
 import { api, type FeedItem } from "../api/client";
@@ -100,10 +94,51 @@ const useStyles = makeStyles({
     alignItems: "center",
     gap: "8px",
   },
-  // Detail dialog styles
-  dialogSurface: {
-    maxWidth: "680px",
-    width: "100%",
+  // Right-anchored panel styles
+  panelBackdrop: {
+    position: "fixed" as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    zIndex: 1000,
+  },
+  panel: {
+    position: "fixed" as const,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: "560px",
+    maxWidth: "90vw",
+    backgroundColor: tokens.colorNeutralBackground1,
+    boxShadow: tokens.shadow64,
+    zIndex: 1001,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+  panelHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: "20px 24px 0 24px",
+    gap: "12px",
+  },
+  panelTitleRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "flex-start",
+    flex: 1,
+  },
+  panelNav: {
+    paddingLeft: "24px",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+  },
+  panelContent: {
+    flex: 1,
+    overflow: "auto",
+    padding: "20px 24px 24px 24px",
   },
   detailGrid: {
     display: "grid",
@@ -157,12 +192,6 @@ const useStyles = makeStyles({
     alignSelf: "stretch",
     flexShrink: 0,
   },
-  dialogTitleRow: {
-    display: "flex",
-    gap: "8px",
-    alignItems: "center",
-    flexWrap: "wrap" as const,
-  },
   linksRow: {
     display: "flex",
     gap: "16px",
@@ -175,23 +204,21 @@ const useStyles = makeStyles({
     fontFamily: "Consolas, 'Courier New', monospace",
     fontSize: "12px",
     lineHeight: "1.5",
-    maxHeight: "300px",
     overflow: "auto",
     whiteSpace: "pre-wrap" as const,
     wordBreak: "break-all" as const,
-    marginTop: "8px",
   },
-  debugToggle: {
+  rawSection: {
     display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    cursor: "pointer",
-    userSelect: "none" as const,
+    flexDirection: "column",
+    gap: "16px",
+  },
+  rawSectionLabel: {
+    fontSize: "12px",
+    fontWeight: 600,
     color: tokens.colorNeutralForeground3,
-    marginTop: "4px",
-    "&:hover": {
-      color: tokens.colorNeutralForeground1,
-    },
+    textTransform: "uppercase" as const,
+    marginBottom: "4px",
   },
 });
 
@@ -257,8 +284,7 @@ export function FeedItemsPage() {
   const [selectedChangeTypes, setSelectedChangeTypes] = useState<string[]>([]);
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>([]);
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
-  const [showRawLlm, setShowRawLlm] = useState(false);
-  const [showRawFeed, setShowRawFeed] = useState(false);
+  const [panelTab, setPanelTab] = useState<string>("analysis");
 
   useEffect(() => {
     api
@@ -435,8 +461,7 @@ export function FeedItemsPage() {
                     className={rowClass}
                     onClick={() => {
                       setSelectedItem(item);
-                      setShowRawLlm(false);
-                      setShowRawFeed(false);
+                      setPanelTab("analysis");
                     }}
                   >
                     <TableCell>
@@ -515,277 +540,288 @@ export function FeedItemsPage() {
         </Card>
       )}
 
-      {/* Detail Dialog */}
-      <Dialog
-        open={selectedItem !== null}
-        onOpenChange={(_, d) => {
-          if (!d.open) setSelectedItem(null);
-        }}
-      >
-        <DialogSurface className={styles.dialogSurface}>
-          {selectedItem && (
-            <DialogBody>
-              <DialogTitle
-                action={
-                  <Button
-                    appearance="subtle"
-                    icon={<DismissRegular />}
-                    onClick={() => setSelectedItem(null)}
-                  />
-                }
-              >
-                <div className={styles.dialogTitleRow}>
-                  {selectedItem.llmAnalysis &&
-                    changeTypeIcon(selectedItem.llmAnalysis.changeType)}
-                  <span>{selectedItem.title}</span>
-                </div>
-              </DialogTitle>
-              <DialogContent>
-                {/* Badges row */}
-                <div
-                  style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}
-                >
-                  {selectedItem.llmAnalysis && (
-                    <>
-                      <Badge
-                        color={severityColor(selectedItem.llmAnalysis.severity)}
-                      >
-                        {selectedItem.llmAnalysis.severity}
-                      </Badge>
-                      <Badge
-                        appearance={
-                          isRetirementType(selectedItem.llmAnalysis.changeType)
-                            ? "filled"
-                            : "outline"
-                        }
-                        color={
-                          isRetirementType(selectedItem.llmAnalysis.changeType)
-                            ? "danger"
-                            : "informative"
-                        }
-                      >
-                        {selectedItem.llmAnalysis.changeType}
-                      </Badge>
-                      {selectedItem.llmAnalysis.deadline && (
-                        <Badge appearance="outline" color="warning">
-                          Deadline: {selectedItem.llmAnalysis.deadline}
+      {/* Right-anchored detail panel */}
+      {selectedItem && (
+        <>
+          <div
+            className={styles.panelBackdrop}
+            onClick={() => setSelectedItem(null)}
+          />
+          <div className={styles.panel}>
+            {/* Panel header */}
+            <div className={styles.panelHeader}>
+              <div className={styles.panelTitleRow}>
+                {selectedItem.llmAnalysis &&
+                  changeTypeIcon(selectedItem.llmAnalysis.changeType)}
+                <div>
+                  <Text weight="semibold" size={500} block>
+                    {selectedItem.title}
+                  </Text>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      flexWrap: "wrap",
+                      marginTop: 8,
+                    }}
+                  >
+                    {selectedItem.llmAnalysis && (
+                      <>
+                        <Badge
+                          color={severityColor(
+                            selectedItem.llmAnalysis.severity
+                          )}
+                        >
+                          {selectedItem.llmAnalysis.severity}
                         </Badge>
-                      )}
-                    </>
-                  )}
-                  <Badge appearance="outline">
-                    {new Date(selectedItem.publishDate).toLocaleDateString()}
-                  </Badge>
+                        <Badge
+                          appearance={
+                            isRetirementType(
+                              selectedItem.llmAnalysis.changeType
+                            )
+                              ? "filled"
+                              : "outline"
+                          }
+                          color={
+                            isRetirementType(
+                              selectedItem.llmAnalysis.changeType
+                            )
+                              ? "danger"
+                              : "informative"
+                          }
+                        >
+                          {selectedItem.llmAnalysis.changeType}
+                        </Badge>
+                        {selectedItem.llmAnalysis.deadline && (
+                          <Badge appearance="outline" color="warning">
+                            Deadline: {selectedItem.llmAnalysis.deadline}
+                          </Badge>
+                        )}
+                      </>
+                    )}
+                    <Badge appearance="outline">
+                      {new Date(
+                        selectedItem.publishDate
+                      ).toLocaleDateString()}
+                    </Badge>
+                  </div>
                 </div>
+              </div>
+              <Button
+                appearance="subtle"
+                icon={<DismissRegular />}
+                onClick={() => setSelectedItem(null)}
+              />
+            </div>
 
-                {selectedItem.llmAnalysis ? (
-                  <div className={styles.detailGrid}>
-                    {/* AI Summary */}
-                    <div className={styles.summaryBox}>
-                      <Text
-                        size={200}
-                        weight="semibold"
-                        block
-                        style={{ marginBottom: 4 }}
-                      >
-                        AI Summary
-                      </Text>
-                      <Text size={300}>
-                        {selectedItem.llmAnalysis.briefSummary}
-                      </Text>
-                    </div>
+            {/* Tab navigation */}
+            <div className={styles.panelNav}>
+              <TabList
+                selectedValue={panelTab}
+                onTabSelect={(_, d) => setPanelTab(d.value as string)}
+                size="small"
+              >
+                <Tab value="analysis">Analysis</Tab>
+                <Tab value="raw" icon={<CodeRegular />}>
+                  Raw Data
+                </Tab>
+              </TabList>
+            </div>
 
-                    {/* Action Required */}
-                    <div className={styles.detailFieldFull}>
-                      <Text className={styles.fieldLabel}>
-                        Action Required
-                      </Text>
-                      <Text size={300}>
-                        {selectedItem.llmAnalysis.actionRequired || "None"}
-                      </Text>
-                    </div>
-
-                    {/* Effort & Confidence */}
-                    <div className={styles.detailField}>
-                      <Text className={styles.fieldLabel}>
-                        Effort Estimate
-                      </Text>
-                      <Badge appearance="outline">
-                        {selectedItem.llmAnalysis.effortEstimate}
-                      </Badge>
-                    </div>
-                    <div className={styles.detailField}>
-                      <Text className={styles.fieldLabel}>
-                        AI Confidence
-                      </Text>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <div className={styles.confidenceBar}>
-                          <div
-                            className={styles.confidenceFill}
-                            style={{
-                              width: `${(selectedItem.llmAnalysis.aiConfidence * 100).toFixed(0)}%`,
-                            }}
-                          />
-                        </div>
-                        <Text size={200}>
-                          {(
-                            selectedItem.llmAnalysis.aiConfidence * 100
-                          ).toFixed(0)}
-                          %
-                        </Text>
-                      </div>
-                    </div>
-
-                    {/* Affected Services */}
-                    {selectedItem.llmAnalysis.affectedServices.length > 0 && (
-                      <div className={styles.detailFieldFull}>
-                        <Text className={styles.fieldLabel}>
-                          Affected Services
-                        </Text>
-                        <div className={styles.servicesList}>
-                          {selectedItem.llmAnalysis.affectedServices.map(
-                            (s) => (
-                              <Badge key={s} appearance="tint">
-                                {s}
-                              </Badge>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Affected Resource Types */}
-                    {selectedItem.llmAnalysis.affectedResourceTypes.length >
-                      0 && (
-                      <div className={styles.detailFieldFull}>
-                        <Text className={styles.fieldLabel}>
-                          Affected Resource Types
-                        </Text>
-                        <div className={styles.servicesList}>
-                          {selectedItem.llmAnalysis.affectedResourceTypes.map(
-                            (r) => (
-                              <Badge
-                                key={r}
-                                appearance="outline"
-                                size="small"
-                              >
-                                {r}
-                              </Badge>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Migration Path */}
-                    {selectedItem.llmAnalysis.migrationPath && (
-                      <div className={styles.detailFieldFull}>
-                        <Text className={styles.fieldLabel}>
-                          Migration Path
+            {/* Panel content */}
+            <div className={styles.panelContent}>
+              {panelTab === "analysis" && (
+                <>
+                  {selectedItem.llmAnalysis ? (
+                    <div className={styles.detailGrid}>
+                      <div className={styles.summaryBox}>
+                        <Text
+                          size={200}
+                          weight="semibold"
+                          block
+                          style={{ marginBottom: 4 }}
+                        >
+                          AI Summary
                         </Text>
                         <Text size={300}>
-                          {selectedItem.llmAnalysis.migrationPath}
+                          {selectedItem.llmAnalysis.briefSummary}
                         </Text>
                       </div>
+
+                      <div className={styles.detailFieldFull}>
+                        <Text className={styles.fieldLabel}>
+                          Action Required
+                        </Text>
+                        <Text size={300}>
+                          {selectedItem.llmAnalysis.actionRequired || "None"}
+                        </Text>
+                      </div>
+
+                      <div className={styles.detailField}>
+                        <Text className={styles.fieldLabel}>
+                          Effort Estimate
+                        </Text>
+                        <Badge appearance="outline">
+                          {selectedItem.llmAnalysis.effortEstimate}
+                        </Badge>
+                      </div>
+                      <div className={styles.detailField}>
+                        <Text className={styles.fieldLabel}>
+                          AI Confidence
+                        </Text>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <div className={styles.confidenceBar}>
+                            <div
+                              className={styles.confidenceFill}
+                              style={{
+                                width: `${(selectedItem.llmAnalysis.aiConfidence * 100).toFixed(0)}%`,
+                              }}
+                            />
+                          </div>
+                          <Text size={200}>
+                            {(
+                              selectedItem.llmAnalysis.aiConfidence * 100
+                            ).toFixed(0)}
+                            %
+                          </Text>
+                        </div>
+                      </div>
+
+                      {selectedItem.llmAnalysis.affectedServices.length >
+                        0 && (
+                        <div className={styles.detailFieldFull}>
+                          <Text className={styles.fieldLabel}>
+                            Affected Services
+                          </Text>
+                          <div className={styles.servicesList}>
+                            {selectedItem.llmAnalysis.affectedServices.map(
+                              (s) => (
+                                <Badge key={s} appearance="tint">
+                                  {s}
+                                </Badge>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedItem.llmAnalysis.affectedResourceTypes
+                        .length > 0 && (
+                        <div className={styles.detailFieldFull}>
+                          <Text className={styles.fieldLabel}>
+                            Affected Resource Types
+                          </Text>
+                          <div className={styles.servicesList}>
+                            {selectedItem.llmAnalysis.affectedResourceTypes.map(
+                              (r) => (
+                                <Badge
+                                  key={r}
+                                  appearance="outline"
+                                  size="small"
+                                >
+                                  {r}
+                                </Badge>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedItem.llmAnalysis.migrationPath && (
+                        <div className={styles.detailFieldFull}>
+                          <Text className={styles.fieldLabel}>
+                            Migration Path
+                          </Text>
+                          <Text size={300}>
+                            {selectedItem.llmAnalysis.migrationPath}
+                          </Text>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <Text
+                      size={200}
+                      style={{ color: tokens.colorNeutralForeground3 }}
+                    >
+                      No AI analysis available for this item.
+                    </Text>
+                  )}
+
+                  <Divider style={{ margin: "16px 0 8px" }} />
+
+                  <div className={styles.linksRow}>
+                    <Link href={selectedItem.link} target="_blank">
+                      <OpenRegular style={{ marginRight: 4 }} />
+                      View on Azure
+                    </Link>
+                    {selectedItem.llmAnalysis?.microsoftDocLinks?.map(
+                      (link, i) => (
+                        <Link key={i} href={link} target="_blank">
+                          <OpenRegular style={{ marginRight: 4 }} />
+                          Documentation {i + 1}
+                        </Link>
+                      )
                     )}
                   </div>
-                ) : (
-                  <Text
-                    size={200}
-                    style={{ color: tokens.colorNeutralForeground3 }}
-                  >
-                    No AI analysis available for this item.
-                  </Text>
-                )}
+                </>
+              )}
 
-                <Divider style={{ margin: "16px 0 8px" }} />
-
-                {/* Links */}
-                <div className={styles.linksRow}>
-                  <Link href={selectedItem.link} target="_blank">
-                    <OpenRegular style={{ marginRight: 4 }} />
-                    View on Azure
-                  </Link>
-                  {selectedItem.llmAnalysis?.microsoftDocLinks?.map(
-                    (link, i) => (
-                      <Link key={i} href={link} target="_blank">
-                        <OpenRegular style={{ marginRight: 4 }} />
-                        Documentation {i + 1}
-                      </Link>
-                    )
+              {panelTab === "raw" && (
+                <div className={styles.rawSection}>
+                  {selectedItem.llmAnalysis && (
+                    <div>
+                      <Text className={styles.rawSectionLabel} block>
+                        LLM Analysis Response (JSON)
+                      </Text>
+                      <div className={styles.rawJsonBox}>
+                        {JSON.stringify(
+                          selectedItem.llmAnalysis,
+                          null,
+                          2
+                        )}
+                      </div>
+                    </div>
                   )}
+                  <div>
+                    <Text className={styles.rawSectionLabel} block>
+                      Raw Feed Content
+                    </Text>
+                    <div className={styles.rawJsonBox}>
+                      {selectedItem.rawContent || "(empty)"}
+                    </div>
+                  </div>
+                  <div>
+                    <Text className={styles.rawSectionLabel} block>
+                      Feed Item Metadata (JSON)
+                    </Text>
+                    <div className={styles.rawJsonBox}>
+                      {JSON.stringify(
+                        {
+                          id: selectedItem.id,
+                          source: selectedItem.source,
+                          link: selectedItem.link,
+                          publishDate: selectedItem.publishDate,
+                          categories: selectedItem.categories,
+                          firstSeenAt: selectedItem.firstSeenAt,
+                          crawlJobId: selectedItem.crawlJobId,
+                        },
+                        null,
+                        2
+                      )}
+                    </div>
+                  </div>
                 </div>
-
-                {/* Diagnostics: Raw LLM Response */}
-                {selectedItem.llmAnalysis && (
-                  <>
-                    <Divider style={{ margin: "16px 0 8px" }} />
-                    <div
-                      className={styles.debugToggle}
-                      onClick={() => setShowRawLlm((v) => !v)}
-                    >
-                      {showRawLlm ? (
-                        <ChevronDownRegular fontSize={12} />
-                      ) : (
-                        <ChevronRightRegular fontSize={12} />
-                      )}
-                      <CodeRegular fontSize={14} />
-                      <Text size={200} weight="semibold">
-                        Raw LLM Analysis (JSON)
-                      </Text>
-                    </div>
-                    {showRawLlm && (
-                      <div className={styles.rawJsonBox}>
-                        {JSON.stringify(selectedItem.llmAnalysis, null, 2)}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Diagnostics: Raw Feed Content */}
-                {selectedItem.rawContent && (
-                  <>
-                    <div
-                      className={styles.debugToggle}
-                      onClick={() => setShowRawFeed((v) => !v)}
-                      style={{ marginTop: 8 }}
-                    >
-                      {showRawFeed ? (
-                        <ChevronDownRegular fontSize={12} />
-                      ) : (
-                        <ChevronRightRegular fontSize={12} />
-                      )}
-                      <CodeRegular fontSize={14} />
-                      <Text size={200} weight="semibold">
-                        Raw Feed Content
-                      </Text>
-                    </div>
-                    {showRawFeed && (
-                      <div className={styles.rawJsonBox}>
-                        {selectedItem.rawContent}
-                      </div>
-                    )}
-                  </>
-                )}
-              </DialogContent>
-              <DialogActions>
-                <Button
-                  appearance="secondary"
-                  onClick={() => setSelectedItem(null)}
-                >
-                  Close
-                </Button>
-              </DialogActions>
-            </DialogBody>
-          )}
-        </DialogSurface>
-      </Dialog>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
