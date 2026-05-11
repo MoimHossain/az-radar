@@ -1,16 +1,22 @@
 import {
   makeStyles,
   tokens,
-  Tab,
-  TabList,
   Text,
+  Button,
+  Tooltip,
+  mergeClasses,
 } from "@fluentui/react-components";
 import {
+  NavigationRegular,
   BoardRegular,
   TaskListSquareLtrRegular,
   DocumentTextRegular,
 } from "@fluentui/react-icons";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useState } from "react";
+
+const NAV_WIDTH_EXPANDED = 220;
+const NAV_WIDTH_COLLAPSED = 48;
 
 const useStyles = makeStyles({
   shell: {
@@ -22,21 +28,97 @@ const useStyles = makeStyles({
   topBar: {
     display: "flex",
     alignItems: "center",
-    padding: "0 24px",
+    padding: "0 12px",
     height: "48px",
     backgroundColor: tokens.colorBrandBackground,
     color: tokens.colorNeutralForegroundOnBrand,
-    gap: "12px",
+    gap: "8px",
+    zIndex: 10,
+  },
+  hamburger: {
+    color: tokens.colorNeutralForegroundOnBrand,
+    minWidth: "32px",
+    "&:hover": {
+      color: tokens.colorNeutralForegroundOnBrand,
+      backgroundColor: "rgba(255,255,255,0.1)",
+    },
   },
   logo: {
     fontSize: "16px",
     fontWeight: 700,
     letterSpacing: "-0.02em",
   },
-  nav: {
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+  body: {
+    display: "flex",
+    flex: 1,
+    overflow: "hidden",
+  },
+  sidebar: {
+    display: "flex",
+    flexDirection: "column",
     backgroundColor: tokens.colorNeutralBackground1,
-    paddingLeft: "24px",
+    borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
+    overflow: "hidden",
+    transitionProperty: "width",
+    transitionDuration: "200ms",
+    transitionTimingFunction: "ease",
+    flexShrink: 0,
+  },
+  sidebarExpanded: {
+    width: `${NAV_WIDTH_EXPANDED}px`,
+  },
+  sidebarCollapsed: {
+    width: `${NAV_WIDTH_COLLAPSED}px`,
+  },
+  navList: {
+    display: "flex",
+    flexDirection: "column",
+    padding: "8px 0",
+    gap: "2px",
+  },
+  navItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    padding: "8px 12px",
+    cursor: "pointer",
+    borderRadius: "0",
+    border: "none",
+    background: "none",
+    color: tokens.colorNeutralForeground2,
+    fontSize: "14px",
+    whiteSpace: "nowrap" as const,
+    overflow: "hidden",
+    minHeight: "36px",
+    textAlign: "left" as const,
+    width: "100%",
+    "&:hover": {
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+      color: tokens.colorNeutralForeground1,
+    },
+  },
+  navItemActive: {
+    backgroundColor: tokens.colorNeutralBackground1Selected,
+    color: tokens.colorBrandForeground1,
+    fontWeight: 600,
+    borderLeft: `3px solid ${tokens.colorBrandForeground1}`,
+    paddingLeft: "9px",
+    "&:hover": {
+      backgroundColor: tokens.colorNeutralBackground1Selected,
+      color: tokens.colorBrandForeground1,
+    },
+  },
+  navIcon: {
+    fontSize: "20px",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "20px",
+  },
+  navLabel: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   content: {
     flex: 1,
@@ -59,31 +141,68 @@ export function AppShell({ children }: AppShellProps) {
   const styles = useStyles();
   const navigate = useNavigate();
   const location = useLocation();
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <div className={styles.shell}>
       <div className={styles.topBar}>
+        <Button
+          appearance="subtle"
+          icon={<NavigationRegular />}
+          className={styles.hamburger}
+          onClick={() => setExpanded((v) => !v)}
+          size="small"
+        />
         <Text className={styles.logo}>⚡ AzRadar</Text>
         <Text size={200} style={{ opacity: 0.8 }}>
           Azure Lifecycle Sentinel
         </Text>
       </div>
 
-      <div className={styles.nav}>
-        <TabList
-          selectedValue={location.pathname}
-          onTabSelect={(_, d) => navigate(d.value as string)}
-          size="medium"
+      <div className={styles.body}>
+        <nav
+          className={mergeClasses(
+            styles.sidebar,
+            expanded ? styles.sidebarExpanded : styles.sidebarCollapsed
+          )}
         >
-          {navItems.map((item) => (
-            <Tab key={item.path} value={item.path} icon={item.icon}>
-              {item.label}
-            </Tab>
-          ))}
-        </TabList>
-      </div>
+          <div className={styles.navList}>
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              const button = (
+                <button
+                  key={item.path}
+                  className={mergeClasses(
+                    styles.navItem,
+                    isActive && styles.navItemActive
+                  )}
+                  onClick={() => navigate(item.path)}
+                >
+                  <span className={styles.navIcon}>{item.icon}</span>
+                  {expanded && (
+                    <span className={styles.navLabel}>{item.label}</span>
+                  )}
+                </button>
+              );
 
-      <div className={styles.content}>{children}</div>
+              return expanded ? (
+                button
+              ) : (
+                <Tooltip
+                  key={item.path}
+                  content={item.label}
+                  relationship="label"
+                  positioning="after"
+                >
+                  {button}
+                </Tooltip>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className={styles.content}>{children}</div>
+      </div>
     </div>
   );
 }
