@@ -143,6 +143,19 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
+    public async Task<bool> DeleteCrawlJobAsync(string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await CrawlJobs.DeleteItemAsync<CrawlJob>(id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     // --- FeedItem operations ---
 
     public async Task<FeedItem?> GetFeedItemAsync(string id, CancellationToken cancellationToken = default)

@@ -79,6 +79,11 @@ export const api = {
       body: JSON.stringify({ jobType }),
     }),
 
+  deleteCrawlJob: (id: string) =>
+    fetch(`${API_BASE}/api/crawl-jobs/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
   getFeedItems: (source?: string, limit = 50) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (source) params.set("source", source);

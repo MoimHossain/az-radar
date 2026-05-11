@@ -66,6 +66,12 @@ app.MapGet("/api/crawl-jobs/{id}", async (string id, ICosmosDbService db) =>
     return job is null ? Results.NotFound() : Results.Ok(job);
 });
 
+app.MapDelete("/api/crawl-jobs/{id}", async (string id, ICosmosDbService db) =>
+{
+    var deleted = await db.DeleteCrawlJobAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
 // --- FeedItem endpoints ---
 app.MapGet("/api/feed-items", async (ICosmosDbService db, string? source, int? limit) =>
 {
