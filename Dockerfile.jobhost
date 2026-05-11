@@ -1,0 +1,20 @@
+# --- Stage 1: Build .NET JobHost ---
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY AzRadar.slnx ./
+COPY src/AzRadar.Shared/AzRadar.Shared.csproj src/AzRadar.Shared/
+COPY src/AzRadar.JobHost/AzRadar.JobHost.csproj src/AzRadar.JobHost/
+RUN dotnet restore src/AzRadar.JobHost/AzRadar.JobHost.csproj
+COPY src/AzRadar.Shared/ src/AzRadar.Shared/
+COPY src/AzRadar.JobHost/ src/AzRadar.JobHost/
+RUN dotnet publish src/AzRadar.JobHost/AzRadar.JobHost.csproj -c Release -o /app/publish
+
+# --- Stage 2: Runtime ---
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "AzRadar.JobHost.dll"]

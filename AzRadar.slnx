@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AzRadar.Api/AzRadar.Api.csproj" />
+    <Project Path="src/AzRadar.JobHost/AzRadar.JobHost.csproj" />
+    <Project Path="src/AzRadar.Shared/AzRadar.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AzRadar.Api.Tests/AzRadar.Api.Tests.csproj" />
+    <Project Path="tests/AzRadar.Shared.Tests/AzRadar.Shared.Tests.csproj" />
+  </Folder>
+</Solution>

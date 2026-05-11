@@ -1,0 +1,29 @@
+# --- Stage 1: Build React frontend ---
+FROM node:20-alpine AS frontend-build
+WORKDIR /app/ui
+COPY src/az-radar-ui/package*.json ./
+RUN npm ci
+COPY src/az-radar-ui/ ./
+RUN npm run build
+
+# --- Stage 2: Build .NET API ---
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS api-build
+WORKDIR /src
+COPY AzRadar.slnx ./
+COPY src/AzRadar.Shared/AzRadar.Shared.csproj src/AzRadar.Shared/
+COPY src/AzRadar.Api/AzRadar.Api.csproj src/AzRadar.Api/
+RUN dotnet restore src/AzRadar.Api/AzRadar.Api.csproj
+COPY src/AzRadar.Shared/ src/AzRadar.Shared/
+COPY src/AzRadar.Api/ src/AzRadar.Api/
+RUN dotnet publish src/AzRadar.Api/AzRadar.Api.csproj -c Release -o /app/publish
+
+# --- Stage 3: Runtime ---
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=api-build /app/publish .
+COPY --from=frontend-build /app/ui/dist ./wwwroot/
+
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "AzRadar.Api.dll"]

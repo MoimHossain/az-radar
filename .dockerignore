@@ -1,0 +1,11 @@
+node_modules
+publish
+.git
+*.md
+tests
+**/.vs
+**/bin
+**/obj
+**/.idea
+src/az-radar-ui/node_modules
+src/az-radar-ui/dist
