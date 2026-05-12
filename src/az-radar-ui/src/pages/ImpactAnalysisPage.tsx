@@ -8,6 +8,7 @@ import {
   Input,
   Button,
   Divider,
+  Link,
   Table,
   TableBody,
   TableCell,
@@ -93,7 +94,7 @@ const useStyles = makeStyles({
     top: 0,
     right: 0,
     bottom: 0,
-    width: "620px",
+    width: "740px",
     maxWidth: "90vw",
     backgroundColor: tokens.colorNeutralBackground1,
     boxShadow: tokens.shadow64,
@@ -350,7 +351,6 @@ export function ImpactAnalysisPage() {
             <TableHeader>
               <TableRow>
                 <TableHeaderCell>Retirement</TableHeaderCell>
-                <TableHeaderCell style={{ width: 160 }}>Resource Type</TableHeaderCell>
                 <TableHeaderCell style={{ width: 120 }}>Affected Resources</TableHeaderCell>
                 <TableHeaderCell style={{ width: 110 }}>Subscriptions</TableHeaderCell>
                 <TableHeaderCell style={{ width: 90 }}>Regions</TableHeaderCell>
@@ -371,25 +371,27 @@ export function ImpactAnalysisPage() {
                     }}
                   >
                     <TableCell>
-                      <Text
-                        size={300}
-                        weight={retirement ? "bold" : "regular"}
-                        style={{
-                          display: "block",
-                          maxWidth: 320,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={item.sourceTitle}
-                      >
-                        {item.sourceTitle}
-                      </Text>
-                    </TableCell>
-                    <TableCell>
-                      <Badge appearance="outline" size="small">
-                        {item.resourceType}
-                      </Badge>
+                      <div>
+                        <Text
+                          size={300}
+                          weight={retirement ? "bold" : "regular"}
+                          style={{
+                            display: "block",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={item.sourceTitle}
+                        >
+                          {item.sourceTitle}
+                        </Text>
+                        <Text
+                          size={100}
+                          style={{ color: tokens.colorNeutralForeground3, display: "block", marginTop: 2 }}
+                        >
+                          {item.resourceType}
+                        </Text>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Text
@@ -492,6 +494,30 @@ export function ImpactAnalysisPage() {
             <div className={styles.panelContent}>
               {panelTab === "details" && (
                 <div className={styles.detailGrid}>
+                  {/* Source context */}
+                  {selectedItem.sourceDescription && (
+                    <div style={{ gridColumn: "1 / -1", padding: 12, backgroundColor: tokens.colorNeutralBackground3, borderRadius: 6 }}>
+                      <Text size={200} weight="semibold" block style={{ marginBottom: 4 }}>
+                        Source Context
+                      </Text>
+                      <Text size={200} block style={{ marginBottom: 8 }}>
+                        {selectedItem.sourceDescription}
+                      </Text>
+                      {selectedItem.sourceLink && (
+                        <Link href={selectedItem.sourceLink} target="_blank" inline>
+                          View original {selectedItem.sourceType === "ms-learn" ? "doc" : "update"} →
+                        </Link>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedItem.actionRequired && (
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <Text className={styles.fieldLabel}>Action Required</Text>
+                      <Text size={200}>{selectedItem.actionRequired}</Text>
+                    </div>
+                  )}
+
                   <div className={styles.detailField}>
                     <Text className={styles.fieldLabel}>Resource Type</Text>
                     <Badge appearance="outline">{selectedItem.resourceType}</Badge>

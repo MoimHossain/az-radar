@@ -14,6 +14,15 @@ public interface IResourceGraphClient
         string uamiClientId,
         int maxResults = 200,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Run an arbitrary KQL query against Azure Resource Graph.
+    /// Returns matched resources. Throws on query syntax errors.
+    /// </summary>
+    Task<ResourceGraphQueryResult> RunQueryAsync(
+        string kqlQuery,
+        string uamiClientId,
+        CancellationToken cancellationToken = default);
 }
 
 public class ResourceGraphQueryResult

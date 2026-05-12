@@ -57,6 +57,18 @@ public class BlastRadiusSummary
     [JsonPropertyName("scannedAt")]
     public DateTimeOffset ScannedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    [JsonPropertyName("sourceDescription")]
+    public string SourceDescription { get; set; } = string.Empty;
+
+    [JsonPropertyName("sourceLink")]
+    public string SourceLink { get; set; } = string.Empty;
+
+    [JsonPropertyName("actionRequired")]
+    public string ActionRequired { get; set; } = string.Empty;
+
+    [JsonPropertyName("argQuery")]
+    public string ArgQuery { get; set; } = string.Empty;
+
     public static string GenerateId(string sourceItemId, string resourceType)
     {
         var input = $"blast:{sourceItemId}:{resourceType.ToLowerInvariant()}";

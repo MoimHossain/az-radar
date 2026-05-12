@@ -74,6 +74,10 @@ export interface DashboardStats {
     total: number;
     retirements: number;
   }>;
+  blastRadiusTotalResources: number;
+  blastRadiusItemsScanned: number;
+  blastRadiusSubscriptions: number;
+  blastRadiusLastScan?: string;
 }
 
 export interface WatchlistItem {
@@ -123,6 +127,10 @@ export interface BlastRadiusSummary {
   topResources: AffectedResource[];
   scanJobId: string;
   scannedAt: string;
+  sourceDescription: string;
+  sourceLink: string;
+  actionRequired: string;
+  argQuery: string;
 }
 
 export interface AffectedResource {

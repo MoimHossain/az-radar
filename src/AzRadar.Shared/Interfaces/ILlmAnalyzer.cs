@@ -7,4 +7,17 @@ public interface ILlmAnalyzer
     Task<LlmAnalysis> AnalyzeFeedItemAsync(
         FeedItem item,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ask the LLM to generate an Azure Resource Graph (KQL) query
+    /// to detect resources impacted by a specific retirement/deprecation.
+    /// Returns the KQL query string, or null if the LLM cannot generate one.
+    /// </summary>
+    Task<string?> GenerateResourceGraphQueryAsync(
+        string title,
+        string description,
+        List<string> affectedServices,
+        List<string> affectedResourceTypes,
+        string actionRequired,
+        CancellationToken cancellationToken = default);
 }

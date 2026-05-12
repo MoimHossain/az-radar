@@ -84,6 +84,54 @@ public class ResourceGraphClient : IResourceGraphClient
         }
     }
 
+    public async Task<ResourceGraphQueryResult> RunQueryAsync(
+        string kqlQuery, string uamiClientId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("ARG custom query: {Query}", kqlQuery[..Math.Min(100, kqlQuery.Length)]);
+
+        var credential = new DefaultAzureCredential(new DefaultAzureCredentialOptions
+        {
+            ManagedIdentityClientId = uamiClientId
+        });
+
+        var armClient = new ArmClient(credential);
+        var tenant = armClient.GetTenants().First();
+
+        var queryContent = new ResourceQueryContent(kqlQuery);
+        var response = await tenant.GetResourcesAsync(queryContent, cancellationToken);
+        var result = response.Value;
+
+        var resources = new List<ResourceGraphResource>();
+
+        var dataJson = result.Data.ToObjectFromJson<JsonElement>();
+        if (dataJson.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in dataJson.EnumerateArray())
+            {
+                var resource = new ResourceGraphResource
+                {
+                    SubscriptionId = row.TryGetProperty("subscriptionId", out var sub) ? sub.GetString() ?? "" : "",
+                    ResourceGroup = row.TryGetProperty("resourceGroup", out var rg) ? rg.GetString() ?? "" : "",
+                    Name = row.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
+                    Type = row.TryGetProperty("type", out var type) ? type.GetString() ?? "" : "",
+                    Location = row.TryGetProperty("location", out var loc) ? loc.GetString() ?? "" : "",
+                    Sku = row.TryGetProperty("sku", out var sku) ? sku.GetString() ?? "" : "",
+                    Tags = ParseTags(row),
+                };
+                resources.Add(resource);
+            }
+        }
+
+        _logger.LogInformation("ARG custom query returned {Count} resources", resources.Count);
+
+        return new ResourceGraphQueryResult
+        {
+            Resources = resources,
+            TotalCount = (int)result.TotalRecords,
+            Truncated = result.ResultTruncated.ToString() == "True",
+        };
+    }
+
     private static Dictionary<string, string> ParseTags(JsonElement row)
     {
         var tags = new Dictionary<string, string>();

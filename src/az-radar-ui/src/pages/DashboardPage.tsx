@@ -505,6 +505,52 @@ export function DashboardPage() {
         </Card>
       </div>
 
+      {/* ---- Blast Radius KPI banner ---- */}
+      {stats.blastRadiusTotalResources > 0 && (
+        <Card style={{ padding: "16px 20px", backgroundColor: "#1e293b", color: "#fff", borderRadius: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: 600, color: "#94a3b8" }}>
+                💥 BLAST RADIUS
+              </Text>
+            </div>
+            <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+              <div>
+                <Text style={{ fontSize: 28, fontWeight: 700, color: "#f87171" }}>
+                  {stats.blastRadiusTotalResources}
+                </Text>
+                <Text style={{ fontSize: 12, color: "#94a3b8", display: "block" }}>
+                  Resources Affected
+                </Text>
+              </div>
+              <div>
+                <Text style={{ fontSize: 28, fontWeight: 700, color: "#fbbf24" }}>
+                  {stats.blastRadiusItemsScanned}
+                </Text>
+                <Text style={{ fontSize: 12, color: "#94a3b8", display: "block" }}>
+                  Retirements Scanned
+                </Text>
+              </div>
+              <div>
+                <Text style={{ fontSize: 28, fontWeight: 700, color: "#38bdf8" }}>
+                  {stats.blastRadiusSubscriptions}
+                </Text>
+                <Text style={{ fontSize: 12, color: "#94a3b8", display: "block" }}>
+                  Subscriptions Impacted
+                </Text>
+              </div>
+              {stats.blastRadiusLastScan && (
+                <div style={{ marginLeft: "auto" }}>
+                  <Text style={{ fontSize: 11, color: "#64748b" }}>
+                    Last scan: {new Date(stats.blastRadiusLastScan).toLocaleString()}
+                  </Text>
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* ---- Section 2: Retirement timeline card ---- */}
       {sortedDeadlines.length > 0 && (
         <Card className={styles.timelineCard}>

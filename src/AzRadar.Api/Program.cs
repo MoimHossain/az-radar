@@ -92,6 +92,7 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
     var feedItems = await db.GetFeedItemsAsync(limit: 500);
     var docInsights = await db.GetDocInsightsAsync(limit: 500);
     var watchlist = await db.GetWatchlistAsync();
+    var blastRadius = await db.GetBlastRadiusSummariesAsync(200);
 
     // Combine all items for unified analysis
     var allAnalyses = feedItems
@@ -202,6 +203,16 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
 
         // Top services
         topAffectedServices = topServices,
+
+        // Blast radius
+        blastRadiusTotalResources = blastRadius.Sum(b => b.TotalResources),
+        blastRadiusItemsScanned = blastRadius.Select(b => b.SourceItemId).Distinct().Count(),
+        blastRadiusSubscriptions = blastRadius
+            .SelectMany(b => b.SubscriptionBreakdown.Keys)
+            .Distinct().Count(),
+        blastRadiusLastScan = blastRadius
+            .OrderByDescending(b => b.ScannedAt)
+            .FirstOrDefault()?.ScannedAt,
     };
 
     return Results.Ok(stats);
