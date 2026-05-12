@@ -34,6 +34,7 @@ import {
   ArrowTrendingRegular,
 } from "@fluentui/react-icons";
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type DocInsight, type LlmAnalysis } from "../api/client";
 
 const useStyles = makeStyles({
@@ -268,11 +269,23 @@ export function DocInsightsPage() {
   const [selectedService, setSelectedService] = useState<string>("");
   const [selectedItem, setSelectedItem] = useState<DocInsight | null>(null);
   const [panelTab, setPanelTab] = useState<string>("analysis");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     api
       .getDocInsights(undefined, 200)
-      .then(setItems)
+      .then((loaded) => {
+        setItems(loaded);
+        const highlight = searchParams.get("highlight");
+        if (highlight) {
+          const match = loaded.find((i) => i.title === highlight);
+          if (match) {
+            setSelectedItem(match);
+            setPanelTab("analysis");
+          }
+          setSearchParams({}, { replace: true });
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);

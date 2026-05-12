@@ -1,5 +1,6 @@
 # --- Stage 1: Build React frontend ---
 FROM node:20-alpine AS frontend-build
+ARG CACHE_BUST=1
 WORKDIR /app/ui
 COPY src/az-radar-ui/package*.json ./
 RUN npm ci
@@ -8,6 +9,7 @@ RUN npm run build
 
 # --- Stage 2: Build .NET API ---
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS api-build
+ARG CACHE_BUST=1
 WORKDIR /src
 COPY AzRadar.slnx ./
 COPY src/AzRadar.Shared/AzRadar.Shared.csproj src/AzRadar.Shared/

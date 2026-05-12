@@ -102,13 +102,22 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
             .Select(d => new { d.Title, Link = d.DocUrl, PublishDate = d.LastAnalyzedAt, Analysis = d.LlmAnalysis!, Source = "ms-learn" }))
         .ToList();
 
-    // Change type distribution
-    var changeTypeBreakdown = allAnalyses
+    // Filter out analyses with deadlines overdue > 90 days
+    var relevantAnalyses = allAnalyses.Where(a =>
+    {
+        if (string.IsNullOrEmpty(a.Analysis.Deadline)) return true;
+        if (!DateTimeOffset.TryParse(a.Analysis.Deadline, out var dl)) return true;
+        var days = (int)(dl - DateTimeOffset.UtcNow).TotalDays;
+        return days > -90;
+    }).ToList();
+
+    // Change type distribution (using relevant only)
+    var changeTypeBreakdown = relevantAnalyses
         .GroupBy(a => a.Analysis.ChangeType)
         .ToDictionary(g => g.Key, g => g.Count());
 
-    // Severity distribution
-    var severityBreakdown = allAnalyses
+    // Severity distribution (using relevant only)
+    var severityBreakdown = relevantAnalyses
         .GroupBy(a => a.Analysis.Severity)
         .ToDictionary(g => g.Key, g => g.Count());
 
@@ -140,11 +149,12 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
                 daysRemaining = days
             };
         })
+        .Where(d => !d.daysRemaining.HasValue || d.daysRemaining.Value > -90)
         .OrderBy(d => d.daysRemaining ?? int.MaxValue)
         .ToList();
 
-    // Top affected services
-    var topServices = allAnalyses
+    // Top affected services (using relevant only)
+    var topServices = relevantAnalyses
         .SelectMany(a => a.Analysis.AffectedServices.Select(s => new { Service = s, a.Analysis.ChangeType }))
         .GroupBy(x => x.Service)
         .Select(g => new
@@ -168,12 +178,12 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
     var stats = new
     {
         // Summary counters
-        totalItems = allAnalyses.Count,
-        totalRetirements = allAnalyses.Count(a =>
+        totalItems = relevantAnalyses.Count,
+        totalRetirements = relevantAnalyses.Count(a =>
             a.Analysis.ChangeType == "retirement" || a.Analysis.ChangeType == "deprecation"),
-        totalGA = allAnalyses.Count(a => a.Analysis.ChangeType == "general-availability"),
-        totalPreviews = allAnalyses.Count(a => a.Analysis.ChangeType == "preview"),
-        totalNewFeatures = allAnalyses.Count(a => a.Analysis.ChangeType == "new-feature"),
+        totalGA = relevantAnalyses.Count(a => a.Analysis.ChangeType == "general-availability"),
+        totalPreviews = relevantAnalyses.Count(a => a.Analysis.ChangeType == "preview"),
+        totalNewFeatures = relevantAnalyses.Count(a => a.Analysis.ChangeType == "new-feature"),
         urgentDeadlines = deadlines.Count(d => d.daysRemaining.HasValue && d.daysRemaining.Value < 90),
         watchedServices = watchlist.Count,
 

@@ -6,7 +6,6 @@ import {
   Text,
   Badge,
   Spinner,
-  Link,
   Divider,
   mergeClasses,
   Tab,
@@ -21,11 +20,11 @@ import {
   EyeRegular,
   ArrowSyncCheckmarkRegular,
   WarningRegular,
-  ArrowRightRegular,
   DatabaseRegular,
   BookRegular,
 } from "@fluentui/react-icons";
 import { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { DashboardStats } from "../api/client";
 
@@ -362,11 +361,12 @@ function formatDate(iso: string) {
 
 export function DashboardPage() {
   const styles = useStyles();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [deadlineFilter, setDeadlineFilter] = useState<string>("all");
+  const [deadlineFilter, setDeadlineFilter] = useState<string>("30");
 
   useEffect(() => {
     api
@@ -375,6 +375,29 @@ export function DashboardPage() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const sortedDeadlines = useMemo(() => {
+    if (!stats) return [];
+    return [...stats.deadlines]
+      .filter((d) => d.daysRemaining === null || d.daysRemaining > -90)
+      .sort((a, b) => {
+        const da = a.daysRemaining ?? Infinity;
+        const db = b.daysRemaining ?? Infinity;
+        return da - db;
+      });
+  }, [stats]);
+
+  const filteredDeadlines = useMemo(() => {
+    return sortedDeadlines.filter((d) => {
+      const days = d.daysRemaining;
+      switch (deadlineFilter) {
+        case "30": return days !== null && days >= 0 && days < 30;
+        case "90": return days !== null && days >= 0 && days < 90;
+        case "overdue": return days !== null && days < 0;
+        default: return true;
+      }
+    });
+  }, [sortedDeadlines, deadlineFilter]);
 
   if (loading) {
     return (
@@ -402,24 +425,6 @@ export function DashboardPage() {
     ...stats.topAffectedServices.map((s) => s.total),
     1,
   );
-
-  const sortedDeadlines = [...stats.deadlines].sort((a, b) => {
-    const da = a.daysRemaining ?? Infinity;
-    const db = b.daysRemaining ?? Infinity;
-    return da - db;
-  });
-
-  const filteredDeadlines = useMemo(() => {
-    return sortedDeadlines.filter((d) => {
-      const days = d.daysRemaining;
-      switch (deadlineFilter) {
-        case "overdue": return days !== null && days < 0;
-        case "30": return days !== null && days < 30;
-        case "90": return days !== null && days < 90;
-        default: return true;
-      }
-    });
-  }, [sortedDeadlines, deadlineFilter]);
 
   return (
     <div className={styles.container}>
@@ -521,16 +526,16 @@ export function DashboardPage() {
               onTabSelect={(_, d) => setDeadlineFilter(d.value as string)}
               size="small"
             >
-              <Tab value="all">All ({sortedDeadlines.length})</Tab>
+              <Tab value="30">
+                &lt; 1 month ({sortedDeadlines.filter((d) => d.daysRemaining !== null && d.daysRemaining >= 0 && d.daysRemaining < 30).length})
+              </Tab>
+              <Tab value="90">
+                &lt; 3 months ({sortedDeadlines.filter((d) => d.daysRemaining !== null && d.daysRemaining >= 0 && d.daysRemaining < 90).length})
+              </Tab>
               <Tab value="overdue">
                 Overdue ({sortedDeadlines.filter((d) => d.daysRemaining !== null && d.daysRemaining < 0).length})
               </Tab>
-              <Tab value="30">
-                &lt; 1 month ({sortedDeadlines.filter((d) => d.daysRemaining !== null && d.daysRemaining < 30).length})
-              </Tab>
-              <Tab value="90">
-                &lt; 3 months ({sortedDeadlines.filter((d) => d.daysRemaining !== null && d.daysRemaining < 90).length})
-              </Tab>
+              <Tab value="all">All ({sortedDeadlines.length})</Tab>
             </TabList>
           </div>
 
@@ -538,6 +543,7 @@ export function DashboardPage() {
             <div className={styles.timelineList}>
               {filteredDeadlines.map((d) => {
                 const badge = urgencyBadge(d.daysRemaining);
+                const targetPage = d.source === "ms-learn" ? "/doc-insights" : "/feed-items";
                 return (
                   <div
                     key={d.title + d.deadline}
@@ -545,18 +551,13 @@ export function DashboardPage() {
                       styles.timelineItem,
                       urgencyBorderClass(d.daysRemaining, styles),
                     )}
+                    onClick={() => navigate(`${targetPage}?highlight=${encodeURIComponent(d.title)}`)}
+                    style={{ cursor: "pointer" }}
                   >
                     <div className={styles.timelineItemBody}>
-                      <Link
-                        href={d.link}
-                        target="_blank"
-                        inline
-                        className={styles.timelineItemTitle}
-                      >
-                        <Text weight="semibold" size={300}>
-                          {d.title}
-                        </Text>
-                      </Link>
+                      <Text weight="semibold" size={300} className={styles.timelineItemTitle}>
+                        {d.title}
+                      </Text>
                       <div className={styles.timelineItemMeta}>
                         {d.affectedServices.slice(0, 3).map((svc) => (
                           <Badge key={svc} appearance="outline" size="small">

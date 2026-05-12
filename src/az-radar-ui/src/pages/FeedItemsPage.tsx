@@ -34,6 +34,7 @@ import {
   CodeRegular,
 } from "@fluentui/react-icons";
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type FeedItem } from "../api/client";
 
 const useStyles = makeStyles({
@@ -285,11 +286,24 @@ export function FeedItemsPage() {
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>([]);
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
   const [panelTab, setPanelTab] = useState<string>("analysis");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     api
       .getFeedItems(undefined, 200)
-      .then(setItems)
+      .then((loaded) => {
+        setItems(loaded);
+        // Auto-open item if navigated from dashboard
+        const highlight = searchParams.get("highlight");
+        if (highlight) {
+          const match = loaded.find((i) => i.title === highlight);
+          if (match) {
+            setSelectedItem(match);
+            setPanelTab("analysis");
+          }
+          setSearchParams({}, { replace: true });
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
