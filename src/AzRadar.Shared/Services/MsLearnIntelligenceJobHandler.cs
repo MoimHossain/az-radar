@@ -54,16 +54,20 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
             // Targeted search: lifecycle changes
             var targetedQuery = $"{service.ServiceName} retirement OR deprecation OR breaking change OR migration OR end of support";
             var targetedResults = await _mcpClient.SearchDocsAsync(targetedQuery, cancellationToken);
+            _logger.LogInformation("Targeted search returned {Count} results (URLs: {Urls})",
+                targetedResults.Count,
+                targetedResults.Count(r => !string.IsNullOrEmpty(r.Url)));
 
             // Broad search: general updates
             var broadQuery = $"{service.ServiceName} updates changes announcements";
             var broadResults = await _mcpClient.SearchDocsAsync(broadQuery, cancellationToken);
+            _logger.LogInformation("Broad search returned {Count} results", broadResults.Count);
 
-            // Merge and dedup by URL
+            // Merge and dedup by title (MCP results may not have URLs)
             var allResults = targetedResults
                 .Concat(broadResults)
-                .DistinctBy(r => NormalizeUrl(r.Url))
-                .Where(r => !string.IsNullOrEmpty(r.Url))
+                .DistinctBy(r => !string.IsNullOrEmpty(r.Url) ? NormalizeUrl(r.Url) : r.Title.ToLowerInvariant())
+                .Where(r => !string.IsNullOrEmpty(r.Title) || !string.IsNullOrEmpty(r.FullContent))
                 .Take(MaxFetchesPerService)
                 .ToList();
 
