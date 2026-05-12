@@ -151,7 +151,8 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                     TotalChecked = totalChecked,
                     SkippedItems = skipped
                 };
-                await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+                var updatedJob = await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+                job.ETag = updatedJob.ETag;
 
                 _logger.LogInformation(
                     "Stored insight: {Title} (type={ChangeType}, severity={Severity})",

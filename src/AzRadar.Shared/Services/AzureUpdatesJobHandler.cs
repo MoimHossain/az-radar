@@ -88,7 +88,8 @@ public class AzureUpdatesJobHandler : IJobHandler
                 TotalChecked = newItems + skipped,
                 SkippedItems = skipped
             };
-            await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+            var updated = await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+            job.ETag = updated.ETag;
         }
 
         job.Result = new CrawlJobResult

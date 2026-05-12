@@ -126,7 +126,8 @@ public class ChangeFeedWorker : BackgroundService
 
             job.Status = CrawlJobStatus.Completed;
             job.CompletedAt = DateTimeOffset.UtcNow;
-            await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+            var updated = await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+            job.ETag = updated.ETag;
 
             _logger.LogInformation(
                 "Job {Id} completed: {New} new items, {Skipped} skipped",
