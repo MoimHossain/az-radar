@@ -264,6 +264,13 @@ app.MapGet("/api/config/{key}", async (string key, ICosmosDbService db) =>
     return config is null ? Results.NotFound() : Results.Ok(config);
 });
 
+// --- Diagnostics endpoint ---
+app.MapGet("/api/crawl-jobs/{id}/diagnostics", async (string id, ICosmosDbService db) =>
+{
+    var entries = await db.GetDiagnosticsForJobAsync(id);
+    return Results.Ok(entries);
+});
+
 app.MapPut("/api/config/{key}", async (string key, UpdateConfigRequest request, ICosmosDbService db) =>
 {
     var config = new AppConfig

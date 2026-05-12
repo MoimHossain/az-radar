@@ -35,7 +35,7 @@ import {
   DismissRegular,
 } from "@fluentui/react-icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { api, type CrawlJob } from "../api/client";
+import { api, type CrawlJob, type JobDiagnosticEntry } from "../api/client";
 
 const STALE_THRESHOLD_MINUTES = 10;
 
@@ -85,6 +85,97 @@ const useStyles = makeStyles({
     alignItems: "center",
     gap: "6px",
   },
+  // Right-anchored panel styles
+  panelBackdrop: {
+    position: "fixed" as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    zIndex: 1000,
+  },
+  panel: {
+    position: "fixed" as const,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: "680px",
+    maxWidth: "90vw",
+    backgroundColor: tokens.colorNeutralBackground1,
+    boxShadow: tokens.shadow64,
+    zIndex: 1001,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+  panelHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: "20px 24px 16px 24px",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+  },
+  panelTitleRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    flex: 1,
+  },
+  panelContent: {
+    flex: 1,
+    overflow: "auto",
+    padding: "20px 24px 24px 24px",
+  },
+  diagEntry: {
+    display: "flex",
+    gap: "12px",
+    padding: "12px 0",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+    alignItems: "flex-start",
+  },
+  diagDot: {
+    width: "10px",
+    height: "10px",
+    borderRadius: "50%",
+    marginTop: "5px",
+    flexShrink: 0,
+  },
+  diagBody: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  },
+  diagMeta: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    flexWrap: "wrap" as const,
+  },
+  diagCodeBlock: {
+    backgroundColor: tokens.colorNeutralBackground3,
+    padding: "8px 12px",
+    borderRadius: "4px",
+    fontFamily: "monospace",
+    fontSize: "12px",
+    overflowX: "auto" as const,
+    whiteSpace: "pre-wrap" as const,
+    wordBreak: "break-all" as const,
+    marginTop: "4px",
+  },
+  clickableRow: {
+    cursor: "pointer",
+    ":hover": {
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+    },
+  },
+  resultSummary: {
+    padding: "12px 16px",
+    backgroundColor: tokens.colorNeutralBackground3,
+    borderRadius: "8px",
+    marginBottom: "16px",
+  },
 });
 
 function statusColor(
@@ -132,6 +223,32 @@ function formatAge(createdAt: string): string {
 const STATUS_OPTIONS = ["pending", "processing", "completed", "failed"];
 const TYPE_OPTIONS = ["azure-updates", "ms-learn-intelligence"];
 
+function formatRelativeTime(timestamp: string): string {
+  const diffMs = Date.now() - new Date(timestamp).getTime();
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function levelDotColor(level: string): string {
+  switch (level) {
+    case "success":
+      return tokens.colorPaletteGreenBackground3;
+    case "info":
+      return tokens.colorPaletteBlueBorderActive;
+    case "warning":
+      return tokens.colorPaletteDarkOrangeForeground1;
+    case "error":
+      return tokens.colorPaletteRedForeground1;
+    default:
+      return tokens.colorNeutralForeground3;
+  }
+}
+
 export function CrawlJobsPage() {
   const styles = useStyles();
   const [jobs, setJobs] = useState<CrawlJob[]>([]);
@@ -144,6 +261,10 @@ export function CrawlJobsPage() {
   const [searchText, setSearchText] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+
+  const [selectedJob, setSelectedJob] = useState<CrawlJob | null>(null);
+  const [diagnostics, setDiagnostics] = useState<JobDiagnosticEntry[]>([]);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   const hasFilters = searchText || selectedStatuses.length > 0 || selectedTypes.length > 0;
 
@@ -220,6 +341,16 @@ export function CrawlJobsPage() {
       });
     }
   };
+
+  const handleSelectJob = useCallback((job: CrawlJob) => {
+    setSelectedJob(job);
+    setDiagLoading(true);
+    api
+      .getJobDiagnostics(job.id)
+      .then(setDiagnostics)
+      .catch(() => setDiagnostics([]))
+      .finally(() => setDiagLoading(false));
+  }, []);
 
   return (
     <div className={styles.container}>
@@ -348,7 +479,8 @@ export function CrawlJobsPage() {
                 return (
                   <TableRow
                     key={job.id}
-                    className={stale ? styles.staleRow : undefined}
+                    className={`${stale ? styles.staleRow : ""} ${styles.clickableRow}`}
+                    onClick={() => handleSelectJob(job)}
                   >
                     <TableCell>
                       <div>
@@ -445,7 +577,10 @@ export function CrawlJobsPage() {
                               appearance="subtle"
                               size="small"
                               disabled={deleting.has(job.id)}
-                              onClick={() => handleDelete(job.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(job.id);
+                              }}
                             />
                           </Tooltip>
                         )}
@@ -475,6 +610,131 @@ export function CrawlJobsPage() {
             </TableBody>
           </Table>
         </Card>
+      )}
+
+      {/* Right-anchored diagnostics panel */}
+      {selectedJob && (
+        <>
+          <div
+            className={styles.panelBackdrop}
+            onClick={() => setSelectedJob(null)}
+          />
+          <div className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <div className={styles.panelTitleRow}>
+                <div>
+                  <Text weight="semibold" size={500} block>
+                    Job Diagnostics
+                  </Text>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
+                    <Text
+                      font="monospace"
+                      size={200}
+                      style={{ color: tokens.colorNeutralForeground3 }}
+                    >
+                      {selectedJob.id.substring(0, 8)}…
+                    </Text>
+                    <Badge appearance="outline">{selectedJob.jobType}</Badge>
+                    <Badge color={statusColor(selectedJob.status)} className={styles.statusBadge}>
+                      {selectedJob.status}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <Button
+                icon={<DismissRegular />}
+                appearance="subtle"
+                onClick={() => setSelectedJob(null)}
+              />
+            </div>
+
+            <div className={styles.panelContent}>
+              {selectedJob.result && (
+                <div className={styles.resultSummary}>
+                  <Text size={200} weight="semibold" block>
+                    Result Summary
+                  </Text>
+                  <Text size={200}>
+                    {selectedJob.result.newItems} new / {selectedJob.result.skippedItems} skipped / {selectedJob.result.totalChecked} total checked
+                  </Text>
+                </div>
+              )}
+              {selectedJob.error && (
+                <div className={styles.resultSummary}>
+                  <Text size={200} weight="semibold" block>
+                    Error
+                  </Text>
+                  <Text size={200} style={{ color: tokens.colorPaletteRedForeground1 }}>
+                    {selectedJob.error}
+                  </Text>
+                </div>
+              )}
+
+              {diagLoading ? (
+                <Spinner label="Loading diagnostics..." />
+              ) : diagnostics.length === 0 ? (
+                <Text
+                  style={{
+                    display: "block",
+                    textAlign: "center",
+                    padding: 40,
+                    color: tokens.colorNeutralForeground3,
+                  }}
+                >
+                  No diagnostics recorded for this job.
+                </Text>
+              ) : (
+                diagnostics.map((entry) => (
+                  <div key={entry.id} className={styles.diagEntry}>
+                    <div
+                      className={styles.diagDot}
+                      style={{ backgroundColor: levelDotColor(entry.level) }}
+                    />
+                    <div className={styles.diagBody}>
+                      <div className={styles.diagMeta}>
+                        <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
+                          {formatRelativeTime(entry.timestamp)}
+                        </Text>
+                        <Badge appearance="outline" size="small">
+                          {entry.step}
+                        </Badge>
+                        {entry.attempt != null && (
+                          <Badge appearance="tint" size="small" color="informative">
+                            Attempt {entry.attempt}
+                          </Badge>
+                        )}
+                        {entry.resultCount != null && (
+                          <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
+                            → {entry.resultCount} resources
+                          </Text>
+                        )}
+                        {entry.durationMs != null && (
+                          <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
+                            took {entry.durationMs}ms
+                          </Text>
+                        )}
+                      </div>
+                      {entry.itemTitle && (
+                        <Text size={200} weight="semibold">
+                          {entry.itemTitle}
+                        </Text>
+                      )}
+                      <Text size={200}>{entry.message}</Text>
+                      {entry.argError && (
+                        <Text size={200} style={{ color: tokens.colorPaletteRedForeground1 }}>
+                          {entry.argError}
+                        </Text>
+                      )}
+                      {entry.llmQuery && (
+                        <div className={styles.diagCodeBlock}>{entry.llmQuery}</div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

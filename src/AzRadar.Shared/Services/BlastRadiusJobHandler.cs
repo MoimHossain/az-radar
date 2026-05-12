@@ -54,6 +54,7 @@ public class BlastRadiusJobHandler : IJobHandler
         {
             cancellationToken.ThrowIfCancellationRequested();
             totalChecked++;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
 
             // Ask LLM to generate a targeted ARG query
             var argQuery = await _llmAnalyzer.GenerateResourceGraphQueryAsync(
@@ -65,51 +66,89 @@ public class BlastRadiusJobHandler : IJobHandler
 
             if (argQuery == null)
             {
-                _logger.LogInformation("LLM skipped (not queryable): {Title}", item.Title);
+                await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+                {
+                    JobId = job.Id, Step = "llm-generate", ItemTitle = item.Title,
+                    Level = DiagnosticLevel.Warning, DurationMs = sw.ElapsedMilliseconds,
+                    Message = "LLM returned SKIP — retirement not detectable via ARG",
+                }, cancellationToken);
                 skipped++;
                 continue;
             }
 
+            await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+            {
+                JobId = job.Id, Step = "llm-generate", ItemTitle = item.Title,
+                Level = DiagnosticLevel.Info, LlmQuery = argQuery, DurationMs = sw.ElapsedMilliseconds,
+                Message = "LLM generated ARG query",
+            }, cancellationToken);
+
             // Try running the query with up to 3 LLM attempts
             ResourceGraphQueryResult? queryResult = null;
             string? usedQuery = null;
-            string? lastError = null;
 
             for (int attempt = 1; attempt <= MaxLlmAttempts; attempt++)
             {
+                var attemptSw = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
-                    _logger.LogInformation("ARG query attempt {Attempt} for: {Title}", attempt, item.Title);
                     queryResult = await _argClient.RunQueryAsync(argQuery, uamiClientId, cancellationToken);
                     usedQuery = argQuery;
+
+                    await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+                    {
+                        JobId = job.Id, Step = "arg-query", ItemTitle = item.Title,
+                        Level = DiagnosticLevel.Success, Attempt = attempt,
+                        LlmQuery = argQuery, ResultCount = queryResult.TotalCount,
+                        DurationMs = attemptSw.ElapsedMilliseconds,
+                        Message = $"ARG query succeeded: {queryResult.TotalCount} resources found",
+                    }, cancellationToken);
                     break;
                 }
                 catch (Exception ex)
                 {
-                    lastError = ex.Message;
-                    _logger.LogWarning("ARG attempt {Attempt} failed: {Error}", attempt, ex.Message);
+                    await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+                    {
+                        JobId = job.Id, Step = "arg-query", ItemTitle = item.Title,
+                        Level = DiagnosticLevel.Error, Attempt = attempt,
+                        LlmQuery = argQuery, ArgError = ex.Message,
+                        DurationMs = attemptSw.ElapsedMilliseconds,
+                        Message = $"ARG query attempt {attempt} failed",
+                    }, cancellationToken);
 
                     if (attempt < MaxLlmAttempts)
                     {
-                        // Ask LLM to fix the query based on the error
-                        argQuery = await RetryQueryGenerationAsync(
-                            item, argQuery, ex.Message, cancellationToken);
-                        if (argQuery == null) break;
+                        argQuery = await RetryQueryGenerationAsync(item, argQuery, ex.Message, cancellationToken);
+                        if (argQuery == null)
+                        {
+                            await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+                            {
+                                JobId = job.Id, Step = "llm-retry", ItemTitle = item.Title,
+                                Level = DiagnosticLevel.Warning,
+                                Message = "LLM could not fix query — giving up",
+                            }, cancellationToken);
+                            break;
+                        }
+
+                        await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+                        {
+                            JobId = job.Id, Step = "llm-retry", ItemTitle = item.Title,
+                            Level = DiagnosticLevel.Info, Attempt = attempt + 1,
+                            LlmQuery = argQuery,
+                            Message = "LLM generated retry query",
+                        }, cancellationToken);
                     }
                 }
             }
 
             if (queryResult == null || usedQuery == null)
             {
-                _logger.LogWarning("All ARG attempts failed for: {Title}. Last error: {Error}",
-                    item.Title, lastError);
                 skipped++;
                 continue;
             }
 
             if (queryResult.TotalCount == 0)
             {
-                _logger.LogInformation("No resources found for: {Title}", item.Title);
                 continue;
             }
 
@@ -212,19 +251,27 @@ public class BlastRadiusJobHandler : IJobHandler
         _logger.LogInformation("Asking LLM to fix query for: {Title}", item.Title);
 
         var retryPrompt = $"""
-            The following Azure Resource Graph KQL query failed with an error.
-            Fix the query and return only the corrected KQL. If it cannot be fixed, return "SKIP".
-            
+            The following Azure Resource Graph KQL query failed. Fix it.
+
+            CRITICAL ARG RULES:
+            - `kind` and `sku.name` are TOP-LEVEL columns, NOT under `properties`
+            - Do NOT use `array_contains()`, `any()`, `all()` — ARG doesn't support these
+            - Use `=~` for case-insensitive matching
+            - Use `in~` for multiple values
+            - Wrap compound conditions in parentheses
+            - For nested array properties, use `mv-expand` or just check with `contains()` on string
+
             Failed query:
             {failedQuery}
             
             Error:
             {error}
             
-            Original context:
-            Title: {item.Title}
+            Original context: {item.Title}
             Affected Services: {string.Join(", ", item.Analysis.AffectedServices)}
             Affected Resource Types: {string.Join(", ", item.Analysis.AffectedResourceTypes)}
+
+            Return only the corrected KQL or SKIP.
             """;
 
         return await _llmAnalyzer.GenerateResourceGraphQueryAsync(

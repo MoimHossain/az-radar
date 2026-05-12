@@ -137,22 +137,44 @@ public class LlmAnalyzerService : ILlmAnalyzer
         _logger.LogInformation("Generating ARG query for: {Title}", title);
 
         var prompt = $"""
-            You are an Azure Resource Graph (ARG) expert. Generate a KQL query for Azure Resource Graph
-            that will find resources specifically impacted by this retirement/deprecation.
+            You are an Azure Resource Graph (ARG) KQL expert. Generate a query to find resources
+            impacted by this retirement/deprecation.
 
-            IMPORTANT RULES:
-            - Return ONLY the KQL query, no explanation, no markdown fences
-            - The query must be valid Azure Resource Graph KQL
+            CRITICAL ARG SYNTAX RULES (violations cause query failures):
             - Use the `resources` table
-            - Be SPECIFIC: filter by actual properties that indicate the resource is affected
-              (e.g., specific SKU, TLS version, API version, OS version, deprecated configuration)
-            - Do NOT simply query all resources of a type — that is too broad
-            - If the retirement is about a specific SDK version or client library, return "SKIP" since ARG cannot detect SDK usage
-            - If the retirement is about a deprecated feature that cannot be detected via resource properties, return "SKIP"
-            - Always include: subscriptionId, resourceGroup, name, type, location, and relevant properties
-            - Always use `project` to limit output columns
-            - Always add `| take 200` at the end
-            - If filtering by a property, use `properties.` prefix (e.g., `properties.minimumTlsVersion`)
+            - `kind` is a TOP-LEVEL column (NOT `properties.kind`)
+            - `sku.name` and `sku.tier` are TOP-LEVEL (NOT `properties.sku.name`)
+            - `properties` contains service-specific configs (e.g., `properties.minimumTlsVersion`)
+            - Do NOT use `array_contains()`, `any()`, `all()` — ARG does not support these
+            - For arrays in properties, use `mv-expand` then filter, or use `contains()` on string representation
+            - Use `=~` for case-insensitive type matching
+            - Use `in~` for multiple values
+            - Always wrap compound conditions in parentheses
+            - Always end with `| take 200`
+
+            EXAMPLE VALID QUERIES:
+            
+            1. Find Redis instances with old TLS:
+               resources | where type =~ "Microsoft.Cache/redis" | where properties.minimumTlsVersion in ("1.0", "1.1") | project subscriptionId, resourceGroup, name, type, location, properties.minimumTlsVersion | take 200
+
+            2. Find Storage accounts with GPv1:
+               resources | where type =~ "Microsoft.Storage/storageAccounts" | where kind =~ "Storage" | project subscriptionId, resourceGroup, name, type, location, kind, sku.name | take 200
+
+            3. Find VMs with specific SKU:
+               resources | where type =~ "Microsoft.Compute/virtualMachines" | where properties.hardwareProfile.vmSize in~ ("Standard_A0", "Standard_A1") | project subscriptionId, resourceGroup, name, type, location, properties.hardwareProfile.vmSize | take 200
+
+            4. Find App Services with old .NET:
+               resources | where type =~ "Microsoft.Web/sites" | where properties.siteConfig.netFrameworkVersion == "v2.0" | project subscriptionId, resourceGroup, name, type, location, properties.siteConfig.netFrameworkVersion | take 200
+
+            WHEN TO RETURN "SKIP":
+            - SDK/client library version retirements (ARG cannot detect)
+            - API version retirements (ARG cannot detect calling API version)
+            - Feature flag or preview feature retirements
+            - Changes that require checking application code
+            - Broad announcements listing many unrelated services
+            - If you cannot write a precise, non-trivial filter
+
+            Return ONLY the KQL query or the word SKIP. No explanations.
 
             Retirement/Deprecation Details:
             Title: {title}
@@ -160,8 +182,6 @@ public class LlmAnalyzerService : ILlmAnalyzer
             Affected Services: {string.Join(", ", affectedServices)}
             Affected Resource Types: {string.Join(", ", affectedResourceTypes)}
             Action Required: {actionRequired}
-
-            Generate the ARG KQL query:
             """;
 
         try

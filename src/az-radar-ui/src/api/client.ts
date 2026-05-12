@@ -133,6 +133,21 @@ export interface BlastRadiusSummary {
   argQuery: string;
 }
 
+export interface JobDiagnosticEntry {
+  id: string;
+  jobId: string;
+  timestamp: string;
+  step: string;
+  itemTitle: string;
+  level: string;
+  message: string;
+  llmQuery?: string;
+  argError?: string;
+  attempt?: number;
+  resultCount?: number;
+  durationMs?: number;
+}
+
 export interface AffectedResource {
   subscriptionId: string;
   resourceGroup: string;
@@ -212,6 +227,9 @@ export const api = {
     }),
 
   // Blast Radius
+  getJobDiagnostics: (jobId: string) =>
+    apiFetch<JobDiagnosticEntry[]>(`/api/crawl-jobs/${jobId}/diagnostics`),
+
   getBlastRadiusSummaries: (limit = 100) =>
     apiFetch<BlastRadiusSummary[]>(`/api/blast-radius?limit=${limit}`),
 

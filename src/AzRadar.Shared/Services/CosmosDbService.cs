@@ -21,6 +21,7 @@ public class CosmosDbService : ICosmosDbService
     private Container? _docInsightsContainer;
     private Container? _appConfigContainer;
     private Container? _blastRadiusContainer;
+    private Container? _diagnosticsContainer;
 
     public CosmosDbService(
         CosmosClient client,
@@ -55,6 +56,8 @@ public class CosmosDbService : ICosmosDbService
             _settings.AppConfigContainer, "/id", cancellationToken);
         _blastRadiusContainer = await CreateContainerIfNotExistsAsync(
             _settings.BlastRadiusContainer, "/id", cancellationToken);
+        _diagnosticsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.DiagnosticsContainer, "/jobId", cancellationToken);
 
         _logger.LogInformation("Cosmos DB initialized successfully");
     }
@@ -84,6 +87,9 @@ public class CosmosDbService : ICosmosDbService
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container BlastRadius => _blastRadiusContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container Diagnostics => _diagnosticsContainer
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     // --- CrawlJob operations ---
@@ -395,5 +401,29 @@ public class CosmosDbService : ICosmosDbService
         {
             return null;
         }
+    }
+
+    // --- Diagnostics operations ---
+
+    public async Task StoreDiagnosticAsync(
+        JobDiagnosticEntry entry, CancellationToken cancellationToken = default)
+    {
+        await Diagnostics.CreateItemAsync(
+            entry, new PartitionKey(entry.JobId), cancellationToken: cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<JobDiagnosticEntry>> GetDiagnosticsForJobAsync(
+        string jobId, CancellationToken cancellationToken = default)
+    {
+        var query = Diagnostics.GetItemQueryIterator<JobDiagnosticEntry>(
+            new QueryDefinition("SELECT * FROM c WHERE c.jobId = @jobId ORDER BY c.timestamp")
+                .WithParameter("@jobId", jobId));
+        var results = new List<JobDiagnosticEntry>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
     }
 }

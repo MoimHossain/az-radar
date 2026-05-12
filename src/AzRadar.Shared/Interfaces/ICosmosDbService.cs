@@ -64,4 +64,9 @@ public interface ICosmosDbService
         int limit = 100,
         CancellationToken cancellationToken = default);
     Task<BlastRadiusSummary?> GetBlastRadiusSummaryAsync(string id, CancellationToken cancellationToken = default);
+
+    // Diagnostics operations
+    Task StoreDiagnosticAsync(JobDiagnosticEntry entry, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<JobDiagnosticEntry>> GetDiagnosticsForJobAsync(
+        string jobId, CancellationToken cancellationToken = default);
 }

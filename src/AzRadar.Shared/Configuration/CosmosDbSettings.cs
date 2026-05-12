@@ -16,6 +16,7 @@ public class CosmosDbSettings
     public string DocInsightsContainer { get; set; } = "doc-insights";
     public string AppConfigContainer { get; set; } = "app-config";
     public string BlastRadiusContainer { get; set; } = "blast-radius-results";
+    public string DiagnosticsContainer { get; set; } = "job-diagnostics";
 
     /// <summary>
     /// Client ID of the UAMI used to authenticate with Cosmos DB.
