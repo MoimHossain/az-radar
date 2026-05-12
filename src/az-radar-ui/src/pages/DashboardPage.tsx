@@ -96,10 +96,10 @@ export function DashboardPage() {
     <div className={styles.container}>
       <div className={styles.header}>
         <Text size={800} weight="bold">
-          Azure Lifecycle Sentinel
+          CloudLens
         </Text>
         <Text size={300} style={{ color: tokens.colorNeutralForeground3 }}>
-          Never be blindsided by an Azure change again.
+          Sharp focus on what's changing in your Azure estate.
         </Text>
       </div>
 

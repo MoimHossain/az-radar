@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using AzRadar.Shared.Interfaces;
 using AzRadar.Shared.Models;
 using Microsoft.Extensions.Logging;
@@ -6,22 +8,20 @@ namespace AzRadar.Shared.Services;
 
 public class AzureUpdatesJobHandler : IJobHandler
 {
-    private readonly IFeedReader _feedReader;
+    private readonly IMrcMcpClient _mrcClient;
     private readonly ILlmAnalyzer _llmAnalyzer;
     private readonly ICosmosDbService _cosmosDb;
     private readonly ILogger<AzureUpdatesJobHandler> _logger;
 
-    private static readonly TimeSpan DefaultLookback = TimeSpan.FromDays(7);
-
     public string JobType => CrawlJobTypes.AzureUpdates;
 
     public AzureUpdatesJobHandler(
-        IFeedReader feedReader,
+        IMrcMcpClient mrcClient,
         ILlmAnalyzer llmAnalyzer,
         ICosmosDbService cosmosDb,
         ILogger<AzureUpdatesJobHandler> logger)
     {
-        _feedReader = feedReader;
+        _mrcClient = mrcClient;
         _llmAnalyzer = llmAnalyzer;
         _cosmosDb = cosmosDb;
         _logger = logger;
@@ -29,71 +29,84 @@ public class AzureUpdatesJobHandler : IJobHandler
 
     public async Task HandleAsync(CrawlJob job, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Starting Azure Updates crawl job {JobId}", job.Id);
+        _logger.LogInformation("Starting Azure Updates crawl job {JobId} via MRC MCP", job.Id);
 
-        // Determine how far back to look
-        var since = await DetermineSinceDateAsync(cancellationToken);
-        _logger.LogInformation("Reading feed items since {Since}", since.ToString("o"));
+        // Fetch latest updates from MRC MCP (up to 50)
+        var updates = await _mrcClient.GetRecentAzureUpdatesAsync(
+            top: 50, cancellationToken: cancellationToken);
 
-        // Read the RSS feed
-        var feedItems = await _feedReader.ReadFeedAsync(since, cancellationToken);
-        _logger.LogInformation("Found {Count} feed items from RSS", feedItems.Count);
+        _logger.LogInformation("MRC returned {Count} Azure updates", updates.Count);
 
         int newItems = 0;
         int skipped = 0;
 
-        foreach (var item in feedItems)
+        foreach (var update in updates)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            item.CrawlJobId = job.Id;
+            var id = GenerateDedupId(update.Id);
 
             // Check if already exists (dedup)
-            var existing = await _cosmosDb.GetFeedItemAsync(item.Id, cancellationToken);
+            var existing = await _cosmosDb.GetFeedItemAsync(id, cancellationToken);
             if (existing != null)
             {
                 skipped++;
-                _logger.LogDebug("Skipping already-seen item: {Title}", item.Title);
                 continue;
             }
 
-            // Analyze with LLM before storing
-            _logger.LogInformation("Analyzing new item: {Title}", item.Title);
-            var analysis = await _llmAnalyzer.AnalyzeFeedItemAsync(item, cancellationToken);
-            item.LlmAnalysis = analysis;
+            var feedItem = new FeedItem
+            {
+                Id = id,
+                Source = CrawlJobTypes.AzureUpdates,
+                Title = update.Title,
+                Link = $"https://azure.microsoft.com/updates?id={update.Id}",
+                PublishDate = DateTimeOffset.TryParse(update.Modified, out var modified)
+                    ? modified : DateTimeOffset.UtcNow,
+                Summary = update.Description,
+                Categories = [.. update.Tags, .. update.ProductCategories],
+                RawContent = update.Description,
+                CrawlJobId = job.Id,
+            };
 
-            // Store the complete item (with analysis)
-            await _cosmosDb.TryStoreFeedItemAsync(item, cancellationToken);
+            // Analyze with LLM
+            _logger.LogInformation("Analyzing: {Title}", update.Title);
+            var analysis = await _llmAnalyzer.AnalyzeFeedItemAsync(feedItem, cancellationToken);
+
+            // Enrich with structured data from MRC (products, tags are already parsed)
+            if (analysis.AffectedServices.Count == 0 && update.Products.Count > 0)
+                analysis.AffectedServices = update.Products;
+
+            feedItem.LlmAnalysis = analysis;
+
+            await _cosmosDb.TryStoreFeedItemAsync(feedItem, cancellationToken);
             newItems++;
+
+            // Update job progress incrementally
+            job.Result = new CrawlJobResult
+            {
+                NewItems = newItems,
+                TotalChecked = newItems + skipped,
+                SkippedItems = skipped
+            };
+            await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
         }
 
-        // Update job result
         job.Result = new CrawlJobResult
         {
             NewItems = newItems,
-            TotalChecked = feedItems.Count,
+            TotalChecked = updates.Count,
             SkippedItems = skipped
         };
 
         _logger.LogInformation(
             "Azure Updates crawl complete: {New} new, {Skipped} skipped, {Total} total",
-            newItems, skipped, feedItems.Count);
+            newItems, skipped, updates.Count);
     }
 
-    private async Task<DateTimeOffset> DetermineSinceDateAsync(CancellationToken ct)
+    internal static string GenerateDedupId(string updateId)
     {
-        var latestDate = await _cosmosDb.GetLatestFeedItemDateAsync(
-            CrawlJobTypes.AzureUpdates, ct);
-
-        if (latestDate.HasValue)
-        {
-            _logger.LogInformation("Found existing items, using latest date: {Date}", latestDate.Value);
-            return latestDate.Value;
-        }
-
-        // First run — only look back 7 days
-        var since = DateTimeOffset.UtcNow.Subtract(DefaultLookback);
-        _logger.LogInformation("First run, defaulting to last {Days} days", DefaultLookback.TotalDays);
-        return since;
+        var input = $"azure-updates:{updateId.Trim().ToLowerInvariant()}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant()[..32];
     }
 }

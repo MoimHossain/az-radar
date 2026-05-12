@@ -144,6 +144,15 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                 await _cosmosDb.UpsertDocInsightAsync(insight, cancellationToken);
                 newItems++;
 
+                // Update job progress incrementally
+                job.Result = new CrawlJobResult
+                {
+                    NewItems = newItems,
+                    TotalChecked = totalChecked,
+                    SkippedItems = skipped
+                };
+                await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
+
                 _logger.LogInformation(
                     "Stored insight: {Title} (type={ChangeType}, severity={Severity})",
                     insight.Title, analysis.ChangeType, analysis.Severity);

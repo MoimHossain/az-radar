@@ -6,6 +6,9 @@ import {
   Button,
   Badge,
   Spinner,
+  Input,
+  Dropdown,
+  Option,
   Table,
   TableBody,
   TableCell,
@@ -28,8 +31,10 @@ import {
   ArrowClockwiseRegular,
   DeleteRegular,
   WarningRegular,
+  SearchRegular,
+  DismissRegular,
 } from "@fluentui/react-icons";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { api, type CrawlJob } from "../api/client";
 
 const STALE_THRESHOLD_MINUTES = 10;
@@ -45,6 +50,18 @@ const useStyles = makeStyles({
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  filterBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    flexWrap: "wrap" as const,
+  },
+  searchInput: {
+    minWidth: "280px",
+  },
+  filterDropdown: {
+    minWidth: "170px",
   },
   statusBadge: {
     textTransform: "capitalize" as const,
@@ -62,6 +79,11 @@ const useStyles = makeStyles({
     alignItems: "center",
     gap: "4px",
     color: tokens.colorPaletteDarkOrangeForeground1,
+  },
+  processingStatus: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
   },
 });
 
@@ -107,6 +129,9 @@ function formatAge(createdAt: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+const STATUS_OPTIONS = ["pending", "processing", "completed", "failed"];
+const TYPE_OPTIONS = ["azure-updates", "ms-learn-intelligence"];
+
 export function CrawlJobsPage() {
   const styles = useStyles();
   const [jobs, setJobs] = useState<CrawlJob[]>([]);
@@ -115,6 +140,42 @@ export function CrawlJobsPage() {
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [jobType, setJobType] = useState("azure-updates");
+
+  const [searchText, setSearchText] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+
+  const hasFilters = searchText || selectedStatuses.length > 0 || selectedTypes.length > 0;
+
+  const filteredJobs = useMemo(() => {
+    let result = jobs;
+
+    if (searchText) {
+      const term = searchText.toLowerCase();
+      result = result.filter(
+        (j) =>
+          j.jobType.toLowerCase().includes(term) ||
+          j.id.toLowerCase().includes(term) ||
+          (j.error && j.error.toLowerCase().includes(term))
+      );
+    }
+
+    if (selectedStatuses.length > 0) {
+      result = result.filter((j) => selectedStatuses.includes(j.status));
+    }
+
+    if (selectedTypes.length > 0) {
+      result = result.filter((j) => selectedTypes.includes(j.jobType));
+    }
+
+    return result;
+  }, [jobs, searchText, selectedStatuses, selectedTypes]);
+
+  const clearFilters = () => {
+    setSearchText("");
+    setSelectedStatuses([]);
+    setSelectedTypes([]);
+  };
 
   const loadJobs = useCallback(() => {
     setLoading(true);
@@ -220,6 +281,51 @@ export function CrawlJobsPage() {
         </div>
       </div>
 
+      <div className={styles.filterBar}>
+        <Input
+          className={styles.searchInput}
+          contentBefore={<SearchRegular />}
+          placeholder="Search by type, ID, or error..."
+          value={searchText}
+          onChange={(_, d) => setSearchText(d.value)}
+        />
+        <Dropdown
+          className={styles.filterDropdown}
+          placeholder="Status"
+          multiselect
+          selectedOptions={selectedStatuses}
+          onOptionSelect={(_, d) => setSelectedStatuses(d.selectedOptions)}
+        >
+          {STATUS_OPTIONS.map((s) => (
+            <Option key={s} value={s}>
+              {s}
+            </Option>
+          ))}
+        </Dropdown>
+        <Dropdown
+          className={styles.filterDropdown}
+          placeholder="Type"
+          multiselect
+          selectedOptions={selectedTypes}
+          onOptionSelect={(_, d) => setSelectedTypes(d.selectedOptions)}
+        >
+          {TYPE_OPTIONS.map((t) => (
+            <Option key={t} value={t}>
+              {t}
+            </Option>
+          ))}
+        </Dropdown>
+        {hasFilters && (
+          <Button
+            appearance="subtle"
+            icon={<DismissRegular />}
+            onClick={clearFilters}
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
       {loading && jobs.length === 0 ? (
         <Spinner label="Loading jobs..." />
       ) : (
@@ -236,7 +342,7 @@ export function CrawlJobsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {jobs.map((job) => {
+              {filteredJobs.map((job) => {
                 const stale = isStaleJob(job);
                 return (
                   <TableRow
@@ -261,12 +367,17 @@ export function CrawlJobsPage() {
                     </TableCell>
                     <TableCell>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <Badge
-                          color={stale ? "warning" : statusColor(job.status)}
-                          className={styles.statusBadge}
-                        >
-                          {job.status}
-                        </Badge>
+                        <div className={job.status === "processing" ? styles.processingStatus : undefined}>
+                          <Badge
+                            color={stale ? "warning" : statusColor(job.status)}
+                            className={styles.statusBadge}
+                          >
+                            {job.status}
+                          </Badge>
+                          {job.status === "processing" && !stale && (
+                            <Spinner size="tiny" />
+                          )}
+                        </div>
                         {stale && (
                           <Tooltip
                             content={`Unresponsive for ${formatAge(job.createdAt)} — safe to delete`}
@@ -342,7 +453,7 @@ export function CrawlJobsPage() {
                   </TableRow>
                 );
               })}
-              {jobs.length === 0 && (
+              {filteredJobs.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6}>
                     <Text
@@ -353,7 +464,9 @@ export function CrawlJobsPage() {
                         color: tokens.colorNeutralForeground3,
                       }}
                     >
-                      No crawl jobs yet. Click "New Crawl Job" to get started.
+                      {hasFilters
+                        ? "No jobs match the current filters."
+                        : 'No crawl jobs yet. Click "New Crawl Job" to get started.'}
                     </Text>
                   </TableCell>
                 </TableRow>

@@ -78,6 +78,15 @@ const useStyles = makeStyles({
     padding: "8px 0",
     gap: "2px",
   },
+  sectionHeader: {
+    fontSize: "11px",
+    fontWeight: 600,
+    textTransform: "uppercase" as const,
+    color: tokens.colorNeutralForeground3,
+    whiteSpace: "nowrap" as const,
+    overflow: "hidden",
+    userSelect: "none" as const,
+  },
   navItem: {
     display: "flex",
     alignItems: "center",
@@ -129,12 +138,43 @@ const useStyles = makeStyles({
   },
 });
 
-const navItems = [
-  { path: "/", label: "Dashboard", icon: <BoardRegular /> },
-  { path: "/crawl-jobs", label: "Crawling Jobs", icon: <TaskListSquareLtrRegular /> },
-  { path: "/feed-items", label: "Azure Updates", icon: <DocumentTextRegular /> },
-  { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
-  { path: "/doc-insights", label: "Docs Intelligence", icon: <DocumentSearchRegular /> },
+interface NavItem {
+  path: string;
+  label: string;
+  icon: React.ReactNode;
+}
+
+interface NavSection {
+  title: string;
+  items: NavItem[];
+}
+
+const navSections: NavSection[] = [
+  {
+    title: "CloudLens",
+    items: [
+      { path: "/", label: "Dashboard", icon: <BoardRegular /> },
+    ],
+  },
+  {
+    title: "Services",
+    items: [
+      { path: "/crawl-jobs", label: "Crawling Jobs", icon: <TaskListSquareLtrRegular /> },
+    ],
+  },
+  {
+    title: "Drilldowns",
+    items: [
+      { path: "/feed-items", label: "Azure Updates", icon: <DocumentTextRegular /> },
+      { path: "/doc-insights", label: "Docs Intelligence", icon: <DocumentSearchRegular /> },
+    ],
+  },
+  {
+    title: "Settings",
+    items: [
+      { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
+    ],
+  },
 ];
 
 interface AppShellProps {
@@ -157,9 +197,9 @@ export function AppShell({ children }: AppShellProps) {
           onClick={() => setExpanded((v) => !v)}
           size="small"
         />
-        <Text className={styles.logo}>⚡ AzRadar</Text>
+        <Text className={styles.logo}>🔬 CloudLens</Text>
         <Text size={200} style={{ opacity: 0.8 }}>
-          Azure Lifecycle Sentinel
+          Sharp focus on what's changing in your Azure estate
         </Text>
       </div>
 
@@ -171,37 +211,53 @@ export function AppShell({ children }: AppShellProps) {
           )}
         >
           <div className={styles.navList}>
-            {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              const button = (
-                <button
-                  key={item.path}
-                  className={mergeClasses(
-                    styles.navItem,
-                    isActive && styles.navItemActive
-                  )}
-                  onClick={() => navigate(item.path)}
-                >
-                  <span className={styles.navIcon}>{item.icon}</span>
-                  {expanded && (
-                    <span className={styles.navLabel}>{item.label}</span>
-                  )}
-                </button>
-              );
+            {navSections.map((section, sectionIdx) => (
+              <div key={section.title}>
+                {expanded && (
+                  <div
+                    className={styles.sectionHeader}
+                    style={{
+                      padding: sectionIdx === 0
+                        ? "16px 12px 4px 12px"
+                        : "20px 12px 4px 12px",
+                    }}
+                  >
+                    {section.title}
+                  </div>
+                )}
+                {section.items.map((item) => {
+                  const isActive = location.pathname === item.path;
+                  const button = (
+                    <button
+                      key={item.path}
+                      className={mergeClasses(
+                        styles.navItem,
+                        isActive && styles.navItemActive
+                      )}
+                      onClick={() => navigate(item.path)}
+                    >
+                      <span className={styles.navIcon}>{item.icon}</span>
+                      {expanded && (
+                        <span className={styles.navLabel}>{item.label}</span>
+                      )}
+                    </button>
+                  );
 
-              return expanded ? (
-                button
-              ) : (
-                <Tooltip
-                  key={item.path}
-                  content={item.label}
-                  relationship="label"
-                  positioning="after"
-                >
-                  {button}
-                </Tooltip>
-              );
-            })}
+                  return expanded ? (
+                    button
+                  ) : (
+                    <Tooltip
+                      key={item.path}
+                      content={item.label}
+                      relationship="label"
+                      positioning="after"
+                    >
+                      {button}
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </nav>
 

@@ -46,15 +46,13 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<ILlmAnalyzer, LlmAnalyzerService>();
 
-        // RSS Feed Reader
-        services.AddHttpClient<IFeedReader, AzureUpdatesFeedReader>();
+        // MCP Clients
+        services.AddSingleton<IMcpDocsClient, McpDocsClient>();
+        services.AddSingleton<IMrcMcpClient, MrcMcpClient>();
 
         // Job Handlers
         services.AddSingleton<IJobHandler, AzureUpdatesJobHandler>();
         services.AddSingleton<IJobHandler, MsLearnIntelligenceJobHandler>();
-
-        // MCP Client for MS Learn docs
-        services.AddSingleton<IMcpDocsClient, McpDocsClient>();
 
         return services;
     }
