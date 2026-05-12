@@ -45,15 +45,35 @@ export interface LlmAnalysis {
 }
 
 export interface DashboardStats {
+  totalItems: number;
+  totalRetirements: number;
+  totalGA: number;
+  totalPreviews: number;
+  totalNewFeatures: number;
+  urgentDeadlines: number;
+  watchedServices: number;
   totalJobs: number;
-  pendingJobs: number;
   completedJobs: number;
-  failedJobs: number;
-  totalFeedItems: number;
-  criticalItems: number;
-  highItems: number;
-  totalDocInsights: number;
   latestCrawl?: string;
+  changeTypeBreakdown: Record<string, number>;
+  severityBreakdown: Record<string, number>;
+  sourceBreakdown: { azureUpdates: number; msLearnDocs: number };
+  deadlines: Array<{
+    title: string;
+    link: string;
+    deadline: string;
+    severity: string;
+    changeType: string;
+    actionRequired: string;
+    affectedServices: string[];
+    source: string;
+    daysRemaining: number | null;
+  }>;
+  topAffectedServices: Array<{
+    service: string;
+    total: number;
+    retirements: number;
+  }>;
 }
 
 export interface WatchlistItem {

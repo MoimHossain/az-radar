@@ -47,6 +47,7 @@ public class ChangeFeedWorker : BackgroundService
                 onChangesDelegate: HandleChangesAsync)
             .WithInstanceName(Environment.MachineName)
             .WithLeaseContainer(leaseContainer)
+            .WithPollInterval(TimeSpan.FromSeconds(2))
             .WithStartTime(DateTime.UtcNow.AddMinutes(-5))
             .Build();
 
@@ -113,12 +114,14 @@ public class ChangeFeedWorker : BackgroundService
         }
 
         // Try to claim the job (ETag-based optimistic concurrency)
+        _logger.LogInformation("Attempting to claim job {Id} (ETag: {ETag})", job.Id, job.ETag ?? "null");
         var claimed = await _cosmosDb.TryClaimJobAsync(job, cancellationToken);
         if (!claimed)
         {
             _logger.LogInformation("Job {Id} already claimed by another worker", job.Id);
             return;
         }
+        _logger.LogInformation("Job {Id} claimed successfully, status now: {Status}", job.Id, job.Status);
 
         try
         {

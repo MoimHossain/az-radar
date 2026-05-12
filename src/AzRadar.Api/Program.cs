@@ -89,20 +89,109 @@ app.MapGet("/api/feed-items/{id}", async (string id, ICosmosDbService db) =>
 app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
 {
     var jobs = await db.GetCrawlJobsAsync(100);
-    var feedItems = await db.GetFeedItemsAsync(limit: 200);
-    var docInsights = await db.GetDocInsightsAsync(limit: 200);
+    var feedItems = await db.GetFeedItemsAsync(limit: 500);
+    var docInsights = await db.GetDocInsightsAsync(limit: 500);
+    var watchlist = await db.GetWatchlistAsync();
+
+    // Combine all items for unified analysis
+    var allAnalyses = feedItems
+        .Where(f => f.LlmAnalysis != null)
+        .Select(f => new { f.Title, f.Link, f.PublishDate, Analysis = f.LlmAnalysis!, Source = "azure-updates" })
+        .Concat(docInsights
+            .Where(d => d.LlmAnalysis != null)
+            .Select(d => new { d.Title, Link = d.DocUrl, PublishDate = d.LastAnalyzedAt, Analysis = d.LlmAnalysis!, Source = "ms-learn" }))
+        .ToList();
+
+    // Change type distribution
+    var changeTypeBreakdown = allAnalyses
+        .GroupBy(a => a.Analysis.ChangeType)
+        .ToDictionary(g => g.Key, g => g.Count());
+
+    // Severity distribution
+    var severityBreakdown = allAnalyses
+        .GroupBy(a => a.Analysis.Severity)
+        .ToDictionary(g => g.Key, g => g.Count());
+
+    // Upcoming deadlines (sorted by urgency)
+    var deadlines = allAnalyses
+        .Where(a => !string.IsNullOrEmpty(a.Analysis.Deadline))
+        .Select(a => new
+        {
+            a.Title,
+            a.Link,
+            a.Analysis.Deadline,
+            a.Analysis.Severity,
+            a.Analysis.ChangeType,
+            a.Analysis.ActionRequired,
+            affectedServices = a.Analysis.AffectedServices,
+            a.Source,
+            daysRemaining = (int?)null as int?,
+        })
+        .ToList()
+        .Select(d =>
+        {
+            int? days = DateTimeOffset.TryParse(d.Deadline, out var dl)
+                ? (int)(dl - DateTimeOffset.UtcNow).TotalDays
+                : null;
+            return new
+            {
+                d.Title, d.Link, d.Deadline, d.Severity, d.ChangeType,
+                d.ActionRequired, d.affectedServices, d.Source,
+                daysRemaining = days
+            };
+        })
+        .OrderBy(d => d.daysRemaining ?? int.MaxValue)
+        .ToList();
+
+    // Top affected services
+    var topServices = allAnalyses
+        .SelectMany(a => a.Analysis.AffectedServices.Select(s => new { Service = s, a.Analysis.ChangeType }))
+        .GroupBy(x => x.Service)
+        .Select(g => new
+        {
+            service = g.Key,
+            total = g.Count(),
+            retirements = g.Count(x => x.ChangeType == "retirement" || x.ChangeType == "deprecation"),
+        })
+        .OrderByDescending(x => x.retirements)
+        .ThenByDescending(x => x.total)
+        .Take(15)
+        .ToList();
+
+    // Source breakdown
+    var sourceBreakdown = new
+    {
+        azureUpdates = feedItems.Count,
+        msLearnDocs = docInsights.Count,
+    };
 
     var stats = new
     {
+        // Summary counters
+        totalItems = allAnalyses.Count,
+        totalRetirements = allAnalyses.Count(a =>
+            a.Analysis.ChangeType == "retirement" || a.Analysis.ChangeType == "deprecation"),
+        totalGA = allAnalyses.Count(a => a.Analysis.ChangeType == "general-availability"),
+        totalPreviews = allAnalyses.Count(a => a.Analysis.ChangeType == "preview"),
+        totalNewFeatures = allAnalyses.Count(a => a.Analysis.ChangeType == "new-feature"),
+        urgentDeadlines = deadlines.Count(d => d.daysRemaining.HasValue && d.daysRemaining.Value < 90),
+        watchedServices = watchlist.Count,
+
+        // Jobs
         totalJobs = jobs.Count,
-        pendingJobs = jobs.Count(j => j.Status == CrawlJobStatus.Pending),
         completedJobs = jobs.Count(j => j.Status == CrawlJobStatus.Completed),
-        failedJobs = jobs.Count(j => j.Status == CrawlJobStatus.Failed),
-        totalFeedItems = feedItems.Count,
-        criticalItems = feedItems.Count(f => f.LlmAnalysis?.Severity == SeverityLevels.Critical),
-        highItems = feedItems.Count(f => f.LlmAnalysis?.Severity == SeverityLevels.High),
-        totalDocInsights = docInsights.Count,
         latestCrawl = jobs.OrderByDescending(j => j.CreatedAt).FirstOrDefault()?.CreatedAt,
+
+        // Breakdowns
+        changeTypeBreakdown,
+        severityBreakdown,
+        sourceBreakdown,
+
+        // Deadline timeline
+        deadlines,
+
+        // Top services
+        topAffectedServices = topServices,
     };
 
     return Results.Ok(stats);

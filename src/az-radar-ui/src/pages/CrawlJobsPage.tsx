@@ -188,7 +188,7 @@ export function CrawlJobsPage() {
 
   useEffect(() => {
     loadJobs();
-    const interval = setInterval(loadJobs, 10000);
+    const interval = setInterval(loadJobs, 5000);
     return () => clearInterval(interval);
   }, [loadJobs]);
 
