@@ -52,7 +52,31 @@ export interface DashboardStats {
   totalFeedItems: number;
   criticalItems: number;
   highItems: number;
+  totalDocInsights: number;
   latestCrawl?: string;
+}
+
+export interface WatchlistItem {
+  id: string;
+  serviceName: string;
+  aliases: string[];
+  searchTerms: string[];
+  resourceProvider: string;
+  addedAt: string;
+}
+
+export interface DocInsight {
+  id: string;
+  source: string;
+  serviceName: string;
+  docUrl: string;
+  title: string;
+  snippet: string;
+  contentHash: string;
+  llmAnalysis?: LlmAnalysis;
+  firstSeenAt: string;
+  lastAnalyzedAt: string;
+  crawlJobId: string;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -91,4 +115,27 @@ export const api = {
   },
 
   getFeedItem: (id: string) => apiFetch<FeedItem>(`/api/feed-items/${id}`),
+
+  // Watchlist
+  getWatchlist: () => apiFetch<WatchlistItem[]>("/api/watchlist"),
+
+  addToWatchlist: (serviceName: string) =>
+    apiFetch<WatchlistItem>("/api/watchlist", {
+      method: "POST",
+      body: JSON.stringify({ serviceName }),
+    }),
+
+  removeFromWatchlist: (id: string) =>
+    fetch(`${API_BASE}/api/watchlist/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
+  // Doc Insights
+  getDocInsights: (serviceName?: string, limit = 50) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (serviceName) params.set("serviceName", serviceName);
+    return apiFetch<DocInsight[]>(`/api/doc-insights?${params}`);
+  },
+
+  getDocInsight: (id: string) => apiFetch<DocInsight>(`/api/doc-insights/${id}`),
 };

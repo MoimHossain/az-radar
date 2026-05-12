@@ -90,6 +90,7 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
 {
     var jobs = await db.GetCrawlJobsAsync(100);
     var feedItems = await db.GetFeedItemsAsync(limit: 200);
+    var docInsights = await db.GetDocInsightsAsync(limit: 200);
 
     var stats = new
     {
@@ -100,10 +101,50 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
         totalFeedItems = feedItems.Count,
         criticalItems = feedItems.Count(f => f.LlmAnalysis?.Severity == SeverityLevels.Critical),
         highItems = feedItems.Count(f => f.LlmAnalysis?.Severity == SeverityLevels.High),
+        totalDocInsights = docInsights.Count,
         latestCrawl = jobs.OrderByDescending(j => j.CreatedAt).FirstOrDefault()?.CreatedAt,
     };
 
     return Results.Ok(stats);
+});
+
+// --- Watchlist endpoints ---
+app.MapGet("/api/watchlist", async (ICosmosDbService db) =>
+{
+    var items = await db.GetWatchlistAsync();
+    return Results.Ok(items);
+});
+
+app.MapPost("/api/watchlist", async (CreateWatchlistRequest request, ICosmosDbService db) =>
+{
+    var item = new WatchlistItem
+    {
+        ServiceName = request.ServiceName,
+        Aliases = request.Aliases ?? [],
+        SearchTerms = request.SearchTerms ?? [],
+        ResourceProvider = request.ResourceProvider ?? string.Empty,
+    };
+    var created = await db.CreateWatchlistItemAsync(item);
+    return Results.Created($"/api/watchlist/{created.Id}", created);
+});
+
+app.MapDelete("/api/watchlist/{id}", async (string id, ICosmosDbService db) =>
+{
+    var deleted = await db.DeleteWatchlistItemAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
+// --- DocInsight endpoints ---
+app.MapGet("/api/doc-insights", async (ICosmosDbService db, string? serviceName, int? limit) =>
+{
+    var items = await db.GetDocInsightsAsync(serviceName, limit ?? 50);
+    return Results.Ok(items);
+});
+
+app.MapGet("/api/doc-insights/{id}", async (string id, ICosmosDbService db) =>
+{
+    var item = await db.GetDocInsightAsync(id);
+    return item is null ? Results.NotFound() : Results.Ok(item);
 });
 
 // SPA fallback: serve index.html for any non-API, non-file route
@@ -116,3 +157,8 @@ app.Run();
 
 // --- Request DTOs ---
 public record CreateCrawlJobRequest(string JobType);
+public record CreateWatchlistRequest(
+    string ServiceName,
+    List<string>? Aliases = null,
+    List<string>? SearchTerms = null,
+    string? ResourceProvider = null);

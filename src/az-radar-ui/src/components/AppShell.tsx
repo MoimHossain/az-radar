@@ -11,6 +11,8 @@ import {
   BoardRegular,
   TaskListSquareLtrRegular,
   DocumentTextRegular,
+  SettingsRegular,
+  DocumentSearchRegular,
 } from "@fluentui/react-icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -131,6 +133,8 @@ const navItems = [
   { path: "/", label: "Dashboard", icon: <BoardRegular /> },
   { path: "/crawl-jobs", label: "Crawling Jobs", icon: <TaskListSquareLtrRegular /> },
   { path: "/feed-items", label: "Azure Updates", icon: <DocumentTextRegular /> },
+  { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
+  { path: "/doc-insights", label: "Docs Intelligence", icon: <DocumentSearchRegular /> },
 ];
 
 interface AppShellProps {

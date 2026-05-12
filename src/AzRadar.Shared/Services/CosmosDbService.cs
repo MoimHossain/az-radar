@@ -17,6 +17,8 @@ public class CosmosDbService : ICosmosDbService
     private Database? _database;
     private Container? _crawlJobsContainer;
     private Container? _feedItemsContainer;
+    private Container? _watchlistContainer;
+    private Container? _docInsightsContainer;
 
     public CosmosDbService(
         CosmosClient client,
@@ -43,6 +45,10 @@ public class CosmosDbService : ICosmosDbService
         // Lease container for Change Feed Processor
         await CreateContainerIfNotExistsAsync(
             _settings.LeasesContainer, "/id", cancellationToken);
+        _watchlistContainer = await CreateContainerIfNotExistsAsync(
+            _settings.WatchlistContainer, "/id", cancellationToken);
+        _docInsightsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.DocInsightsContainer, "/id", cancellationToken);
 
         _logger.LogInformation("Cosmos DB initialized successfully");
     }
@@ -60,6 +66,12 @@ public class CosmosDbService : ICosmosDbService
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container FeedItems => _feedItemsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container Watchlist => _watchlistContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container DocInsights => _docInsightsContainer
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     // --- CrawlJob operations ---
@@ -222,5 +234,91 @@ public class CosmosDbService : ICosmosDbService
             return response.FirstOrDefault();
         }
         return null;
+    }
+
+    // --- Watchlist operations ---
+
+    public async Task<WatchlistItem> CreateWatchlistItemAsync(
+        WatchlistItem item, CancellationToken cancellationToken = default)
+    {
+        var response = await Watchlist.CreateItemAsync(
+            item, new PartitionKey(item.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<IReadOnlyList<WatchlistItem>> GetWatchlistAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var query = Watchlist.GetItemQueryIterator<WatchlistItem>(
+            new QueryDefinition("SELECT * FROM c ORDER BY c.serviceName"));
+        var results = new List<WatchlistItem>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<bool> DeleteWatchlistItemAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Watchlist.DeleteItemAsync<WatchlistItem>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    // --- DocInsight operations ---
+
+    public async Task<DocInsight?> GetDocInsightAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await DocInsights.ReadItemAsync<DocInsight>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<DocInsight>> GetDocInsightsAsync(
+        string? serviceName = null, int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var queryText = serviceName != null
+            ? "SELECT TOP @limit * FROM c WHERE c.serviceName = @serviceName ORDER BY c.lastAnalyzedAt DESC"
+            : "SELECT TOP @limit * FROM c ORDER BY c.lastAnalyzedAt DESC";
+
+        var queryDef = new QueryDefinition(queryText).WithParameter("@limit", limit);
+        if (serviceName != null)
+            queryDef = queryDef.WithParameter("@serviceName", serviceName);
+
+        var query = DocInsights.GetItemQueryIterator<DocInsight>(queryDef);
+        var results = new List<DocInsight>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<bool> UpsertDocInsightAsync(
+        DocInsight insight, CancellationToken cancellationToken = default)
+    {
+        await DocInsights.UpsertItemAsync(
+            insight, new PartitionKey(insight.Id), cancellationToken: cancellationToken);
+        return true;
     }
 }

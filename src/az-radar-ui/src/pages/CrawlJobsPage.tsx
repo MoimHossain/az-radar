@@ -198,6 +198,7 @@ export function CrawlJobsPage() {
                       onChange={(_, d) => setJobType(d.value)}
                     >
                       <option value="azure-updates">Azure Updates Feed</option>
+                      <option value="ms-learn-intelligence">MS Learn Intelligence</option>
                     </Select>
                   </Field>
                 </DialogContent>

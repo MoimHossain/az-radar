@@ -12,6 +12,8 @@ public class CosmosDbSettings
     public string CrawlJobsContainer { get; set; } = "crawl-jobs";
     public string FeedItemsContainer { get; set; } = "feed-items";
     public string LeasesContainer { get; set; } = "change-feed-leases";
+    public string WatchlistContainer { get; set; } = "watchlist";
+    public string DocInsightsContainer { get; set; } = "doc-insights";
 
     /// <summary>
     /// Client ID of the UAMI used to authenticate with Cosmos DB.

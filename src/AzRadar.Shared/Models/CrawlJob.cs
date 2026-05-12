@@ -58,4 +58,5 @@ public static class CrawlJobStatus
 public static class CrawlJobTypes
 {
     public const string AzureUpdates = "azure-updates";
+    public const string MsLearnIntelligence = "ms-learn-intelligence";
 }

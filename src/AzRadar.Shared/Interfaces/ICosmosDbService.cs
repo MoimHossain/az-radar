@@ -40,4 +40,17 @@ public interface ICosmosDbService
     Task<DateTimeOffset?> GetLatestFeedItemDateAsync(
         string source,
         CancellationToken cancellationToken = default);
+
+    // Watchlist operations
+    Task<WatchlistItem> CreateWatchlistItemAsync(WatchlistItem item, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<WatchlistItem>> GetWatchlistAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteWatchlistItemAsync(string id, CancellationToken cancellationToken = default);
+
+    // DocInsight operations
+    Task<DocInsight?> GetDocInsightAsync(string id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DocInsight>> GetDocInsightsAsync(
+        string? serviceName = null,
+        int limit = 50,
+        CancellationToken cancellationToken = default);
+    Task<bool> UpsertDocInsightAsync(DocInsight insight, CancellationToken cancellationToken = default);
 }

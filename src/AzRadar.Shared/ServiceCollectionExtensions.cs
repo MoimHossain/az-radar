@@ -51,6 +51,10 @@ public static class ServiceCollectionExtensions
 
         // Job Handlers
         services.AddSingleton<IJobHandler, AzureUpdatesJobHandler>();
+        services.AddSingleton<IJobHandler, MsLearnIntelligenceJobHandler>();
+
+        // MCP Client for MS Learn docs
+        services.AddSingleton<IMcpDocsClient, McpDocsClient>();
 
         return services;
     }
