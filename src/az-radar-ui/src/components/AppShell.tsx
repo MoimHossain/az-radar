@@ -15,6 +15,7 @@ import {
   DocumentSearchRegular,
   ShieldCheckmarkRegular,
   PlugConnectedRegular,
+  CalendarRegular,
 } from "@fluentui/react-icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -170,6 +171,7 @@ const navSections: NavSection[] = [
       { path: "/feed-items", label: "Azure Updates", icon: <DocumentTextRegular /> },
       { path: "/doc-insights", label: "Docs Intelligence", icon: <DocumentSearchRegular /> },
       { path: "/impact-analysis", label: "Impact Analysis", icon: <ShieldCheckmarkRegular /> },
+      { path: "/lifecycle-calendar", label: "Lifecycle Calendar", icon: <CalendarRegular /> },
     ],
   },
   {

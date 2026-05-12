@@ -257,6 +257,62 @@ app.MapGet("/api/doc-insights/{id}", async (string id, ICosmosDbService db) =>
     return item is null ? Results.NotFound() : Results.Ok(item);
 });
 
+// --- Calendar endpoint ---
+app.MapGet("/api/calendar", async (ICosmosDbService db) =>
+{
+    var feedItems = await db.GetFeedItemsAsync(limit: 500);
+    var docInsights = await db.GetDocInsightsAsync(limit: 500);
+    var cutoff = DateTimeOffset.UtcNow.AddDays(-90);
+
+    var calendarItems = new List<object>();
+
+    foreach (var fi in feedItems)
+    {
+        if (fi.LlmAnalysis == null) continue;
+        var deadline = fi.LlmAnalysis.Deadline;
+        if (string.IsNullOrEmpty(deadline)) continue;
+        if (DateTimeOffset.TryParse(deadline, out var dl) && dl < cutoff) continue;
+
+        calendarItems.Add(new
+        {
+            id = fi.Id,
+            title = fi.Title,
+            link = fi.Link,
+            deadline,
+            changeType = fi.LlmAnalysis.ChangeType,
+            severity = fi.LlmAnalysis.Severity,
+            affectedServices = fi.LlmAnalysis.AffectedServices,
+            actionRequired = fi.LlmAnalysis.ActionRequired,
+            source = "azure-updates",
+            briefSummary = fi.LlmAnalysis.BriefSummary,
+        });
+    }
+
+    foreach (var di in docInsights)
+    {
+        if (di.LlmAnalysis == null) continue;
+        var deadline = di.LlmAnalysis.Deadline;
+        if (string.IsNullOrEmpty(deadline)) continue;
+        if (DateTimeOffset.TryParse(deadline, out var dl) && dl < cutoff) continue;
+
+        calendarItems.Add(new
+        {
+            id = di.Id,
+            title = di.Title,
+            link = di.DocUrl,
+            deadline,
+            changeType = di.LlmAnalysis.ChangeType,
+            severity = di.LlmAnalysis.Severity,
+            affectedServices = di.LlmAnalysis.AffectedServices,
+            actionRequired = di.LlmAnalysis.ActionRequired,
+            source = "ms-learn",
+            briefSummary = di.LlmAnalysis.BriefSummary,
+        });
+    }
+
+    return Results.Ok(calendarItems.OrderBy(i => ((dynamic)i).deadline));
+});
+
 // --- AppConfig endpoints ---
 app.MapGet("/api/config/{key}", async (string key, ICosmosDbService db) =>
 {

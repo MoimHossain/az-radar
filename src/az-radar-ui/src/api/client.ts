@@ -103,6 +103,19 @@ export interface DocInsight {
   crawlJobId: string;
 }
 
+export interface CalendarItem {
+  id: string;
+  title: string;
+  link: string;
+  deadline: string;
+  changeType: string;
+  severity: string;
+  affectedServices: string[];
+  actionRequired: string;
+  source: string;
+  briefSummary: string;
+}
+
 export interface AppConfig {
   id: string;
   value: string;
@@ -235,4 +248,6 @@ export const api = {
 
   getBlastRadiusSummary: (id: string) =>
     apiFetch<BlastRadiusSummary>(`/api/blast-radius/${id}`),
+
+  getCalendarItems: () => apiFetch<CalendarItem[]>("/api/calendar"),
 };

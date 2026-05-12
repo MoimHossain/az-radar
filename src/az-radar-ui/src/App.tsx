@@ -8,6 +8,7 @@ import { WatchlistPage } from "./pages/WatchlistPage";
 import { DocInsightsPage } from "./pages/DocInsightsPage";
 import { ImpactAnalysisPage } from "./pages/ImpactAnalysisPage";
 import { BlastRadiusConfigPage } from "./pages/BlastRadiusConfigPage";
+import { LifecycleCalendarPage } from "./pages/LifecycleCalendarPage";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
             <Route path="/doc-insights" element={<DocInsightsPage />} />
             <Route path="/impact-analysis" element={<ImpactAnalysisPage />} />
             <Route path="/blast-radius-config" element={<BlastRadiusConfigPage />} />
+            <Route path="/lifecycle-calendar" element={<LifecycleCalendarPage />} />
           </Routes>
         </AppShell>
       </BrowserRouter>
