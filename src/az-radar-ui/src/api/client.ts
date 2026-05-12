@@ -99,6 +99,41 @@ export interface DocInsight {
   crawlJobId: string;
 }
 
+export interface AppConfig {
+  id: string;
+  value: string;
+  description: string;
+  updatedAt: string;
+}
+
+export interface BlastRadiusSummary {
+  id: string;
+  sourceItemId: string;
+  sourceTitle: string;
+  sourceType: string;
+  changeType: string;
+  severity: string;
+  deadline?: string;
+  resourceType: string;
+  matchConfidence: string;
+  totalResources: number;
+  subscriptionCount: number;
+  regionBreakdown: Record<string, number>;
+  subscriptionBreakdown: Record<string, number>;
+  topResources: AffectedResource[];
+  scanJobId: string;
+  scannedAt: string;
+}
+
+export interface AffectedResource {
+  subscriptionId: string;
+  resourceGroup: string;
+  name: string;
+  location: string;
+  sku: string;
+  tags: Record<string, string>;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -158,4 +193,20 @@ export const api = {
   },
 
   getDocInsight: (id: string) => apiFetch<DocInsight>(`/api/doc-insights/${id}`),
+
+  // Config
+  getConfig: (key: string) => apiFetch<AppConfig>(`/api/config/${key}`).catch(() => null),
+
+  setConfig: (key: string, value: string, description?: string) =>
+    apiFetch<AppConfig>(`/api/config/${key}`, {
+      method: "PUT",
+      body: JSON.stringify({ value, description }),
+    }),
+
+  // Blast Radius
+  getBlastRadiusSummaries: (limit = 100) =>
+    apiFetch<BlastRadiusSummary[]>(`/api/blast-radius?limit=${limit}`),
+
+  getBlastRadiusSummary: (id: string) =>
+    apiFetch<BlastRadiusSummary>(`/api/blast-radius/${id}`),
 };

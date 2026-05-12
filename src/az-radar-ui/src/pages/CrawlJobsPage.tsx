@@ -260,6 +260,7 @@ export function CrawlJobsPage() {
                     >
                       <option value="azure-updates">Azure Updates Feed</option>
                       <option value="ms-learn-intelligence">MS Learn Intelligence</option>
+                      <option value="blast-radius-scan">Blast Radius Scan</option>
                     </Select>
                   </Field>
                 </DialogContent>

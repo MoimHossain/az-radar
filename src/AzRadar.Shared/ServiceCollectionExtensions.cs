@@ -53,6 +53,10 @@ public static class ServiceCollectionExtensions
         // Job Handlers
         services.AddSingleton<IJobHandler, AzureUpdatesJobHandler>();
         services.AddSingleton<IJobHandler, MsLearnIntelligenceJobHandler>();
+        services.AddSingleton<IJobHandler, BlastRadiusJobHandler>();
+
+        // Resource Graph Client
+        services.AddSingleton<IResourceGraphClient, ResourceGraphClient>();
 
         return services;
     }

@@ -19,6 +19,8 @@ public class CosmosDbService : ICosmosDbService
     private Container? _feedItemsContainer;
     private Container? _watchlistContainer;
     private Container? _docInsightsContainer;
+    private Container? _appConfigContainer;
+    private Container? _blastRadiusContainer;
 
     public CosmosDbService(
         CosmosClient client,
@@ -49,6 +51,10 @@ public class CosmosDbService : ICosmosDbService
             _settings.WatchlistContainer, "/id", cancellationToken);
         _docInsightsContainer = await CreateContainerIfNotExistsAsync(
             _settings.DocInsightsContainer, "/id", cancellationToken);
+        _appConfigContainer = await CreateContainerIfNotExistsAsync(
+            _settings.AppConfigContainer, "/id", cancellationToken);
+        _blastRadiusContainer = await CreateContainerIfNotExistsAsync(
+            _settings.BlastRadiusContainer, "/id", cancellationToken);
 
         _logger.LogInformation("Cosmos DB initialized successfully");
     }
@@ -72,6 +78,12 @@ public class CosmosDbService : ICosmosDbService
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container DocInsights => _docInsightsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container AppConfigDb => _appConfigContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container BlastRadius => _blastRadiusContainer
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     // --- CrawlJob operations ---
@@ -320,5 +332,68 @@ public class CosmosDbService : ICosmosDbService
         await DocInsights.UpsertItemAsync(
             insight, new PartitionKey(insight.Id), cancellationToken: cancellationToken);
         return true;
+    }
+
+    // --- AppConfig operations ---
+
+    public async Task<AppConfig?> GetAppConfigAsync(
+        string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await AppConfigDb.ReadItemAsync<AppConfig>(
+                key, new PartitionKey(key), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task UpsertAppConfigAsync(AppConfig config, CancellationToken cancellationToken = default)
+    {
+        config.UpdatedAt = DateTimeOffset.UtcNow;
+        await AppConfigDb.UpsertItemAsync(
+            config, new PartitionKey(config.Id), cancellationToken: cancellationToken);
+    }
+
+    // --- BlastRadius operations ---
+
+    public async Task UpsertBlastRadiusSummaryAsync(
+        BlastRadiusSummary summary, CancellationToken cancellationToken = default)
+    {
+        await BlastRadius.UpsertItemAsync(
+            summary, new PartitionKey(summary.Id), cancellationToken: cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<BlastRadiusSummary>> GetBlastRadiusSummariesAsync(
+        int limit = 100, CancellationToken cancellationToken = default)
+    {
+        var query = BlastRadius.GetItemQueryIterator<BlastRadiusSummary>(
+            new QueryDefinition("SELECT TOP @limit * FROM c ORDER BY c.totalResources DESC")
+                .WithParameter("@limit", limit));
+        var results = new List<BlastRadiusSummary>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<BlastRadiusSummary?> GetBlastRadiusSummaryAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await BlastRadius.ReadItemAsync<BlastRadiusSummary>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
     }
 }

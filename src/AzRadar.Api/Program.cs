@@ -246,6 +246,38 @@ app.MapGet("/api/doc-insights/{id}", async (string id, ICosmosDbService db) =>
     return item is null ? Results.NotFound() : Results.Ok(item);
 });
 
+// --- AppConfig endpoints ---
+app.MapGet("/api/config/{key}", async (string key, ICosmosDbService db) =>
+{
+    var config = await db.GetAppConfigAsync(key);
+    return config is null ? Results.NotFound() : Results.Ok(config);
+});
+
+app.MapPut("/api/config/{key}", async (string key, UpdateConfigRequest request, ICosmosDbService db) =>
+{
+    var config = new AppConfig
+    {
+        Id = key,
+        Value = request.Value,
+        Description = request.Description ?? "",
+    };
+    await db.UpsertAppConfigAsync(config);
+    return Results.Ok(config);
+});
+
+// --- BlastRadius endpoints ---
+app.MapGet("/api/blast-radius", async (ICosmosDbService db, int? limit) =>
+{
+    var items = await db.GetBlastRadiusSummariesAsync(limit ?? 100);
+    return Results.Ok(items);
+});
+
+app.MapGet("/api/blast-radius/{id}", async (string id, ICosmosDbService db) =>
+{
+    var item = await db.GetBlastRadiusSummaryAsync(id);
+    return item is null ? Results.NotFound() : Results.Ok(item);
+});
+
 // SPA fallback: serve index.html for any non-API, non-file route
 if (Directory.Exists(wwwrootPath))
 {
@@ -261,3 +293,4 @@ public record CreateWatchlistRequest(
     List<string>? Aliases = null,
     List<string>? SearchTerms = null,
     string? ResourceProvider = null);
+public record UpdateConfigRequest(string Value, string? Description = null);

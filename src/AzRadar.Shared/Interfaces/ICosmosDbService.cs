@@ -53,4 +53,15 @@ public interface ICosmosDbService
         int limit = 50,
         CancellationToken cancellationToken = default);
     Task<bool> UpsertDocInsightAsync(DocInsight insight, CancellationToken cancellationToken = default);
+
+    // AppConfig operations
+    Task<AppConfig?> GetAppConfigAsync(string key, CancellationToken cancellationToken = default);
+    Task UpsertAppConfigAsync(AppConfig config, CancellationToken cancellationToken = default);
+
+    // BlastRadius operations
+    Task UpsertBlastRadiusSummaryAsync(BlastRadiusSummary summary, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BlastRadiusSummary>> GetBlastRadiusSummariesAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default);
+    Task<BlastRadiusSummary?> GetBlastRadiusSummaryAsync(string id, CancellationToken cancellationToken = default);
 }

@@ -13,6 +13,8 @@ import {
   DocumentTextRegular,
   SettingsRegular,
   DocumentSearchRegular,
+  ShieldCheckmarkRegular,
+  PlugConnectedRegular,
 } from "@fluentui/react-icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -167,12 +169,14 @@ const navSections: NavSection[] = [
     items: [
       { path: "/feed-items", label: "Azure Updates", icon: <DocumentTextRegular /> },
       { path: "/doc-insights", label: "Docs Intelligence", icon: <DocumentSearchRegular /> },
+      { path: "/impact-analysis", label: "Impact Analysis", icon: <ShieldCheckmarkRegular /> },
     ],
   },
   {
     title: "Settings",
     items: [
       { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
+      { path: "/blast-radius-config", label: "Blast Radius Config", icon: <PlugConnectedRegular /> },
     ],
   },
 ];
