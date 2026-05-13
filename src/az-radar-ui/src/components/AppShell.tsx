@@ -160,18 +160,18 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "Services",
-    items: [
-      { path: "/crawl-jobs", label: "Crawling Jobs", icon: <TaskListSquareLtrRegular /> },
-    ],
-  },
-  {
     title: "Drilldowns",
     items: [
       { path: "/feed-items", label: "Azure Updates", icon: <DocumentTextRegular /> },
       { path: "/doc-insights", label: "Docs Intelligence", icon: <DocumentSearchRegular /> },
       { path: "/impact-analysis", label: "Impact Analysis", icon: <ShieldCheckmarkRegular /> },
       { path: "/lifecycle-calendar", label: "Lifecycle Calendar", icon: <CalendarRegular /> },
+    ],
+  },
+  {
+    title: "Services",
+    items: [
+      { path: "/crawl-jobs", label: "Crawling Jobs", icon: <TaskListSquareLtrRegular /> },
     ],
   },
   {
