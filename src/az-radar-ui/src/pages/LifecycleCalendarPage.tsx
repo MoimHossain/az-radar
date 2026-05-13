@@ -1057,6 +1057,7 @@ export function LifecycleCalendarPage() {
                 cell.date.getDate() === today.getDate();
               const isOpen = openDay === dayKey;
               const MAX_DOTS = 4;
+              const isBottomHalf = idx >= calendarGrid.length - 14;
 
               return (
                 <div
@@ -1097,6 +1098,7 @@ export function LifecycleCalendarPage() {
                     <div
                       className={styles.calendarPopover}
                       ref={popoverRef}
+                      style={isBottomHalf ? { bottom: "100%", top: "auto" } : undefined}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Text size={200} weight="semibold" style={{ padding: "0 6px 4px" }}>
