@@ -39,7 +39,17 @@ public class MrcMcpClient : IMrcMcpClient, IAsyncDisposable
                 new HttpClientTransport(new HttpClientTransportOptions
                 {
                     Endpoint = new Uri(MrcEndpoint),
-                    Name = "az-radar-mrc"
+                    Name = "az-radar-mrc",
+                    AdditionalHeaders = new Dictionary<string, string>
+                    {
+                        // MRC MCP is fronted by Akamai which blocks requests lacking a
+                        // browser-like User-Agent (returns 400 from edgesuite.net). Send a
+                        // realistic UA plus an Accept header that allows JSON + SSE which
+                        // is required by the Streamable HTTP MCP transport.
+                        ["User-Agent"] = "Mozilla/5.0 (compatible; AzRadar/1.0; +https://az-radar-api.azurewebsites.net) ModelContextProtocol-DotNet/1.3.0",
+                        ["Accept"] = "application/json, text/event-stream",
+                        ["Accept-Language"] = "en-US,en;q=0.9"
+                    }
                 }),
                 cancellationToken: ct);
 
