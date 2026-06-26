@@ -346,9 +346,9 @@ az webapp restart --name az-radar-jobhost --resource-group az-radar-rg
 | Azure Updates RSS | New features, deprecations, retirements, previews | ✅ Implemented |
 | Azure Service Health | Maintenance windows, health advisories | 🔜 Phase 2 |
 | Azure Advisor | Deprecation recommendations, best practices | 🔜 Phase 2 |
-| Azure Resource Graph | Resource configuration drift | 🔜 Phase 2 |
-| MSRC | Critical security bulletins | 🔜 Phase 4 |
-| MS Learn docs | Documentation changes for specific services | 🔜 Phase 4 |
+| Azure Resource Graph | Resource configuration drift | ✅ Implemented |
+| MSRC | Critical security bulletins | ✅ Implemented |
+| MS Learn docs | Documentation changes for specific services | ✅ Implemented |
 
 ---
 
