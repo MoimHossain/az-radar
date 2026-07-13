@@ -52,11 +52,29 @@ param additionalAppIdentityResourceIds array = []
 @description('Optional: extra principal ids to ALSO grant Cosmos DB data-plane access. The created UAMI is always granted.')
 param additionalCosmosDataPrincipalIds array = []
 
-@description('Azure OpenAI endpoint (public — owned by another team, out of this scope).')
-param openAiEndpoint string
+@description('When true, deploy an in-tenant VNet-protected Azure OpenAI account (private endpoint) and use it for LLM calls. When false, use the externally provided openAiEndpoint.')
+param deployOpenAi bool = false
 
-@description('Azure OpenAI deployment (model) name.')
+@description('Externally provided Azure OpenAI endpoint. Used only when deployOpenAi is false. Leave empty when deployOpenAi is true.')
+param openAiEndpoint string = ''
+
+@description('Azure OpenAI deployment (model) name the app calls.')
 param openAiDeploymentName string = 'gpt-4o'
+
+@description('Globally-unique name for the VNet-protected Azure OpenAI account (only when deployOpenAi is true).')
+param openAiAccountName string = '${namePrefix}-openai-${uniqueString(resourceGroup().id)}'
+
+@description('Model name to deploy on the in-tenant Azure OpenAI account.')
+param openAiModelName string = 'gpt-4o'
+
+@description('Model version to deploy on the in-tenant Azure OpenAI account.')
+param openAiModelVersion string = '2024-08-06'
+
+@description('Deployment SKU for the in-tenant Azure OpenAI model.')
+param openAiDeploymentSku string = 'Standard'
+
+@description('Deployment capacity (thousands of TPM) for the in-tenant Azure OpenAI model.')
+param openAiDeploymentCapacity int = 20
 
 @description('Tags applied to all resources.')
 param tags object = {
@@ -113,6 +131,29 @@ module cosmosRbac 'modules/cosmos-rbac.bicep' = {
   }
 }
 
+// ----------------------------- Azure OpenAI (optional) --------------------
+
+module openai 'modules/openai.bicep' = if (deployOpenAi) {
+  name: 'openai'
+  params: {
+    location: location
+    accountName: openAiAccountName
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    vnetId: network.outputs.vnetId
+    deploymentName: openAiDeploymentName
+    modelName: openAiModelName
+    modelVersion: openAiModelVersion
+    deploymentSkuName: openAiDeploymentSku
+    deploymentCapacity: openAiDeploymentCapacity
+    openAiUserPrincipalIds: cosmosDataPrincipalIds
+    tags: tags
+  }
+}
+
+// Use the in-tenant private endpoint when deployed, otherwise the external one.
+var effectiveOpenAiEndpoint = deployOpenAi ? openai.outputs.endpoint : openAiEndpoint
+var effectiveOpenAiDeployment = deployOpenAi ? openai.outputs.deploymentName : openAiDeploymentName
+
 // ----------------------------- App Service plans --------------------------
 
 module apiPlan 'modules/app-plan.bicep' = {
@@ -141,8 +182,8 @@ var commonCosmosSettings = [
   { name: 'CosmosDb__Endpoint', value: cosmos.outputs.endpoint }
   { name: 'CosmosDb__DatabaseName', value: databaseName }
   { name: 'CosmosDb__ManagedIdentityClientId', value: managedIdentityClientId }
-  { name: 'OpenAi__Endpoint', value: openAiEndpoint }
-  { name: 'OpenAi__DeploymentName', value: openAiDeploymentName }
+  { name: 'OpenAi__Endpoint', value: effectiveOpenAiEndpoint }
+  { name: 'OpenAi__DeploymentName', value: effectiveOpenAiDeployment }
   { name: 'OpenAi__ManagedIdentityClientId', value: managedIdentityClientId }
   { name: 'WEBSITES_PORT', value: '8080' }
   { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
@@ -194,3 +235,10 @@ output managedIdentityName string = identity.outputs.name
 output managedIdentityResourceId string = identity.outputs.resourceId
 output managedIdentityClientId string = identity.outputs.clientId
 output managedIdentityPrincipalId string = identity.outputs.principalId
+
+// LLM endpoint the apps are configured to use (in-tenant private endpoint when
+// deployOpenAi is true, otherwise the externally provided endpoint).
+output openAiEndpointInUse string = effectiveOpenAiEndpoint
+output openAiDeploymentInUse string = effectiveOpenAiDeployment
+output openAiDeployed bool = deployOpenAi
+output openAiAccountName string = deployOpenAi ? openai.outputs.accountName : ''

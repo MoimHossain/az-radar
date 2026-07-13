@@ -4,6 +4,7 @@ using AzRadar.Shared.Configuration;
 using AzRadar.Shared.Interfaces;
 using AzRadar.Shared.Models;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +42,50 @@ if (Directory.Exists(wwwrootPath))
 
 // --- Health check ---
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
+
+// --- LLM connectivity check ---
+// Performs a minimal chat completion so a deployment can verify the app can
+// reach the configured Azure OpenAI endpoint (e.g. via a private endpoint)
+// and authenticate with its managed identity. Returns 503 on failure.
+app.MapGet("/api/health/llm", async (OpenAI.Chat.ChatClient chat, IOptions<OpenAiSettings> openAiOptions) =>
+{
+    var settings = openAiOptions.Value;
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    try
+    {
+        var messages = new List<OpenAI.Chat.ChatMessage>
+        {
+            new OpenAI.Chat.UserChatMessage("Reply with the single word: OK")
+        };
+        var response = await chat.CompleteChatAsync(messages);
+        sw.Stop();
+        var reply = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : string.Empty;
+        return Results.Ok(new
+        {
+            status = "healthy",
+            llm = "reachable",
+            endpoint = settings.Endpoint,
+            deployment = settings.DeploymentName,
+            reply,
+            latencyMs = sw.ElapsedMilliseconds,
+            timestamp = DateTimeOffset.UtcNow
+        });
+    }
+    catch (Exception ex)
+    {
+        sw.Stop();
+        return Results.Json(new
+        {
+            status = "unhealthy",
+            llm = "unreachable",
+            endpoint = settings.Endpoint,
+            deployment = settings.DeploymentName,
+            error = ex.Message,
+            latencyMs = sw.ElapsedMilliseconds,
+            timestamp = DateTimeOffset.UtcNow
+        }, statusCode: 503);
+    }
+});
 
 // --- CrawlJob endpoints ---
 app.MapPost("/api/crawl-jobs", async (CreateCrawlJobRequest request, ICosmosDbService db) =>
