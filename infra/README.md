@@ -17,6 +17,50 @@ Infrastructure-as-Code for the **VNet-protected** AzRadar platform.
 | Web apps (`*-api`, `*-jobhost`) | Containerized (Docker Hub), VNet-integrated, UAMI-assigned |
 | User-assigned managed identity (`*-uami`) | Created by this template; used for Cosmos + LLM auth |
 | Cosmos data-plane role assignments | Built-in **Cosmos DB Data Contributor** for the created identity |
+| **Azure OpenAI (`*-openai-*`)** _(optional)_ | **VNet-protected**, **public access disabled**, AAD-only, private endpoint only, with a `gpt-4o` deployment. Enabled with `deployOpenAi=true`. |
+| Private DNS zone `privatelink.openai.azure.com` _(optional)_ | Resolves the OpenAI account to its private IP |
+| OpenAI role assignment _(optional)_ | Built-in **Cognitive Services OpenAI User** for the created identity |
+
+## LLM: external endpoint vs in-tenant private endpoint
+
+The platform can source its LLM two ways, controlled by `deployOpenAi`:
+
+* **`deployOpenAi=false` (default)** — use an externally provided Azure OpenAI
+  endpoint (set `openAiEndpoint`). That resource is out of scope here and the
+  identity must be granted access to it manually (see below).
+* **`deployOpenAi=true`** — this template provisions an **in-tenant, VNet-protected
+  Azure OpenAI** account reachable only through a private endpoint, deploys the
+  model, and grants the created UAMI the `Cognitive Services OpenAI User` role
+  automatically. No manual LLM role step is needed. The apps are wired to the
+  private endpoint via `OpenAi__Endpoint`.
+
+Deploy the in-tenant OpenAI scenario with the ready-made parameter file:
+
+```powershell
+az group create -n <rg> -l eastus2
+az deployment group create -g <rg> -f infra/main.bicep -p infra/main.openai.bicepparam
+```
+
+> The model must have **regional Standard quota** and be **non-deprecated** in
+> the target region. `gpt-4o` versions are entering deprecation; the sample
+> parameter file uses `gpt-5.1` (validated). List options with:
+> `az cognitiveservices model list --location <region> --query "[?kind=='OpenAI']"`
+> and check quota with `az cognitiveservices usage list --location <region>`.
+>
+> Also ensure the region has **App Service (serverFarms) compute quota** — some
+> subscriptions report 0 dedicated-VM quota in certain regions (e.g. East US 2),
+> which fails B1/Pv3 plan creation at preflight.
+
+### Validating LLM connectivity
+
+The API image exposes `GET /api/health/llm`, which performs a minimal chat
+completion against the configured endpoint using the managed identity. After a
+deployment, hit it to confirm the app can reach the LLM (through the private
+endpoint when `deployOpenAi=true`):
+
+```powershell
+curl https://<api-host>/api/health/llm   # 200 = reachable, 503 = unreachable
+```
 
 ## Network design
 
