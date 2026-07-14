@@ -42,6 +42,8 @@ export interface LlmAnalysis {
   microsoftDocLinks: string[];
   aiConfidence: number;
   briefSummary: string;
+  requiresAttention?: boolean;
+  attentionJustification?: string;
 }
 
 export interface DashboardStats {
@@ -101,6 +103,46 @@ export interface DocInsight {
   firstSeenAt: string;
   lastAnalyzedAt: string;
   crawlJobId: string;
+  commitSha?: string;
+  commitDate?: string;
+  changeKind?: string;
+  repoUrl?: string;
+  filePath?: string;
+  relatedFeedItems?: RelatedFeedItem[];
+}
+
+export interface RelatedFeedItem {
+  id: string;
+  title: string;
+  link: string;
+  publishDate: string;
+}
+
+export interface RepoWatchItem {
+  id: string;
+  repoUrl: string;
+  owner: string;
+  repo: string;
+  branch?: string;
+  pathFilters: string[];
+  label: string;
+  cutoffDate: string;
+  enabled: boolean;
+  addedAt: string;
+  lastScannedCommitSha?: string;
+  lastScannedCommitDate?: string;
+  lastScanAt?: string;
+  lastScanStatus?: string;
+  lastScanError?: string;
+}
+
+export interface CreateRepoWatchRequest {
+  repoUrl: string;
+  branch?: string;
+  pathFilters?: string[];
+  label?: string;
+  cutoffDate?: string;
+  enabled?: boolean;
 }
 
 export interface CalendarItem {
@@ -219,6 +261,26 @@ export const api = {
   removeFromWatchlist: (id: string) =>
     fetch(`${API_BASE}/api/watchlist/${id}`, { method: "DELETE" }).then((r) => {
       if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
+  // Repository Watchlist (GitHub Change Radar)
+  getRepoWatchlist: () => apiFetch<RepoWatchItem[]>("/api/repo-watchlist"),
+
+  addRepoWatch: (request: CreateRepoWatchRequest) =>
+    apiFetch<RepoWatchItem>("/api/repo-watchlist", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
+
+  removeRepoWatch: (id: string) =>
+    fetch(`${API_BASE}/api/repo-watchlist/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
+  patchRepoWatch: (id: string, patch: Partial<Pick<RepoWatchItem, "enabled" | "cutoffDate" | "pathFilters" | "label">>) =>
+    apiFetch<RepoWatchItem>(`/api/repo-watchlist/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
     }),
 
   // Doc Insights

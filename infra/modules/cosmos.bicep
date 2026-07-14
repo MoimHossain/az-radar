@@ -32,6 +32,7 @@ var containers = [
   { name: 'feed-items', partitionKey: '/id' }
   { name: 'change-feed-leases', partitionKey: '/id' }
   { name: 'watchlist', partitionKey: '/id' }
+  { name: 'repo-watchlist', partitionKey: '/id' }
   { name: 'doc-insights', partitionKey: '/id' }
   { name: 'app-config', partitionKey: '/id' }
   { name: 'blast-radius-results', partitionKey: '/id' }

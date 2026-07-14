@@ -18,6 +18,7 @@ public class CosmosDbService : ICosmosDbService
     private Container? _crawlJobsContainer;
     private Container? _feedItemsContainer;
     private Container? _watchlistContainer;
+    private Container? _repoWatchlistContainer;
     private Container? _docInsightsContainer;
     private Container? _appConfigContainer;
     private Container? _blastRadiusContainer;
@@ -50,6 +51,8 @@ public class CosmosDbService : ICosmosDbService
             _settings.LeasesContainer, "/id", cancellationToken);
         _watchlistContainer = await CreateContainerIfNotExistsAsync(
             _settings.WatchlistContainer, "/id", cancellationToken);
+        _repoWatchlistContainer = await CreateContainerIfNotExistsAsync(
+            _settings.RepoWatchlistContainer, "/id", cancellationToken);
         _docInsightsContainer = await CreateContainerIfNotExistsAsync(
             _settings.DocInsightsContainer, "/id", cancellationToken);
         _appConfigContainer = await CreateContainerIfNotExistsAsync(
@@ -78,6 +81,9 @@ public class CosmosDbService : ICosmosDbService
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container Watchlist => _watchlistContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container RepoWatchlist => _repoWatchlistContainer
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container DocInsights => _docInsightsContainer
@@ -293,6 +299,74 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
+    // --- Repository watchlist operations (GitHub Change Radar) ---
+
+    public async Task<RepoWatchItem> CreateRepoWatchAsync(
+        RepoWatchItem item, CancellationToken cancellationToken = default)
+    {
+        var response = await RepoWatchlist.CreateItemAsync(
+            item, new PartitionKey(item.Id), cancellationToken: cancellationToken);
+        var created = response.Resource;
+        created.ETag = response.ETag;
+        return created;
+    }
+
+    public async Task<IReadOnlyList<RepoWatchItem>> GetRepoWatchlistAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var query = RepoWatchlist.GetItemQueryIterator<RepoWatchItem>(
+            new QueryDefinition("SELECT * FROM c ORDER BY c.addedAt DESC"));
+        var results = new List<RepoWatchItem>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<RepoWatchItem?> GetRepoWatchAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await RepoWatchlist.ReadItemAsync<RepoWatchItem>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            var item = response.Resource;
+            item.ETag = response.ETag;
+            return item;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<RepoWatchItem> UpdateRepoWatchAsync(
+        RepoWatchItem item, CancellationToken cancellationToken = default)
+    {
+        var response = await RepoWatchlist.UpsertItemAsync(
+            item, new PartitionKey(item.Id), cancellationToken: cancellationToken);
+        var updated = response.Resource;
+        updated.ETag = response.ETag;
+        return updated;
+    }
+
+    public async Task<bool> DeleteRepoWatchAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await RepoWatchlist.DeleteItemAsync<RepoWatchItem>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     // --- DocInsight operations ---
 
     public async Task<DocInsight?> GetDocInsightAsync(
@@ -311,16 +385,20 @@ public class CosmosDbService : ICosmosDbService
     }
 
     public async Task<IReadOnlyList<DocInsight>> GetDocInsightsAsync(
-        string? serviceName = null, int limit = 50,
+        string? serviceName = null, int limit = 50, string? source = null,
         CancellationToken cancellationToken = default)
     {
-        var queryText = serviceName != null
-            ? "SELECT TOP @limit * FROM c WHERE c.serviceName = @serviceName ORDER BY c.lastAnalyzedAt DESC"
-            : "SELECT TOP @limit * FROM c ORDER BY c.lastAnalyzedAt DESC";
+        var conditions = new List<string>();
+        if (serviceName != null) conditions.Add("c.serviceName = @serviceName");
+        if (source != null) conditions.Add("c.source = @source");
+        var where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
+        var queryText = $"SELECT TOP @limit * FROM c{where} ORDER BY c.lastAnalyzedAt DESC";
 
         var queryDef = new QueryDefinition(queryText).WithParameter("@limit", limit);
         if (serviceName != null)
             queryDef = queryDef.WithParameter("@serviceName", serviceName);
+        if (source != null)
+            queryDef = queryDef.WithParameter("@source", source);
 
         var query = DocInsights.GetItemQueryIterator<DocInsight>(queryDef);
         var results = new List<DocInsight>();

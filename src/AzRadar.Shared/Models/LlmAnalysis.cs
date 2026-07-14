@@ -36,6 +36,17 @@ public class LlmAnalysis
 
     [JsonPropertyName("briefSummary")]
     public string BriefSummary { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether an Azure platform team must pay attention to this change
+    /// (retirement, deprecation, breaking change, security, or major new capability).
+    /// </summary>
+    [JsonPropertyName("requiresAttention")]
+    public bool RequiresAttention { get; set; }
+
+    /// <summary>Short explanation of why this does (or does not) require platform-team attention.</summary>
+    [JsonPropertyName("attentionJustification")]
+    public string AttentionJustification { get; set; } = string.Empty;
 }
 
 public static class ChangeTypes

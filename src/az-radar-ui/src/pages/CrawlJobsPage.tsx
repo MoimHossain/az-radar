@@ -221,7 +221,7 @@ function formatAge(createdAt: string): string {
 }
 
 const STATUS_OPTIONS = ["pending", "processing", "completed", "failed"];
-const TYPE_OPTIONS = ["azure-updates", "ms-learn-intelligence"];
+const TYPE_OPTIONS = ["azure-updates", "ms-learn-intelligence", "github-crawl"];
 
 function formatRelativeTime(timestamp: string): string {
   const diffMs = Date.now() - new Date(timestamp).getTime();
@@ -391,6 +391,7 @@ export function CrawlJobsPage() {
                     >
                       <option value="azure-updates">Azure Updates Feed</option>
                       <option value="ms-learn-intelligence">MS Learn Intelligence</option>
+                      <option value="github-crawl">GitHub Change Radar</option>
                       <option value="blast-radius-scan">Blast Radius Scan</option>
                     </Select>
                   </Field>

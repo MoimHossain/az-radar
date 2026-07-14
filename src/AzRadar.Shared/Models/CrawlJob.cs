@@ -60,4 +60,5 @@ public static class CrawlJobTypes
     public const string AzureUpdates = "azure-updates";
     public const string MsLearnIntelligence = "ms-learn-intelligence";
     public const string BlastRadiusScan = "blast-radius-scan";
+    public const string GitHubCrawl = "github-crawl";
 }

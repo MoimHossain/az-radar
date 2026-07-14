@@ -11,6 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Configuration
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection(CosmosDbSettings.SectionName));
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
+builder.Services.Configure<GitHubSettings>(builder.Configuration.GetSection(GitHubSettings.SectionName));
 
 // Register shared services
 builder.Services.AddAzRadarSharedServices();
@@ -289,10 +290,61 @@ app.MapDelete("/api/watchlist/{id}", async (string id, ICosmosDbService db) =>
     return deleted ? Results.NoContent() : Results.NotFound();
 });
 
-// --- DocInsight endpoints ---
-app.MapGet("/api/doc-insights", async (ICosmosDbService db, string? serviceName, int? limit) =>
+// --- Repository watchlist endpoints (GitHub Change Radar) ---
+app.MapGet("/api/repo-watchlist", async (ICosmosDbService db) =>
 {
-    var items = await db.GetDocInsightsAsync(serviceName, limit ?? 50);
+    var items = await db.GetRepoWatchlistAsync();
+    return Results.Ok(items);
+});
+
+app.MapPost("/api/repo-watchlist", async (CreateRepoWatchRequest request, ICosmosDbService db) =>
+{
+    if (!TryParseGitHubRepo(request.RepoUrl, out var owner, out var repo))
+        return Results.BadRequest(new { error = "Invalid GitHub repository URL. Expected https://github.com/{owner}/{repo}." });
+
+    var item = new RepoWatchItem
+    {
+        RepoUrl = $"https://github.com/{owner}/{repo}",
+        Owner = owner,
+        Repo = repo,
+        Branch = string.IsNullOrWhiteSpace(request.Branch) ? null : request.Branch!.Trim(),
+        PathFilters = (request.PathFilters ?? [])
+            .Select(p => p.Trim().Trim('/'))
+            .Where(p => p.Length > 0)
+            .ToList(),
+        Label = string.IsNullOrWhiteSpace(request.Label) ? $"{owner}/{repo}" : request.Label!.Trim(),
+        CutoffDate = request.CutoffDate ?? DateTimeOffset.UtcNow.AddDays(-30),
+        Enabled = request.Enabled ?? true,
+    };
+    var created = await db.CreateRepoWatchAsync(item);
+    return Results.Created($"/api/repo-watchlist/{created.Id}", created);
+});
+
+app.MapDelete("/api/repo-watchlist/{id}", async (string id, ICosmosDbService db) =>
+{
+    var deleted = await db.DeleteRepoWatchAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
+app.MapPatch("/api/repo-watchlist/{id}", async (string id, UpdateRepoWatchRequest request, ICosmosDbService db) =>
+{
+    var item = await db.GetRepoWatchAsync(id);
+    if (item is null) return Results.NotFound();
+
+    if (request.Enabled.HasValue) item.Enabled = request.Enabled.Value;
+    if (request.CutoffDate.HasValue) item.CutoffDate = request.CutoffDate.Value;
+    if (request.PathFilters != null)
+        item.PathFilters = request.PathFilters.Select(p => p.Trim().Trim('/')).Where(p => p.Length > 0).ToList();
+    if (request.Label != null) item.Label = request.Label.Trim();
+
+    var updated = await db.UpdateRepoWatchAsync(item);
+    return Results.Ok(updated);
+});
+
+// --- DocInsight endpoints ---
+app.MapGet("/api/doc-insights", async (ICosmosDbService db, string? serviceName, int? limit, string? source) =>
+{
+    var items = await db.GetDocInsightsAsync(serviceName, limit ?? 50, source);
     return Results.Ok(items);
 });
 
@@ -362,7 +414,22 @@ app.MapGet("/api/calendar", async (ICosmosDbService db) =>
 app.MapGet("/api/config/{key}", async (string key, ICosmosDbService db) =>
 {
     var config = await db.GetAppConfigAsync(key);
-    return config is null ? Results.NotFound() : Results.Ok(config);
+    if (config is null) return Results.NotFound();
+
+    // Secrets (e.g. the GitHub PAT) are write-only: never return the raw value.
+    if (IsSecretConfigKey(key))
+    {
+        var v = config.Value ?? string.Empty;
+        var masked = v.Length == 0 ? "" : $"••••{(v.Length >= 4 ? v[^4..] : v)}";
+        return Results.Ok(new AppConfig
+        {
+            Id = config.Id,
+            Value = masked,
+            Description = config.Description,
+            UpdatedAt = config.UpdatedAt,
+        });
+    }
+    return Results.Ok(config);
 });
 
 // --- Diagnostics endpoint ---
@@ -412,4 +479,41 @@ public record CreateWatchlistRequest(
     List<string>? Aliases = null,
     List<string>? SearchTerms = null,
     string? ResourceProvider = null);
+public record CreateRepoWatchRequest(
+    string RepoUrl,
+    string? Branch = null,
+    List<string>? PathFilters = null,
+    string? Label = null,
+    DateTimeOffset? CutoffDate = null,
+    bool? Enabled = null);
+public record UpdateRepoWatchRequest(
+    bool? Enabled = null,
+    DateTimeOffset? CutoffDate = null,
+    List<string>? PathFilters = null,
+    string? Label = null);
 public record UpdateConfigRequest(string Value, string? Description = null);
+
+public partial class Program
+{
+    /// <summary>Config keys whose values must never be returned in clear text by the API.</summary>
+    private static bool IsSecretConfigKey(string key)
+        => string.Equals(key, AppConfigKeys.GitHubPat, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Parses https://github.com/{owner}/{repo}[/...] (or git@/owner/repo) into owner + repo.</summary>
+    private static bool TryParseGitHubRepo(string? url, out string owner, out string repo)
+    {
+        owner = ""; repo = "";
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        var s = url.Trim();
+        s = s.Replace("git@github.com:", "https://github.com/", StringComparison.OrdinalIgnoreCase);
+        if (!s.Contains("github.com", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var afterHost = s[(s.IndexOf("github.com", StringComparison.OrdinalIgnoreCase) + "github.com".Length)..]
+            .TrimStart('/', ':');
+        var parts = afterHost.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+        owner = parts[0];
+        repo = parts[1].Replace(".git", "", StringComparison.OrdinalIgnoreCase);
+        return owner.Length > 0 && repo.Length > 0;
+    }
+}

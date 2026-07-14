@@ -20,4 +20,12 @@ public interface ILlmAnalyzer
         List<string> affectedResourceTypes,
         string actionRequired,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Analyzes a single GitHub documentation/source change (a git diff) and decides whether it
+    /// represents something an Azure platform team must know about, with a justification.
+    /// </summary>
+    Task<LlmAnalysis> AnalyzeDocChangeAsync(
+        RepoChangeContext change,
+        CancellationToken cancellationToken = default);
 }

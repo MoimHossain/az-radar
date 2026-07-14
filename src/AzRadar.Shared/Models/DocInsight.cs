@@ -39,12 +39,46 @@ public class DocInsight
     [JsonPropertyName("crawlJobId")]
     public string CrawlJobId { get; set; } = string.Empty;
 
+    // --- GitHub Change Radar fields (source = "github") ---
+
+    [JsonPropertyName("commitSha")]
+    public string? CommitSha { get; set; }
+
+    /// <summary>Real authored date of the commit that produced this change.</summary>
+    [JsonPropertyName("commitDate")]
+    public DateTimeOffset? CommitDate { get; set; }
+
+    /// <summary>added | modified | removed | renamed</summary>
+    [JsonPropertyName("changeKind")]
+    public string? ChangeKind { get; set; }
+
+    [JsonPropertyName("repoUrl")]
+    public string? RepoUrl { get; set; }
+
+    [JsonPropertyName("filePath")]
+    public string? FilePath { get; set; }
+
+    /// <summary>Related Azure Updates findings cross-referenced at analysis time.</summary>
+    [JsonPropertyName("relatedFeedItems")]
+    public List<RelatedFeedItem> RelatedFeedItems { get; set; } = [];
+
     /// <summary>
     /// Generates a deterministic ID from source + normalized doc URL.
     /// </summary>
     public static string GenerateId(string docUrl)
     {
         var input = $"ms-learn:{docUrl.Trim().ToLowerInvariant()}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant()[..32];
+    }
+
+    /// <summary>
+    /// Deterministic "seen" ID for a GitHub file change at a specific commit.
+    /// Makes cursor overlap and re-runs idempotent (same commit+file =&gt; same id).
+    /// </summary>
+    public static string GenerateGitHubId(string owner, string repo, string commitSha, string filePath)
+    {
+        var input = $"github:{owner}/{repo}:{commitSha}:{filePath}".ToLowerInvariant();
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant()[..32];
     }

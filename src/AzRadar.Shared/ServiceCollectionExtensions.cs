@@ -50,10 +50,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMcpDocsClient, McpDocsClient>();
         services.AddSingleton<IMrcMcpClient, MrcMcpClient>();
 
+        // GitHub REST client (Change Radar)
+        services.AddSingleton<IGitHubClient, GitHubClient>();
+
         // Job Handlers
         services.AddSingleton<IJobHandler, AzureUpdatesJobHandler>();
         services.AddSingleton<IJobHandler, MsLearnIntelligenceJobHandler>();
         services.AddSingleton<IJobHandler, BlastRadiusJobHandler>();
+        services.AddSingleton<IJobHandler, GitHubCrawlJobHandler>();
 
         // Resource Graph Client
         services.AddSingleton<IResourceGraphClient, ResourceGraphClient>();

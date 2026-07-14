@@ -46,11 +46,19 @@ public interface ICosmosDbService
     Task<IReadOnlyList<WatchlistItem>> GetWatchlistAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteWatchlistItemAsync(string id, CancellationToken cancellationToken = default);
 
+    // Repository watchlist operations (GitHub Change Radar)
+    Task<RepoWatchItem> CreateRepoWatchAsync(RepoWatchItem item, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RepoWatchItem>> GetRepoWatchlistAsync(CancellationToken cancellationToken = default);
+    Task<RepoWatchItem?> GetRepoWatchAsync(string id, CancellationToken cancellationToken = default);
+    Task<RepoWatchItem> UpdateRepoWatchAsync(RepoWatchItem item, CancellationToken cancellationToken = default);
+    Task<bool> DeleteRepoWatchAsync(string id, CancellationToken cancellationToken = default);
+
     // DocInsight operations
     Task<DocInsight?> GetDocInsightAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DocInsight>> GetDocInsightsAsync(
         string? serviceName = null,
         int limit = 50,
+        string? source = null,
         CancellationToken cancellationToken = default);
     Task<bool> UpsertDocInsightAsync(DocInsight insight, CancellationToken cancellationToken = default);
 

@@ -8,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Configuration
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection(CosmosDbSettings.SectionName));
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
+builder.Services.Configure<GitHubSettings>(builder.Configuration.GetSection(GitHubSettings.SectionName));
 
 // Register shared services
 builder.Services.AddAzRadarSharedServices();

@@ -16,6 +16,7 @@ import {
   ShieldCheckmarkRegular,
   PlugConnectedRegular,
   CalendarRegular,
+  BranchRegular,
 } from "@fluentui/react-icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -178,6 +179,7 @@ const navSections: NavSection[] = [
     title: "Settings",
     items: [
       { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
+      { path: "/repo-watchlist", label: "Repository Watchlist", icon: <BranchRegular /> },
       { path: "/blast-radius-config", label: "Blast Radius Config", icon: <PlugConnectedRegular /> },
     ],
   },

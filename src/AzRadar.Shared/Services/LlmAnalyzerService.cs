@@ -126,6 +126,117 @@ public class LlmAnalyzerService : ILlmAnalyzer
         BriefSummary = $"Unable to analyze: {item.Title}"
     };
 
+    public async Task<LlmAnalysis> AnalyzeDocChangeAsync(
+        RepoChangeContext change,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Analyzing repo change: {Repo} {File} ({Kind})",
+            change.RepoLabel, change.FilePath, change.ChangeKind);
+
+        try
+        {
+            var messages = new List<ChatMessage>
+            {
+                new SystemChatMessage(GetDocChangeSystemPrompt()),
+                new UserChatMessage(GetDocChangeUserPrompt(change))
+            };
+
+            var options = new ChatCompletionOptions
+            {
+                Temperature = 0.1f,
+                ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat()
+            };
+
+            var response = await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
+            var content = response.Value.Content[0].Text;
+            var analysis = JsonSerializer.Deserialize<LlmAnalysis>(content);
+
+            if (analysis == null)
+            {
+                _logger.LogWarning("LLM returned null analysis for {File}", change.FilePath);
+                return CreateDocChangeFallback(change);
+            }
+
+            _logger.LogInformation(
+                "Repo change analysis: type={ChangeType}, severity={Severity}, requiresAttention={Attn}",
+                analysis.ChangeType, analysis.Severity, analysis.RequiresAttention);
+
+            return analysis;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LLM analysis failed for repo change {File}", change.FilePath);
+            return CreateDocChangeFallback(change);
+        }
+    }
+
+    private static string GetDocChangeSystemPrompt() => """
+        You are an Azure lifecycle intelligence analyst embedded with an enterprise Azure PLATFORM
+        ENGINEERING team. You are reviewing a single Git diff from a Microsoft Azure documentation or
+        source repository. Decide whether this change is something the platform team MUST be aware of.
+
+        Treat as REQUIRING ATTENTION (requiresAttention = true) changes that signal:
+        - Retirements, deprecations, end-of-support / end-of-life announcements
+        - Breaking changes, behavioral changes, or required migrations
+        - Security advisories or mandatory security posture changes (TLS, auth, certificates)
+        - Major new capabilities (GA of a significant feature) that platform teams should plan for
+        A file DELETION of a feature/how-to doc may itself signal a retirement — weigh the context.
+
+        Treat as NOT requiring attention (requiresAttention = false): typo/grammar/style fixes,
+        metadata-only edits (ms.date, author), link fixes, formatting, minor clarifications, and
+        routine content that carries no lifecycle or breaking-change signal.
+
+        Always respond with valid JSON matching this schema:
+        {
+          "changeType": "retirement | deprecation | breaking-change | security-advisory | new-feature | migration-required | preview | general-availability | update",
+          "severity": "critical | high | medium | low | informational",
+          "affectedServices": ["Azure service names affected"],
+          "affectedResourceTypes": ["ARM resource types, e.g. Microsoft.ContainerService/managedClusters"],
+          "actionRequired": "what the platform team should do, or empty string if none",
+          "deadline": "YYYY-MM-DD if a date is mentioned, else null",
+          "effortEstimate": "low | medium | high | very-high",
+          "migrationPath": "brief migration steps if applicable",
+          "microsoftDocLinks": ["relevant doc links mentioned in the diff"],
+          "aiConfidence": 0.0 to 1.0,
+          "briefSummary": "2-3 sentence plain-language summary of the change",
+          "requiresAttention": true or false,
+          "attentionJustification": "1-3 sentences on WHY this does or does not require platform-team attention"
+        }
+
+        Guidelines:
+        - Base your verdict on the actual diff content and commit message, not just the file name.
+        - Be conservative: only set requiresAttention = true when there is a real lifecycle/breaking/security/major-GA signal.
+        - Lower aiConfidence when the diff is small or ambiguous.
+        """;
+
+    private static string GetDocChangeUserPrompt(RepoChangeContext c) => $"""
+        Repository: {c.Owner}/{c.Repo} ({c.RepoLabel})
+        File: {c.FilePath}
+        Change kind: {c.ChangeKind}
+        Commit date: {c.CommitDate:yyyy-MM-dd}
+        Commit message: {c.CommitMessage}
+        Source: {c.BlobUrl}
+
+        Unified diff (may be truncated):
+        {c.Diff}
+        """;
+
+    private static LlmAnalysis CreateDocChangeFallback(RepoChangeContext c) => new()
+    {
+        ChangeType = ChangeTypes.Update,
+        Severity = SeverityLevels.Informational,
+        AffectedServices = [],
+        AffectedResourceTypes = [],
+        ActionRequired = string.Empty,
+        EffortEstimate = "low",
+        MigrationPath = string.Empty,
+        MicrosoftDocLinks = string.IsNullOrEmpty(c.BlobUrl) ? [] : [c.BlobUrl],
+        AiConfidence = 0.0,
+        BriefSummary = $"Unable to analyze change to {c.FilePath}",
+        RequiresAttention = false,
+        AttentionJustification = "Analysis failed; flagged for manual review is not implied."
+    };
+
     public async Task<string?> GenerateResourceGraphQueryAsync(
         string title,
         string description,

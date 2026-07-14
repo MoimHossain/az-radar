@@ -9,6 +9,7 @@ import { DocInsightsPage } from "./pages/DocInsightsPage";
 import { ImpactAnalysisPage } from "./pages/ImpactAnalysisPage";
 import { BlastRadiusConfigPage } from "./pages/BlastRadiusConfigPage";
 import { LifecycleCalendarPage } from "./pages/LifecycleCalendarPage";
+import { RepositoryWatchlistPage } from "./pages/RepositoryWatchlistPage";
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
             <Route path="/crawl-jobs" element={<CrawlJobsPage />} />
             <Route path="/feed-items" element={<FeedItemsPage />} />
             <Route path="/watchlist" element={<WatchlistPage />} />
+            <Route path="/repo-watchlist" element={<RepositoryWatchlistPage />} />
             <Route path="/doc-insights" element={<DocInsightsPage />} />
             <Route path="/impact-analysis" element={<ImpactAnalysisPage />} />
             <Route path="/blast-radius-config" element={<BlastRadiusConfigPage />} />
