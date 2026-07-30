@@ -202,12 +202,24 @@ function isStaleJob(job: CrawlJob): boolean {
   return now - created > STALE_THRESHOLD_MINUTES * 60 * 1000;
 }
 
+/**
+ * A job can be deleted without confirmation when it is in a terminal state, or when it has
+ * been stuck in a non-terminal state long enough to be considered abandoned.
+ */
 function isDeletable(job: CrawlJob): boolean {
   return (
     job.status === "completed" ||
     job.status === "failed" ||
     isStaleJob(job)
   );
+}
+
+/**
+ * Any job may be force-deleted, but a still-active job (pending/processing and not yet stale)
+ * requires explicit confirmation since the JobHost may still be working on it.
+ */
+function needsForceConfirm(job: CrawlJob): boolean {
+  return !isDeletable(job);
 }
 
 function formatAge(createdAt: string): string {
@@ -265,6 +277,7 @@ export function CrawlJobsPage() {
   const [selectedJob, setSelectedJob] = useState<CrawlJob | null>(null);
   const [diagnostics, setDiagnostics] = useState<JobDiagnosticEntry[]>([]);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [forceDeleteTarget, setForceDeleteTarget] = useState<CrawlJob | null>(null);
 
   const hasFilters = searchText || selectedStatuses.length > 0 || selectedTypes.length > 0;
 
@@ -331,6 +344,7 @@ export function CrawlJobsPage() {
     try {
       await api.deleteCrawlJob(id);
       setJobs((prev) => prev.filter((j) => j.id !== id));
+      setSelectedJob((prev) => (prev?.id === id ? null : prev));
     } catch (err) {
       console.error("Failed to delete job:", err);
     } finally {
@@ -340,6 +354,21 @@ export function CrawlJobsPage() {
         return next;
       });
     }
+  };
+
+  const requestDelete = (job: CrawlJob) => {
+    if (needsForceConfirm(job)) {
+      setForceDeleteTarget(job);
+    } else {
+      handleDelete(job.id);
+    }
+  };
+
+  const confirmForceDelete = async () => {
+    if (!forceDeleteTarget) return;
+    const id = forceDeleteTarget.id;
+    setForceDeleteTarget(null);
+    await handleDelete(id);
   };
 
   const handleSelectJob = useCallback((job: CrawlJob) => {
@@ -565,26 +594,36 @@ export function CrawlJobsPage() {
                     </TableCell>
                     <TableCell>
                       <div className={styles.actionsCell}>
-                        {isDeletable(job) && (
-                          <Tooltip content="Delete job" relationship="label">
-                            <Button
-                              icon={
-                                deleting.has(job.id) ? (
-                                  <Spinner size="tiny" />
-                                ) : (
-                                  <DeleteRegular />
-                                )
-                              }
-                              appearance="subtle"
-                              size="small"
-                              disabled={deleting.has(job.id)}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(job.id);
-                              }}
-                            />
-                          </Tooltip>
-                        )}
+                        <Tooltip
+                          content={
+                            needsForceConfirm(job)
+                              ? "Force delete job (still active)"
+                              : "Delete job"
+                          }
+                          relationship="label"
+                        >
+                          <Button
+                            icon={
+                              deleting.has(job.id) ? (
+                                <Spinner size="tiny" />
+                              ) : (
+                                <DeleteRegular />
+                              )
+                            }
+                            appearance="subtle"
+                            size="small"
+                            disabled={deleting.has(job.id)}
+                            style={
+                              needsForceConfirm(job)
+                                ? { color: tokens.colorPaletteRedForeground1 }
+                                : undefined
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestDelete(job);
+                            }}
+                          />
+                        </Tooltip>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -737,6 +776,52 @@ export function CrawlJobsPage() {
           </div>
         </>
       )}
+
+      <Dialog
+        open={forceDeleteTarget !== null}
+        onOpenChange={(_, d) => {
+          if (!d.open) setForceDeleteTarget(null);
+        }}
+      >
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Force delete this job?</DialogTitle>
+            <DialogContent>
+              <Text block>
+                This job is still <strong>{forceDeleteTarget?.status}</strong> and was created{" "}
+                {forceDeleteTarget ? formatAge(forceDeleteTarget.createdAt) : ""}. The JobHost may
+                still be processing it.
+              </Text>
+              <Text block style={{ marginTop: 12 }}>
+                Deleting the job record does not stop work already in flight. Any items that run
+                has already written are kept; the job will simply stop reporting progress.
+              </Text>
+              {forceDeleteTarget && (
+                <div className={styles.resultSummary} style={{ marginTop: 12 }}>
+                  <Text size={200} weight="semibold" block>
+                    {forceDeleteTarget.jobType}
+                  </Text>
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                    {forceDeleteTarget.id}
+                  </Text>
+                </div>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setForceDeleteTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                appearance="primary"
+                icon={<WarningRegular />}
+                onClick={confirmForceDelete}
+              >
+                Force delete
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
   );
 }
