@@ -2,6 +2,7 @@
 FROM node:20-alpine AS frontend-build
 ARG CACHE_BUST=1
 WORKDIR /app/ui
+ENV NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 COPY src/az-radar-ui/package*.json ./
 RUN npm ci
 COPY src/az-radar-ui/ ./

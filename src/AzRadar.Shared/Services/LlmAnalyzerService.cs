@@ -76,6 +76,7 @@ public class LlmAnalyzerService : ILlmAnalyzer
         
         Always respond with valid JSON matching this schema:
         {
+          "suggestedTitle": "a concise, accurate, specific title (max ~100 chars) describing what actually changed",
           "changeType": "retirement | deprecation | breaking-change | security-advisory | new-feature | migration-required | preview | general-availability | update",
           "severity": "critical | high | medium | low | informational",
           "affectedServices": ["list of Azure service names affected"],
@@ -95,6 +96,11 @@ public class LlmAnalyzerService : ILlmAnalyzer
         - Set aiConfidence lower when the announcement is vague or ambiguous
         - For new features and previews, effortEstimate should be "low" and severity "informational"
         - Extract any deadlines mentioned in the text
+        - IMPORTANT: The source title/headline can be generic, a FAQ page name, or otherwise misleading
+          relative to the actual content (e.g. a page titled "Service X frequently asked questions" that
+          actually documents a specific VM image retirement). Always derive "suggestedTitle" from the
+          real substance of the content (what is changing, retiring, or being announced), not just the
+          literal source title. If the source title is already specific and accurate, you may reuse it.
         """;
 
     private static string GetUserPrompt(FeedItem item) => $"""
@@ -114,6 +120,7 @@ public class LlmAnalyzerService : ILlmAnalyzer
 
     private static LlmAnalysis CreateFallbackAnalysis(FeedItem item) => new()
     {
+        SuggestedTitle = item.Title,
         ChangeType = ChangeTypes.Update,
         Severity = SeverityLevels.Informational,
         AffectedServices = [],
@@ -188,6 +195,7 @@ public class LlmAnalyzerService : ILlmAnalyzer
 
         Always respond with valid JSON matching this schema:
         {
+          "suggestedTitle": "a concise, accurate, specific title (max ~100 chars) describing what this commit/diff actually changes",
           "changeType": "retirement | deprecation | breaking-change | security-advisory | new-feature | migration-required | preview | general-availability | update",
           "severity": "critical | high | medium | low | informational",
           "affectedServices": ["Azure service names affected"],
@@ -207,6 +215,8 @@ public class LlmAnalyzerService : ILlmAnalyzer
         - Base your verdict on the actual diff content and commit message, not just the file name.
         - Be conservative: only set requiresAttention = true when there is a real lifecycle/breaking/security/major-GA signal.
         - Lower aiConfidence when the diff is small or ambiguous.
+        - The commit message and file name can be generic or unrelated to the real substance of the diff.
+          Always derive "suggestedTitle" from what the diff itself actually changes.
         """;
 
     private static string GetDocChangeUserPrompt(RepoChangeContext c) => $"""
@@ -223,6 +233,7 @@ public class LlmAnalyzerService : ILlmAnalyzer
 
     private static LlmAnalysis CreateDocChangeFallback(RepoChangeContext c) => new()
     {
+        SuggestedTitle = $"{c.FilePath} ({c.ChangeKind})",
         ChangeType = ChangeTypes.Update,
         Severity = SeverityLevels.Informational,
         AffectedServices = [],

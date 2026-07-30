@@ -227,13 +227,19 @@ public class GitHubCrawlJobHandler : IJobHandler
 
                 var related = FindRelatedFeedItems(analysis, feedItems);
 
+                // Prefer the AI-generated title, which reflects the actual substance of the diff
+                // rather than a possibly generic/unrelated commit message.
+                var title = !string.IsNullOrWhiteSpace(analysis.SuggestedTitle)
+                    ? analysis.SuggestedTitle
+                    : $"{FirstLine(detail.Message)} — {file.Filename}";
+
                 var insight = new DocInsight
                 {
                     Id = docId,
                     Source = "github",
                     ServiceName = analysis.AffectedServices.FirstOrDefault() ?? repo.Label,
                     DocUrl = file.BlobUrl,
-                    Title = $"{FirstLine(detail.Message)} — {file.Filename}",
+                    Title = title,
                     Snippet = analysis.BriefSummary,
                     ContentHash = DocInsight.HashContent(diff),
                     LlmAnalysis = analysis,

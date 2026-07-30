@@ -76,6 +76,11 @@ public class AzureUpdatesJobHandler : IJobHandler
             if (analysis.AffectedServices.Count == 0 && update.Products.Count > 0)
                 analysis.AffectedServices = update.Products;
 
+            // Prefer the AI-generated title, which reflects the actual substance of the change
+            // rather than a potentially generic or misleading source title.
+            if (!string.IsNullOrWhiteSpace(analysis.SuggestedTitle))
+                feedItem.Title = analysis.SuggestedTitle;
+
             feedItem.LlmAnalysis = analysis;
 
             await _cosmosDb.TryStoreFeedItemAsync(feedItem, cancellationToken);

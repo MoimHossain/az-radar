@@ -126,13 +126,20 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                 _logger.LogInformation("Analyzing doc: {Title}", searchResult.Title);
                 var analysis = await _llmAnalyzer.AnalyzeFeedItemAsync(feedItem, cancellationToken);
 
+                // Prefer the AI-generated title, which reflects the actual substance of the content
+                // rather than a generic or misleading source page title (e.g. an FAQ page title that
+                // actually documents a specific retirement/deprecation).
+                var title = !string.IsNullOrWhiteSpace(analysis.SuggestedTitle)
+                    ? analysis.SuggestedTitle
+                    : searchResult.Title;
+
                 var insight = new DocInsight
                 {
                     Id = docId,
                     Source = "ms-learn",
                     ServiceName = service.ServiceName,
                     DocUrl = feedItem.Link,
-                    Title = searchResult.Title,
+                    Title = title,
                     Snippet = searchResult.Snippet,
                     ContentHash = contentHash,
                     LlmAnalysis = analysis,
