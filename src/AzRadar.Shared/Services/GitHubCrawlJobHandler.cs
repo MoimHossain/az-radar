@@ -92,7 +92,7 @@ public class GitHubCrawlJobHandler : IJobHandler
             {
                 var (repoNew, repoSkipped, repoChecked, repoFiles, newestSha, newestDate) =
                     await ScanRepoAsync(job, repo, since, token, feedItems,
-                        filesThisRun, cancellationToken);
+                        filesThisRun, newItems, skipped, totalChecked, cancellationToken);
 
                 newItems += repoNew;
                 skipped += repoSkipped;
@@ -146,7 +146,8 @@ public class GitHubCrawlJobHandler : IJobHandler
     private async Task<(int repoNew, int repoSkipped, int repoChecked, int repoFiles, string? newestSha, DateTimeOffset? newestDate)>
         ScanRepoAsync(
             CrawlJob job, RepoWatchItem repo, DateTimeOffset since, string? token,
-            IReadOnlyList<FeedItem> feedItems, int filesAlreadyThisRun, CancellationToken ct)
+            IReadOnlyList<FeedItem> feedItems, int filesAlreadyThisRun,
+            int baseNew, int baseSkipped, int baseChecked, CancellationToken ct)
     {
         // Collect commits across all path filters (dedup by SHA).
         List<string?> paths = repo.PathFilters.Count > 0
@@ -177,6 +178,31 @@ public class GitHubCrawlJobHandler : IJobHandler
         string? newestSha = null;
         DateTimeOffset? newestDate = null;
 
+        // A repo scan can run for many minutes (one LLM call per changed file), so publish
+        // running totals back to the job document as we go — otherwise the UI shows a job with
+        // no progress at all until the entire repo is finished.
+        var lastReportedChecked = 0;
+        async Task ReportProgressAsync()
+        {
+            lastReportedChecked = repoChecked;
+            job.Result = new CrawlJobResult
+            {
+                NewItems = baseNew + repoNew,
+                SkippedItems = baseSkipped + repoSkipped,
+                TotalChecked = baseChecked + repoChecked
+            };
+            try
+            {
+                var updated = await _cosmosDb.UpdateCrawlJobAsync(job, ct);
+                job.ETag = updated.ETag;
+            }
+            catch (Exception ex)
+            {
+                // Progress reporting must never fail the scan.
+                _logger.LogWarning(ex, "Could not publish progress for job {Id}", job.Id);
+            }
+        }
+
         foreach (var commitRef in ordered)
         {
             ct.ThrowIfCancellationRequested();
@@ -198,6 +224,7 @@ public class GitHubCrawlJobHandler : IJobHandler
                 if (IsNoiseChange(file))
                 {
                     repoSkipped++;
+                    if (repoChecked - lastReportedChecked >= 25) await ReportProgressAsync();
                     continue;
                 }
 
@@ -206,6 +233,7 @@ public class GitHubCrawlJobHandler : IJobHandler
                 if (existing != null)
                 {
                     repoSkipped++;
+                    if (repoChecked - lastReportedChecked >= 25) await ReportProgressAsync();
                     continue; // already seen this exact commit+file
                 }
 
@@ -262,6 +290,8 @@ public class GitHubCrawlJobHandler : IJobHandler
                     $"{(analysis.RequiresAttention ? "ATTENTION" : "noted")}: {analysis.ChangeType}/{analysis.Severity}" +
                     (related.Count > 0 ? $" — {related.Count} related Azure Update(s)" : ""),
                     ct, durationMs: sw.ElapsedMilliseconds);
+
+                await ReportProgressAsync();
             }
 
             // Commit fully processed → safe to advance cursor to it.
