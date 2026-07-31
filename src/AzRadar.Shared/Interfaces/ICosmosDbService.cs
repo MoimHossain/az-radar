@@ -33,14 +33,6 @@ public interface ICosmosDbService
     /// </summary>
     Task<bool> TryStoreFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Gets the most recent feed item date for a given source, used to determine
-    /// how far back to look on subsequent crawls.
-    /// </summary>
-    Task<DateTimeOffset?> GetLatestFeedItemDateAsync(
-        string source,
-        CancellationToken cancellationToken = default);
-
     // Watchlist operations
     Task<WatchlistItem> CreateWatchlistItemAsync(WatchlistItem item, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<WatchlistItem>> GetWatchlistAsync(CancellationToken cancellationToken = default);

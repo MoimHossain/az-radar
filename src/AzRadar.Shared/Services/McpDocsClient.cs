@@ -119,35 +119,6 @@ public class McpDocsClient : IMcpDocsClient, IAsyncDisposable
         }
     }
 
-    public async Task<string> FetchDocAsync(
-        string url, CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("MCP docs fetch: {Url}", url);
-
-        try
-        {
-            var client = await GetClientAsync(cancellationToken);
-
-            var result = await client.CallToolAsync("microsoft_docs_fetch",
-                new Dictionary<string, object?> { ["url"] = url },
-                cancellationToken: cancellationToken);
-
-            var aiContents = result.Content.ToAIContents();
-            var content = string.Join("\n", aiContents
-                .OfType<TextContent>()
-                .Where(c => !string.IsNullOrEmpty(c.Text))
-                .Select(c => c.Text));
-
-            _logger.LogInformation("MCP fetch returned {Length} chars for: {Url}", content.Length, url);
-            return content;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "MCP fetch failed for: {Url}", url);
-            return string.Empty;
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (_client is IAsyncDisposable disposable)

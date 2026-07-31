@@ -107,9 +107,9 @@ az-radar/
 ├── src/
 │   ├── AzRadar.Shared/           # Shared library (models, interfaces, services)
 │   │   ├── Configuration/        # CosmosDbSettings, OpenAiSettings
-│   │   ├── Interfaces/           # IJobHandler, IFeedReader, ILlmAnalyzer, ICosmosDbService
+│   │   ├── Interfaces/           # IJobHandler, IMrcMcpClient, ILlmAnalyzer, ICosmosDbService
 │   │   ├── Models/               # CrawlJob, FeedItem, LlmAnalysis
-│   │   └── Services/             # CosmosDbService, AzureUpdatesFeedReader,
+│   │   └── Services/             # CosmosDbService, MrcMcpClient,
 │   │                             # LlmAnalyzerService, AzureUpdatesJobHandler
 │   ├── AzRadar.Api/              # .NET 8 Minimal API + static SPA host
 │   ├── AzRadar.JobHost/          # Background worker (Change Feed consumer)

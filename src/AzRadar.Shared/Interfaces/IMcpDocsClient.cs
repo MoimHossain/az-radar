@@ -13,13 +13,6 @@ public interface IMcpDocsClient
     Task<IReadOnlyList<McpSearchResult>> SearchDocsAsync(
         string query,
         CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Fetch the full content of a Microsoft Learn page.
-    /// </summary>
-    Task<string> FetchDocAsync(
-        string url,
-        CancellationToken cancellationToken = default);
 }
 
 public record McpSearchResult(string Title, string Url, string Snippet)

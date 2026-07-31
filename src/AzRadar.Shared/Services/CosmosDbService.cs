@@ -244,22 +244,6 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
-    public async Task<DateTimeOffset?> GetLatestFeedItemDateAsync(
-        string source, CancellationToken cancellationToken = default)
-    {
-        var query = FeedItems.GetItemQueryIterator<DateTimeOffset?>(
-            new QueryDefinition(
-                "SELECT VALUE MAX(c.publishDate) FROM c WHERE c.source = @source")
-                .WithParameter("@source", source));
-
-        if (query.HasMoreResults)
-        {
-            var response = await query.ReadNextAsync(cancellationToken);
-            return response.FirstOrDefault();
-        }
-        return null;
-    }
-
     // --- Watchlist operations ---
 
     public async Task<WatchlistItem> CreateWatchlistItemAsync(

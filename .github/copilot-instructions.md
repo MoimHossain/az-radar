@@ -98,7 +98,7 @@ Same applies to `moimhossain/az-radar-jobhost`.
 | `src/AzRadar.Shared/Interfaces/IJobHandler.cs` | Job handler contract — implement to add new job types |
 | `src/AzRadar.Shared/Services/AzureUpdatesJobHandler.cs` | Azure Updates RSS feed handler |
 | `src/AzRadar.Shared/Services/LlmAnalyzerService.cs` | Azure OpenAI GPT-4o analysis |
-| `src/AzRadar.Shared/Services/AzureUpdatesFeedReader.cs` | RSS feed reader (URL: microsoft.com/releasecommunications) |
+| `src/AzRadar.Shared/Services/MrcMcpClient.cs` | Azure Updates source via MRC MCP server |
 | `src/AzRadar.Shared/Services/CosmosDbService.cs` | All Cosmos DB operations |
 | `src/AzRadar.Shared/ServiceCollectionExtensions.cs` | DI registration for all shared services |
 | `src/AzRadar.Api/Program.cs` | API endpoints + SPA hosting |
