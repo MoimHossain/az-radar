@@ -23,6 +23,10 @@ var cosmosDb = app.Services.GetRequiredService<ICosmosDbService>();
 await cosmosDb.InitializeAsync();
 
 // Health endpoint so App Service knows the container is alive
-app.MapGet("/", () => Results.Ok(new { status = "running", role = "job-host", timestamp = DateTimeOffset.UtcNow }));
+app.MapGet("/", () => Results.Ok(new
+{
+    status = "running", role = "job-host", timestamp = DateTimeOffset.UtcNow,
+    azureUpdatesIngestion = "catalog-rss-v2", supportsSkipLlmAnalysis = true, supportsJobHeartbeat = true
+}));
 
 app.Run();

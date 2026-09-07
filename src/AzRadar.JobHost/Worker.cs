@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using AzRadar.Shared.Configuration;
 using AzRadar.Shared.Interfaces;
 using AzRadar.Shared.Models;
+using AzRadar.Shared.Services;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
 
@@ -14,10 +15,8 @@ namespace AzRadar.JobHost;
 /// <remarks>
 /// The Change Feed Processor will not deliver the next batch until the change delegate returns,
 /// so running a handler inline inside that delegate makes one slow job block every subsequent
-/// job (head-of-line blocking) — a long GitHub crawl would leave later jobs stuck at "pending"
-/// indefinitely. The delegate therefore only claims jobs (which is fast, and immediately flips
-/// the job to "processing" so the UI reflects it) and hands execution to a bounded pool of
-/// background executors.
+/// job (head-of-line blocking). The delegate queues pending jobs; executors claim them
+/// only when ready to start so jobs waiting for capacity are not mistaken for active workers.
 /// </remarks>
 public class ChangeFeedWorker : BackgroundService
 {
@@ -27,6 +26,7 @@ public class ChangeFeedWorker : BackgroundService
     private readonly ICosmosDbService _cosmosDb;
     private readonly IEnumerable<IJobHandler> _handlers;
     private readonly int _maxConcurrentJobs;
+    private readonly JobHeartbeatRunner _heartbeat;
     private readonly Channel<CrawlJob> _queue =
         Channel.CreateUnbounded<CrawlJob>(new UnboundedChannelOptions { SingleReader = false });
     private ChangeFeedProcessor? _processor;
@@ -37,7 +37,8 @@ public class ChangeFeedWorker : BackgroundService
         IOptions<CosmosDbSettings> settings,
         ICosmosDbService cosmosDb,
         IEnumerable<IJobHandler> handlers,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        JobHeartbeatRunner heartbeat)
     {
         _logger = logger;
         _cosmosClient = cosmosClient;
@@ -45,6 +46,7 @@ public class ChangeFeedWorker : BackgroundService
         _cosmosDb = cosmosDb;
         _handlers = handlers;
         _maxConcurrentJobs = Math.Max(1, configuration.GetValue("JobHost:MaxConcurrentJobs", 2));
+        _heartbeat = heartbeat;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -107,7 +109,7 @@ public class ChangeFeedWorker : BackgroundService
         {
             await foreach (var job in _queue.Reader.ReadAllAsync(stoppingToken))
             {
-                await ExecuteJobAsync(job, stoppingToken);
+                await ClaimAndExecuteAsync(job, stoppingToken);
             }
         }
         catch (OperationCanceledException)
@@ -131,7 +133,7 @@ public class ChangeFeedWorker : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
-    private async Task HandleChangesAsync(
+    private Task HandleChangesAsync(
         ChangeFeedProcessorContext context,
         IReadOnlyCollection<CrawlJob> changes,
         CancellationToken cancellationToken)
@@ -149,16 +151,25 @@ public class ChangeFeedWorker : BackgroundService
                 continue;
             }
 
-            await ClaimAndEnqueueAsync(job, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_queue.Writer.TryWrite(job))
+                throw new InvalidOperationException($"Job host is shutting down; could not queue job {job.Id}.");
         }
+        return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Claims a pending job and queues it for background execution. Runs on the Change Feed
-    /// delegate, so it must stay fast — no handler work happens here.
+    /// Claims only when an executor is available, using a fresh ETag rather than a queued snapshot.
     /// </summary>
-    private async Task ClaimAndEnqueueAsync(CrawlJob job, CancellationToken cancellationToken)
+    private async Task ClaimAndExecuteAsync(CrawlJob queuedJob, CancellationToken cancellationToken)
     {
+        var job = await _cosmosDb.GetCrawlJobAsync(queuedJob.Id, cancellationToken);
+        if (job == null || job.Status != CrawlJobStatus.Pending)
+        {
+            _logger.LogDebug("Queued job {Id} is no longer pending", queuedJob.Id);
+            return;
+        }
+
         // Find the handler for this job type
         var handler = _handlers.FirstOrDefault(h => h.JobType == job.JobType);
         if (handler == null)
@@ -192,17 +203,10 @@ public class ChangeFeedWorker : BackgroundService
         }
 
         _logger.LogInformation(
-            "Job {Id} ({Type}) claimed, status now {Status}; queued for execution",
+            "Job {Id} ({Type}) claimed, status now {Status}; starting execution",
             job.Id, job.JobType, job.Status);
 
-        if (!_queue.Writer.TryWrite(job))
-        {
-            _logger.LogError("Could not queue job {Id} for execution; marking failed", job.Id);
-            job.Status = CrawlJobStatus.Failed;
-            job.Error = "Job host is shutting down; job was not executed.";
-            job.CompletedAt = DateTimeOffset.UtcNow;
-            await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
-        }
+        await ExecuteJobAsync(job, cancellationToken);
     }
 
     private async Task ExecuteJobAsync(CrawlJob job, CancellationToken cancellationToken)
@@ -222,7 +226,7 @@ public class ChangeFeedWorker : BackgroundService
 
         try
         {
-            await handler.HandleAsync(job, cancellationToken);
+            await _heartbeat.RunAsync(job, ct => handler.HandleAsync(job, ct), cancellationToken);
 
             job.Status = CrawlJobStatus.Completed;
             job.CompletedAt = DateTimeOffset.UtcNow;

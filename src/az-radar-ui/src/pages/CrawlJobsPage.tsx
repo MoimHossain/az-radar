@@ -25,6 +25,7 @@ import {
   Field,
   Select,
   Tooltip,
+  Checkbox,
 } from "@fluentui/react-components";
 import {
   AddRegular,
@@ -36,8 +37,6 @@ import {
 } from "@fluentui/react-icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { api, type CrawlJob, type JobDiagnosticEntry } from "../api/client";
-
-const STALE_THRESHOLD_MINUTES = 10;
 
 const useStyles = makeStyles({
   container: {
@@ -196,26 +195,21 @@ function statusColor(
 }
 
 function isStaleJob(job: CrawlJob): boolean {
-  if (job.status !== "pending" && job.status !== "processing") return false;
-  const created = new Date(job.createdAt).getTime();
-  const now = Date.now();
-  return now - created > STALE_THRESHOLD_MINUTES * 60 * 1000;
+  return job.status === "processing" && job.isStale === true;
 }
 
 /**
- * A job can be deleted without confirmation when it is in a terminal state, or when it has
- * been stuck in a non-terminal state long enough to be considered abandoned.
+ * Missing heartbeats do not prove a worker has stopped; active jobs always need confirmation.
  */
 function isDeletable(job: CrawlJob): boolean {
   return (
     job.status === "completed" ||
-    job.status === "failed" ||
-    isStaleJob(job)
+    job.status === "failed"
   );
 }
 
 /**
- * Any job may be force-deleted, but a still-active job (pending/processing and not yet stale)
+ * Any job may be force-deleted, but a still-active job (pending/processing)
  * requires explicit confirmation since the JobHost may still be working on it.
  */
 function needsForceConfirm(job: CrawlJob): boolean {
@@ -269,6 +263,7 @@ export function CrawlJobsPage() {
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [jobType, setJobType] = useState("azure-updates");
+  const [skipLlmAnalysis, setSkipLlmAnalysis] = useState(false);
 
   const [searchText, setSearchText] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
@@ -315,7 +310,12 @@ export function CrawlJobsPage() {
     setLoading(true);
     api
       .getCrawlJobs()
-      .then(setJobs)
+      .then((latest) => {
+        setJobs(latest);
+        setSelectedJob((current) =>
+          current ? latest.find((job) => job.id === current.id) ?? current : null
+        );
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -329,7 +329,8 @@ export function CrawlJobsPage() {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      await api.createCrawlJob(jobType);
+      await api.createCrawlJob(jobType, jobType === "azure-updates" && skipLlmAnalysis);
+      setSkipLlmAnalysis(false);
       setDialogOpen(false);
       loadJobs();
     } catch (err) {
@@ -424,6 +425,15 @@ export function CrawlJobsPage() {
                       <option value="blast-radius-scan">Blast Radius Scan</option>
                     </Select>
                   </Field>
+                  {jobType === "azure-updates" && (
+                    <Field hint="Import source content without AI analysis. Unchanged backfilled posts will not be analysed on later normal crawls; new or revised posts will.">
+                      <Checkbox
+                        label="Historical backfill: skip LLM analysis"
+                        checked={skipLlmAnalysis}
+                        onChange={(_, data) => setSkipLlmAnalysis(data.checked === true)}
+                      />
+                    </Field>
+                  )}
                 </DialogContent>
                 <DialogActions>
                   <DialogTrigger disableButtonEnhancement>
@@ -543,13 +553,18 @@ export function CrawlJobsPage() {
                         </div>
                         {stale && (
                           <Tooltip
-                            content={`Unresponsive for ${formatAge(job.createdAt)} — safe to delete`}
+                            content={`No heartbeat since ${job.lastHeartbeatAt ? new Date(job.lastHeartbeatAt).toLocaleString() : "unknown"}. The worker may have stopped or lost connectivity; investigate before deleting.`}
                             relationship="description"
                           >
                             <span className={styles.staleIndicator}>
                               <WarningRegular fontSize={14} />
                               <Text size={100}>stale</Text>
                             </span>
+                          </Tooltip>
+                        )}
+                        {job.status === "processing" && job.lastHeartbeatAt && !stale && (
+                          <Tooltip content={`Last heartbeat ${formatRelativeTime(job.lastHeartbeatAt)}`} relationship="description">
+                            <Text size={100}>alive</Text>
                           </Tooltip>
                         )}
                       </div>
@@ -569,7 +584,7 @@ export function CrawlJobsPage() {
                     <TableCell>
                       {job.result ? (
                         <Text size={200}>
-                          {job.result.newItems} new / {job.result.skippedItems}{" "}
+                          {job.result.newItems} new / {job.result.updatedItems ?? 0} updated / {job.result.skippedItems}{" "}
                           skipped / {job.result.totalChecked} total
                         </Text>
                       ) : job.error ? (
@@ -695,9 +710,22 @@ export function CrawlJobsPage() {
                     Result Summary
                   </Text>
                   <Text size={200}>
-                    {selectedJob.result.newItems} new / {selectedJob.result.skippedItems} skipped / {selectedJob.result.totalChecked} total checked
+                    {selectedJob.result.newItems} new / {selectedJob.result.updatedItems ?? 0} updated / {selectedJob.result.skippedItems} skipped / {selectedJob.result.totalChecked} total checked
                   </Text>
                 </div>
+              )}
+              {selectedJob.skipLlmAnalysis && (
+                <Text>Historical backfill: LLM analysis disabled for this job.</Text>
+              )}
+              {selectedJob.status === "processing" && (
+                <Text>
+                  Heartbeat: {selectedJob.lastHeartbeatAt
+                    ? formatRelativeTime(selectedJob.lastHeartbeatAt)
+                    : "not available for this legacy job"}.
+                  {" "}Last progress: {selectedJob.lastProgressAt
+                    ? formatRelativeTime(selectedJob.lastProgressAt)
+                    : "not reported yet"}.
+                </Text>
               )}
               {selectedJob.error && (
                 <div className={styles.resultSummary}>

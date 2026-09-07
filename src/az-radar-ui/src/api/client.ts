@@ -1,9 +1,13 @@
 export interface CrawlJob {
   id: string;
   jobType: string;
+  skipLlmAnalysis?: boolean;
   status: string;
   createdAt: string;
   startedAt?: string;
+  lastHeartbeatAt?: string;
+  lastProgressAt?: string;
+  isStale?: boolean;
   completedAt?: string;
   result?: CrawlJobResult;
   error?: string;
@@ -14,6 +18,7 @@ export interface CrawlJobResult {
   newItems: number;
   totalChecked: number;
   skippedItems: number;
+  updatedItems?: number;
 }
 
 export interface FeedItem {
@@ -26,6 +31,7 @@ export interface FeedItem {
   categories: string[];
   rawContent: string;
   llmAnalysis?: LlmAnalysis;
+  llmAnalysisSkipped?: boolean;
   firstSeenAt: string;
   crawlJobId: string;
 }
@@ -230,10 +236,10 @@ export const api = {
 
   getCrawlJob: (id: string) => apiFetch<CrawlJob>(`/api/crawl-jobs/${id}`),
 
-  createCrawlJob: (jobType: string) =>
+  createCrawlJob: (jobType: string, skipLlmAnalysis = false) =>
     apiFetch<CrawlJob>("/api/crawl-jobs", {
       method: "POST",
-      body: JSON.stringify({ jobType }),
+      body: JSON.stringify({ jobType, skipLlmAnalysis }),
     }),
 
   deleteCrawlJob: (id: string) =>

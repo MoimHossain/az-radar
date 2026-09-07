@@ -11,14 +11,15 @@ RUN npm run build
 # --- Stage 2: Build .NET API ---
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS api-build
 ARG CACHE_BUST=1
+ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json
 WORKDIR /src
 COPY AzRadar.slnx ./
 COPY src/AzRadar.Shared/AzRadar.Shared.csproj src/AzRadar.Shared/
 COPY src/AzRadar.Api/AzRadar.Api.csproj src/AzRadar.Api/
-RUN dotnet restore src/AzRadar.Api/AzRadar.Api.csproj
+RUN dotnet restore src/AzRadar.Api/AzRadar.Api.csproj --source "$NUGET_SOURCE"
 COPY src/AzRadar.Shared/ src/AzRadar.Shared/
 COPY src/AzRadar.Api/ src/AzRadar.Api/
-RUN dotnet publish src/AzRadar.Api/AzRadar.Api.csproj -c Release -o /app/publish
+RUN dotnet publish src/AzRadar.Api/AzRadar.Api.csproj --no-restore -c Release -o /app/publish
 
 # --- Stage 3: Runtime ---
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime

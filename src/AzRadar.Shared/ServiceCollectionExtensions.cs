@@ -45,10 +45,14 @@ public static class ServiceCollectionExtensions
             return client.GetChatClient(settings.DeploymentName);
         });
         services.AddSingleton<ILlmAnalyzer, LlmAnalyzerService>();
+        services.AddSingleton<JobHeartbeatRunner>();
 
         // MCP Clients
         services.AddSingleton<IMcpDocsClient, McpDocsClient>();
         services.AddSingleton<IMrcMcpClient, MrcMcpClient>();
+        services.AddSingleton<IAzureUpdatesSource>(sp => new AzureUpdatesSource(
+            new HttpClient { Timeout = TimeSpan.FromMinutes(2) },
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AzureUpdatesSource>>()));
 
         // GitHub REST client (Change Radar)
         services.AddSingleton<IGitHubClient, GitHubClient>();

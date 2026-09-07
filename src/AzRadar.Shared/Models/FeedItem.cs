@@ -28,6 +28,10 @@ public class FeedItem
     [JsonPropertyName("rawContent")]
     public string RawContent { get; set; } = string.Empty;
 
+    [JsonPropertyName("rawContentGzip")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RawContentGzip { get; set; }
+
     [JsonPropertyName("llmAnalysis")]
     public LlmAnalysis? LlmAnalysis { get; set; }
 
@@ -36,4 +40,18 @@ public class FeedItem
 
     [JsonPropertyName("crawlJobId")]
     public string CrawlJobId { get; set; } = string.Empty;
+
+    [JsonPropertyName("sourceContentHash")]
+    public string? SourceContentHash { get; set; }
+
+    [JsonPropertyName("llmAnalysisSkipped")]
+    public bool LlmAnalysisSkipped { get; set; }
+
+    [JsonPropertyName("sourceModifiedAt")]
+    public DateTimeOffset? SourceModifiedAt { get; set; }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    internal FeedItem CopyForStorage() => (FeedItem)MemberwiseClone();
 }

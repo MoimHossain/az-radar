@@ -29,7 +29,7 @@ The result: reactive firefighting, missed deadlines, and production incidents.
 
 Phase 1 focuses on **Azure Updates feed ingestion with LLM analysis**:
 
-- Reads the Azure Updates RSS feed
+- Enumerates the complete Azure Updates catalog and reconciles it with the RSS feed
 - Uses Azure OpenAI (GPT-4o) to classify each update (change type, severity, affected services, action required, deadlines, migration path, effort estimate)
 - Deduplicates feed items using SHA256 hashing
 - Stores everything in Cosmos DB
@@ -90,13 +90,75 @@ All authentication via User-Assigned Managed Identity (UAMI) — zero keys
 3. JobHost monitors `crawl-jobs` via Cosmos DB Change Feed Processor
 4. Change Feed triggers: JobHost claims the job (ETag-based optimistic concurrency)
 5. **AzureUpdatesJobHandler:**
-   1. Determines lookback window (last 7 days on first run, or since latest known item)
-   2. Fetches the Azure Updates RSS feed
-   3. Deduplicates against existing items via SHA256 hash of `source + guid`
-   4. Runs LLM analysis on each new item via Azure OpenAI GPT-4o
-   5. Stores enriched feed items to Cosmos DB
+   1. Reads every page of the public Release Communications Azure catalog, with full descriptions
+   2. Reads Azure Updates RSS and reconciles its IDs and modification dates with the catalog
+   3. Checks enumeration completeness against the catalog's reported count (no lookback or item cap)
+   4. Deduplicates by the existing SHA256 ID and detects revised source content using a separate hash
+   5. Analyzes new/revised posts via Azure OpenAI and stores them in Cosmos DB; revisions use ETag-conditional replacement
 6. Job status updated to `completed` with result summary
 7. Dashboard auto-refreshes to show new items with AI analysis
+
+### Azure Updates coverage
+
+The ingestion sources are the public [Azure Updates catalog](https://www.microsoft.com/releasecommunications/api/v2/azure/)
+and [RSS feed](https://www.microsoft.com/releasecommunications/api/v2/azure/rss).
+The catalog is traversed in stable ID order using every `@odata.nextLink`, without `$top`
+(which limits the total OData result, not just the page size). Front Door continuation
+URLs are normalized back to the public endpoint, preserving their query parameters.
+RSS-only posts and posts with newer RSS modification dates are fetched individually
+for full descriptions. Processing then starts with the most recently modified posts.
+
+Do not use one unfiltered `get_recent_azure_updates` MCP call as a crawler. The live
+MCP schema uses `skip`, not `top`, returns 50 items per page in ID order rather than
+date order, and truncates list descriptions. This previously caused repeated crawls
+of the same 50 historical posts. The MCP client is no longer the ingestion dependency.
+
+Every successful crawl covers the union exposed by both sources during that run.
+HTTP errors, invalid payloads, missing pages, repeated IDs/continuations, changed
+catalog counts, and stale RSS detail responses fail the job rather than reporting
+partial coverage as success. The job's diagnostics record catalog, RSS, and unique
+item counts. Results distinguish **new**, **updated**, and **skipped** posts.
+Previously imported items without a content hash are refreshed once, keeping their
+original document IDs and first-seen timestamps. Failed AI analyses are retried on
+subsequent crawls even when the source content is unchanged.
+
+The first complete crawl is a full historical backfill. To avoid LLM cost, select
+**Historical backfill: skip LLM analysis** when creating the Azure Updates job, or
+POST `{"jobType":"azure-updates","skipLlmAnalysis":true}` to `/api/crawl-jobs`.
+This flag applies only to that job and defaults to false. It makes zero LLM calls,
+stores full source content without fabricated AI classifications, and marks records
+with `llmAnalysisSkipped=true`. Normal crawls skip those records while their source
+content is unchanged; newly discovered or revised posts still receive normal analysis.
+Without this flag, the first run can require thousands of LLM calls.
+Later crawls still enumerate the full catalog,
+but analyze only new/revised posts or prior failed analyses. If a crawl fails, rerun
+it: already persisted items remain and are reconciled again. Run crawls regularly;
+RSS is a rolling window (200 entries observed), not an archive, and upstream
+publication/cache delays or posts removed before any crawl cannot be recovered or
+guaranteed by this application. No automatic polling schedule is added by this change.
+
+Large source bodies are stored with lossless GZip compression and transparently
+decoded by the API. Summaries are bounded previews; the complete source remains
+in `rawContent` when read. Content that still exceeds the storage safety limits
+fails explicitly rather than being silently discarded.
+
+### Job liveness
+
+Executors claim jobs only when they have capacity to start them. Waiting jobs stay
+`pending`. Every executing job writes `lastHeartbeatAt` immediately and every
+30 seconds, including during slow source requests or LLM calls. Progress writes
+record `lastProgressAt` separately. Both use conditional Cosmos patches, so progress
+cannot erase a concurrent heartbeat or a previous attempt overwrite a newer one.
+
+A processing job is marked stale only after **two minutes without a heartbeat**,
+not because it has been running for a long time. The API supplies this liveness
+state to the UI. Missing heartbeats mean the worker may have stopped or lost
+connectivity, not that deletion is safe: deleting any active job requires confirmation.
+Legacy jobs without heartbeat data show unknown liveness rather than being presumed
+stalled. A live heartbeat confirms worker liveness, while the separate progress
+timestamp helps diagnose work that is alive but not advancing. Failed heartbeat
+writes cancel the executing handler and surface a job failure; no automatic retry
+or duplicate execution is started.
 
 ---
 
@@ -107,15 +169,15 @@ az-radar/
 ├── src/
 │   ├── AzRadar.Shared/           # Shared library (models, interfaces, services)
 │   │   ├── Configuration/        # CosmosDbSettings, OpenAiSettings
-│   │   ├── Interfaces/           # IJobHandler, IMrcMcpClient, ILlmAnalyzer, ICosmosDbService
+│   │   ├── Interfaces/           # IJobHandler, IAzureUpdatesSource, ILlmAnalyzer, ICosmosDbService
 │   │   ├── Models/               # CrawlJob, FeedItem, LlmAnalysis
-│   │   └── Services/             # CosmosDbService, MrcMcpClient,
+│   │   └── Services/             # CosmosDbService, AzureUpdatesSource,
 │   │                             # LlmAnalyzerService, AzureUpdatesJobHandler
 │   ├── AzRadar.Api/              # .NET 8 Minimal API + static SPA host
 │   ├── AzRadar.JobHost/          # Background worker (Change Feed consumer)
 │   └── az-radar-ui/              # React + TypeScript + FluentUI v9 dashboard
 ├── tests/
-│   ├── AzRadar.Shared.Tests/     # 24 unit tests (feed parsing, dedup, job handler)
+│   ├── AzRadar.Shared.Tests/     # Source coverage, parsing, dedup, and job handler tests
 │   └── AzRadar.Api.Tests/        # API integration tests (placeholder)
 ├── Dockerfile.api                # Multi-stage: .NET API + React frontend
 ├── Dockerfile.jobhost            # Multi-stage: .NET background worker
@@ -343,7 +405,7 @@ az webapp restart --name az-radar-jobhost --resource-group az-radar-rg
 
 | Source | What It Catches | Status |
 |---|---|---|
-| Azure Updates RSS | New features, deprecations, retirements, previews | ✅ Implemented |
+| Azure Updates catalog + RSS | Full catalog, RSS reconciliation, and revised announcements | ✅ Implemented |
 | Azure Service Health | Maintenance windows, health advisories | 🔜 Phase 2 |
 | Azure Advisor | Deprecation recommendations, best practices | 🔜 Phase 2 |
 | Azure Resource Graph | Resource configuration drift | ✅ Implemented |

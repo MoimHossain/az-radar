@@ -10,6 +10,9 @@ public class CrawlJob
     [JsonPropertyName("jobType")]
     public string JobType { get; set; } = string.Empty;
 
+    [JsonPropertyName("skipLlmAnalysis")]
+    public bool SkipLlmAnalysis { get; set; }
+
     [JsonPropertyName("status")]
     public string Status { get; set; } = CrawlJobStatus.Pending;
 
@@ -18,6 +21,17 @@ public class CrawlJob
 
     [JsonPropertyName("startedAt")]
     public DateTimeOffset? StartedAt { get; set; }
+
+    [JsonPropertyName("lastHeartbeatAt")]
+    public DateTimeOffset? LastHeartbeatAt { get; set; }
+
+    [JsonPropertyName("lastProgressAt")]
+    public DateTimeOffset? LastProgressAt { get; set; }
+
+    [JsonPropertyName("isStale")]
+    public bool IsStale => Status == CrawlJobStatus.Processing &&
+        LastHeartbeatAt.HasValue &&
+        DateTimeOffset.UtcNow - LastHeartbeatAt.Value > TimeSpan.FromMinutes(2);
 
     [JsonPropertyName("completedAt")]
     public DateTimeOffset? CompletedAt { get; set; }
@@ -45,6 +59,9 @@ public class CrawlJobResult
 
     [JsonPropertyName("skippedItems")]
     public int SkippedItems { get; set; }
+
+    [JsonPropertyName("updatedItems")]
+    public int UpdatedItems { get; set; }
 }
 
 public static class CrawlJobStatus

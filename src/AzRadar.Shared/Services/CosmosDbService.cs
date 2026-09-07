@@ -143,27 +143,49 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task<CrawlJob> UpdateCrawlJobAsync(CrawlJob job, CancellationToken cancellationToken = default)
     {
-        var response = await CrawlJobs.ReplaceItemAsync(
-            job, job.Id, new PartitionKey(job.Id),
-            cancellationToken: cancellationToken);
+        var progressAt = DateTimeOffset.UtcNow;
+        // Heartbeat and progress writers own different fields; neither replaces the document.
+        var response = await CrawlJobs.PatchItemAsync<CrawlJob>(
+            job.Id, new PartitionKey(job.Id),
+            [
+                PatchOperation.Set("/status", job.Status),
+                PatchOperation.Set("/result", job.Result),
+                PatchOperation.Set("/error", job.Error),
+                PatchOperation.Set("/completedAt", job.CompletedAt),
+                PatchOperation.Set("/lastProgressAt", progressAt)
+            ],
+            new PatchItemRequestOptions
+            {
+                FilterPredicate = $"FROM c WHERE c.attemptCount = {job.AttemptCount} AND c.status IN ('pending', 'processing')"
+            }, cancellationToken);
         var updated = response.Resource;
         updated.ETag = response.ETag;
         return updated;
     }
 
+    public async Task HeartbeatCrawlJobAsync(string id, int attemptCount, DateTimeOffset timestamp,
+        CancellationToken cancellationToken = default)
+    {
+        await CrawlJobs.PatchItemAsync<CrawlJob>(id, new PartitionKey(id),
+            [PatchOperation.Set("/lastHeartbeatAt", timestamp)],
+            new PatchItemRequestOptions
+            {
+                FilterPredicate = $"FROM c WHERE c.status = 'processing' AND c.attemptCount = {attemptCount}"
+            }, cancellationToken);
+    }
+
     public async Task<bool> TryClaimJobAsync(CrawlJob job, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(job.ETag))
+            throw new InvalidOperationException("Claiming a job requires its current ETag.");
         try
         {
             job.Status = CrawlJobStatus.Processing;
             job.StartedAt = DateTimeOffset.UtcNow;
+            job.LastHeartbeatAt = job.StartedAt;
             job.AttemptCount++;
 
-            var options = new ItemRequestOptions();
-            if (!string.IsNullOrEmpty(job.ETag))
-            {
-                options.IfMatchEtag = job.ETag;
-            }
+            var options = new ItemRequestOptions { IfMatchEtag = job.ETag };
 
             var response = await CrawlJobs.ReplaceItemAsync(
                 job, job.Id, new PartitionKey(job.Id),
@@ -200,7 +222,9 @@ public class CosmosDbService : ICosmosDbService
         {
             var response = await FeedItems.ReadItemAsync<FeedItem>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
-            return response.Resource;
+            var item = response.Resource;
+            item.ETag = response.ETag;
+            return FeedItemContentCodec.Decode(item);
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
@@ -224,7 +248,7 @@ public class CosmosDbService : ICosmosDbService
         while (query.HasMoreResults)
         {
             var response = await query.ReadNextAsync(cancellationToken);
-            results.AddRange(response);
+            results.AddRange(response.Select(FeedItemContentCodec.Decode));
         }
         return results;
     }
@@ -234,12 +258,29 @@ public class CosmosDbService : ICosmosDbService
         try
         {
             await FeedItems.CreateItemAsync(
-                item, new PartitionKey(item.Id), cancellationToken: cancellationToken);
+                FeedItemContentCodec.Encode(item), new PartitionKey(item.Id), cancellationToken: cancellationToken);
             return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
         {
             _logger.LogDebug("Feed item {Id} already exists, skipping", item.Id);
+            return false;
+        }
+    }
+
+    public async Task<bool> TryReplaceFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(item.ETag))
+            throw new InvalidOperationException("Replacing a feed item requires its current ETag.");
+        try
+        {
+            await FeedItems.ReplaceItemAsync(FeedItemContentCodec.Encode(item), item.Id, new PartitionKey(item.Id),
+                new ItemRequestOptions { IfMatchEtag = item.ETag }, cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
+        {
+            _logger.LogWarning("Feed item {Id} changed concurrently; retry the crawl", item.Id);
             return false;
         }
     }

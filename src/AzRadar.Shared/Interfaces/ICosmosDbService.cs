@@ -11,6 +11,8 @@ public interface ICosmosDbService
     Task<CrawlJob?> GetCrawlJobAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<CrawlJob>> GetCrawlJobsAsync(int limit = 50, CancellationToken cancellationToken = default);
     Task<CrawlJob> UpdateCrawlJobAsync(CrawlJob job, CancellationToken cancellationToken = default);
+    Task HeartbeatCrawlJobAsync(string id, int attemptCount, DateTimeOffset timestamp,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Attempts to claim a job by atomically setting status to "processing" using ETag.
@@ -32,6 +34,11 @@ public interface ICosmosDbService
     /// Returns true if the item was new and stored, false if it already existed.
     /// </summary>
     Task<bool> TryStoreFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces a changed source item only if its ETag still matches the version read.
+    /// </summary>
+    Task<bool> TryReplaceFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default);
 
     // Watchlist operations
     Task<WatchlistItem> CreateWatchlistItemAsync(WatchlistItem item, CancellationToken cancellationToken = default);

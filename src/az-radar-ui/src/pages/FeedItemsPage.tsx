@@ -763,7 +763,9 @@ export function FeedItemsPage() {
                       size={200}
                       style={{ color: tokens.colorNeutralForeground3 }}
                     >
-                      No AI analysis available for this item.
+                      {selectedItem.llmAnalysisSkipped
+                        ? "AI analysis was intentionally skipped during historical backfill."
+                        : "No AI analysis available for this item."}
                     </Text>
                   )}
 

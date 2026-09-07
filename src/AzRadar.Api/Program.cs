@@ -42,7 +42,11 @@ if (Directory.Exists(wwwrootPath))
 }
 
 // --- Health check ---
-app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
+app.MapGet("/api/health", () => Results.Ok(new
+{
+    status = "healthy", timestamp = DateTimeOffset.UtcNow,
+    azureUpdatesIngestion = "catalog-rss-v2", supportsSkipLlmAnalysis = true, supportsJobHeartbeat = true
+}));
 
 // --- LLM connectivity check ---
 // Performs a minimal chat completion so a deployment can verify the app can
@@ -91,9 +95,13 @@ app.MapGet("/api/health/llm", async (OpenAI.Chat.ChatClient chat, IOptions<OpenA
 // --- CrawlJob endpoints ---
 app.MapPost("/api/crawl-jobs", async (CreateCrawlJobRequest request, ICosmosDbService db) =>
 {
+    if (request.SkipLlmAnalysis && request.JobType != CrawlJobTypes.AzureUpdates)
+        return Results.BadRequest(new { error = "Skipping LLM analysis is supported only for Azure Updates backfills." });
+
     var job = new CrawlJob
     {
         JobType = request.JobType,
+        SkipLlmAnalysis = request.SkipLlmAnalysis,
         Status = CrawlJobStatus.Pending
     };
     var created = await db.CreateCrawlJobAsync(job);
@@ -473,7 +481,7 @@ if (Directory.Exists(wwwrootPath))
 app.Run();
 
 // --- Request DTOs ---
-public record CreateCrawlJobRequest(string JobType);
+public record CreateCrawlJobRequest(string JobType, bool SkipLlmAnalysis = false);
 public record CreateWatchlistRequest(
     string ServiceName,
     List<string>? Aliases = null,
