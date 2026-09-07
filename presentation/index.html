@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CloudLens: a browser presentation of the Azure lifecycle intelligence platform.">
+  <title>CloudLens | From Azure change to informed action</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; }
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: var(--cp-accent-soft); }
+    button { cursor: pointer; }
+    button:disabled { opacity: .35; cursor: default; }
+    a { color: var(--cp-link); text-underline-offset: 4px; }
+    a:hover { color: var(--cp-accent); }
+    :focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 5px; }
+    .shell { height: 100vh; height: 100dvh; display: grid; grid-template-rows: 52px minmax(0, 1fr) 64px; }
+    .topbar, .toolbar { display: flex; align-items: center; padding: 0 28px; gap: 14px; }
+    .topbar { border-bottom: 1px solid var(--cp-border); }
+    .brand { color: var(--cp-text); font-size: 18px; letter-spacing: -.04em; font-weight: 750; text-decoration: none; }
+    .brand::before { content: ""; display: inline-block; width: 11px; height: 11px; margin-right: 10px; border: 2px solid var(--cp-accent); border-radius: 50%; box-shadow: 0 0 0 4px var(--cp-accent-soft); }
+    .top-label { color: var(--cp-text-muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+    .spacer { flex: 1; }
+    .control { border: 1px solid var(--cp-border); border-radius: 10px; background: var(--cp-surface); color: var(--cp-text); padding: 8px 13px; font-size: 13px; line-height: 1.2; }
+    .control:hover:not(:disabled) { background: var(--cp-accent-soft); border-color: var(--cp-accent); }
+    .control.primary { background: var(--cp-accent); border-color: var(--cp-accent); color: var(--cp-accent-fg); }
+    .control.primary:hover { background: var(--cp-accent-hover); }
+    .viewport { position: relative; min-width: 0; overflow: hidden; }
+    .stage { position: absolute; width: 1600px; height: 900px; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(var(--scale, .5)); }
+    .slide { display: none; position: absolute; inset: 0; flex-direction: column; padding: 56px 84px 40px; background: var(--cp-bg-elevated); overflow: hidden; }
+    .slide.active { display: flex; }
+    .eyebrow { margin: 0 0 22px; font-size: 18px; font-weight: 650; letter-spacing: .16em; text-transform: uppercase; color: var(--cp-accent); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 98px; line-height: 1.02; letter-spacing: -.055em; font-weight: 650; margin-bottom: 32px; }
+    h2 { font-size: 58px; line-height: 1.1; letter-spacing: -.045em; font-weight: 650; max-width: 1230px; margin-bottom: 22px; }
+    h3 { font-size: 31px; line-height: 1.2; letter-spacing: -.025em; font-weight: 650; margin-bottom: 18px; }
+    p { font-size: 26px; line-height: 1.4; margin-bottom: 22px; }
+    .lead { font-size: 28px; color: var(--cp-text-muted); max-width: 1150px; line-height: 1.45; }
+    .muted { color: var(--cp-text-muted); }
+    .accent { color: var(--cp-accent); }
+    .small { font-size: 20px; line-height: 1.5; }
+    .micro { font-size: 17px; line-height: 1.45; }
+    .mono { font-family: Consolas, "Courier New", Courier, monospace; }
+    .slide-foot { margin-top: auto; padding-top: 24px; display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; color: var(--cp-text-soft); font-size: 17px; line-height: 1.4; }
+    .slide-foot > :last-child { text-align: right; flex-shrink: 0; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+    .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+    .four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; }
+    .grow { flex: 1; }
+    .space-top { margin-top: 24px; }
+    .card { border: 1px solid var(--cp-border); border-radius: 16px; padding: 28px; background: var(--cp-surface); }
+    .card p:last-child { margin-bottom: 0; }
+    .card.soft { background: var(--cp-accent-soft); border-color: var(--cp-accent); }
+    .pill { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--cp-border); border-radius: 10px; color: var(--cp-text-muted); font-size: 17px; letter-spacing: .025em; line-height: 1.2; }
+    .pill.accent-pill { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .pills { display: flex; gap: 12px; flex-wrap: wrap; }
+    .number { color: var(--cp-accent); font-size: 19px; letter-spacing: .08em; font-family: Consolas, "Courier New", Courier, monospace; margin-bottom: 24px; }
+    .rule-row { border-top: 1px solid var(--cp-border); padding: 21px 0; display: flex; align-items: baseline; gap: 26px; }
+    .rule-row:last-child { border-bottom: 1px solid var(--cp-border); }
+    .rule-row p { font-size: 24px; margin: 0; }
+    .rule-row strong { font-size: 25px; min-width: 155px; }
+    .hero { display: grid; grid-template-columns: 1.25fr .9fr; gap: 48px; align-items: center; flex: 1; }
+    .hero .lead { max-width: 760px; }
+    .radar { position: relative; width: 540px; height: 540px; margin: auto; }
+    .ring { position: absolute; border: 1px solid var(--cp-border-strong); border-radius: 50%; inset: 0; }
+    .ring.r2 { inset: 68px; }
+    .ring.r3 { inset: 136px; }
+    .ring.r4 { inset: 204px; background: var(--cp-accent-soft); border-color: var(--cp-accent); }
+    .radar::before, .radar::after { content: ""; position: absolute; background: var(--cp-border); }
+    .radar::before { top: 50%; left: -12px; right: -12px; height: 1px; }
+    .radar::after { left: 50%; top: -12px; bottom: -12px; width: 1px; }
+    .radar-center { position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; font-weight: 650; color: var(--cp-accent); letter-spacing: -.06em; }
+    .radar-dot { position: absolute; width: 14px; height: 14px; background: var(--cp-accent); border: 3px solid var(--cp-bg-elevated); border-radius: 50%; box-shadow: 0 0 0 8px var(--cp-accent-soft); z-index: 1; }
+    .radar-label { position: absolute; background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 10px; padding: 11px 17px; font-size: 19px; z-index: 2; }
+    .agenda-strip { display: flex; gap: 28px; border-top: 1px solid var(--cp-border); padding-top: 24px; margin-top: 34px; }
+    .agenda-strip span { font-size: 18px; color: var(--cp-text-muted); }
+    .agenda-strip b { color: var(--cp-text); font-size: 24px; margin-right: 8px; }
+    .question-card { border-top: 1px solid var(--cp-border-strong); padding: 24px 6px 0; }
+    .question-card h3 { font-size: 38px; line-height: 1.16; }
+    .question-card p { font-size: 24px; }
+    .statement { padding: 22px 28px; border-left: 4px solid var(--cp-accent); background: var(--cp-accent-soft); font-size: 26px; line-height: 1.35; }
+    .timeline { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 36px; }
+    .era { padding-top: 26px; border-top: 2px solid var(--cp-border-strong); position: relative; }
+    .era::before { content: ""; position: absolute; width: 12px; height: 12px; top: -7px; left: 0; border-radius: 50%; background: var(--cp-accent); }
+    .era .date { font-size: 52px; color: var(--cp-accent); letter-spacing: -.045em; margin-bottom: 22px; }
+    .era p { font-size: 24px; }
+    .source-icon { width: 52px; height: 52px; margin-bottom: 22px; display: grid; place-items: center; border: 1px solid var(--cp-accent); border-radius: 16px; font: 26px Consolas, "Courier New", monospace; color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .source-card { display: flex; flex-direction: column; }
+    .source-card.future { border-style: dashed; border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .source-card h3 { min-height: 74px; }
+    .source-card p { font-size: 23px; }
+    .source-card .pill { margin-top: auto; align-self: flex-start; }
+    .brief { border: 1px solid var(--cp-border); border-radius: 16px; background: var(--cp-surface); overflow: hidden; }
+    .brief-head { background: var(--cp-accent-soft); padding: 23px 30px; display: flex; align-items: center; justify-content: space-between; font-size: 24px; font-weight: 650; }
+    .brief-row { display: grid; grid-template-columns: 170px 1fr; gap: 20px; margin: 0 30px; padding: 24px 0; border-bottom: 1px solid var(--cp-border); font-size: 23px; }
+    .brief-row:last-child { border-bottom: 0; }
+    .brief-row span:first-child { color: var(--cp-text-muted); font-size: 19px; }
+    .big-question { font-size: 68px; line-height: 1.1; letter-spacing: -.045em; margin-bottom: 32px; }
+    .steps { counter-reset: step; }
+    .step { display: grid; grid-template-columns: 48px 1fr; gap: 22px; margin-bottom: 28px; }
+    .step::before { counter-increment: step; content: "0" counter(step); font: 20px Consolas, "Courier New", monospace; color: var(--cp-accent); padding-top: 6px; }
+    .step h3 { margin-bottom: 8px; font-size: 28px; }
+    .step p { font-size: 23px; margin-bottom: 0; }
+    .result-block { padding: 28px; background: var(--cp-surface); border-radius: 16px; border: 1px solid var(--cp-border); }
+    .result-block .large-label { font-size: 44px; line-height: 1.08; letter-spacing: -.04em; margin: 20px 0; }
+    .result-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 22px; }
+    .result-grid div { padding: 14px; border-top: 1px solid var(--cp-border); font-size: 23px; }
+    .calendar-views { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 26px; margin-top: 24px; }
+    .mini-timeline { display: flex; align-items: center; gap: 12px; margin: 26px 0; }
+    .mini-timeline i { height: 12px; width: 12px; border-radius: 50%; background: var(--cp-accent); }
+    .mini-timeline span { height: 1px; background: var(--cp-border-strong); flex: 1; }
+    .quarter-bars { display: flex; gap: 12px; margin: 24px 0; height: 24px; }
+    .quarter-bars span { background: var(--cp-accent-soft); border: 1px solid var(--cp-accent); flex: 1; border-radius: 4px; }
+    .month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; margin: 20px 0; }
+    .month-grid i { height: 20px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 3px; }
+    .month-grid i.mark { background: var(--cp-accent-soft); border-color: var(--cp-accent); }
+    .metric { padding: 24px 0; border-top: 1px solid var(--cp-border-strong); }
+    .metric strong { display: block; font-size: 100px; font-weight: 600; color: var(--cp-accent); line-height: 1; letter-spacing: -.065em; margin-bottom: 24px; }
+    .metric p { font-size: 26px; max-width: 320px; }
+    .ops-strip { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 30px; border: 1px solid var(--cp-border); border-radius: 16px; overflow: hidden; }
+    .ops-strip div { background: var(--cp-surface); padding: 26px; font-size: 22px; }
+    .ops-strip div + div { border-left: 1px solid var(--cp-border); }
+    .ops-strip b { display: block; font-size: 26px; margin-bottom: 8px; }
+    .architecture { display: grid; grid-template-columns: 1fr 1.8fr 1fr; gap: 28px; align-items: center; margin-top: 16px; }
+    .external-stack { display: flex; flex-direction: column; gap: 22px; }
+    .external-stack .card { padding: 23px; }
+    .external-stack h3 { font-size: 26px; margin-bottom: 8px; }
+    .external-stack p { font-size: 21px; margin: 0; }
+    .azure-boundary { padding: 24px; border: 1px solid var(--cp-accent); border-radius: 16px; background: var(--cp-accent-soft); }
+    .azure-boundary .eyebrow { font-size: 16px; margin-bottom: 20px; }
+    .azure-node { border: 1px solid var(--cp-border); border-radius: 10px; background: var(--cp-surface); padding: 16px 20px; font-size: 24px; }
+    .azure-node small { display: block; font-size: 18px; color: var(--cp-text-muted); margin-top: 6px; }
+    .flow-label { font-size: 17px; color: var(--cp-text-muted); text-align: center; padding: 9px 0; }
+    .boundary-list { padding: 0; margin: 0; list-style: none; }
+    .boundary-list li { padding: 16px 0; font-size: 25px; line-height: 1.3; border-top: 1px solid var(--cp-border); }
+    .boundary-list li:first-child { border-top: 0; }
+    .boundary-heading { display: flex; align-items: center; gap: 15px; margin-bottom: 22px; }
+    .boundary-heading h3 { margin: 0; }
+    .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: var(--cp-accent); }
+    .outline-dot { background: none; border: 2px solid var(--cp-border-strong); }
+    .demo-title { display: flex; justify-content: space-between; gap: 48px; align-items: flex-start; }
+    .demo-time { font-size: 108px; line-height: .85; letter-spacing: -.07em; color: var(--cp-accent); font-weight: 600; white-space: nowrap; }
+    .demo-time span { display: block; font-size: 18px; letter-spacing: .05em; text-align: right; margin-top: 18px; }
+    .demo-card { padding: 24px; display: flex; flex-direction: column; }
+    .demo-card .number { margin-bottom: 14px; }
+    .demo-card h3 { font-size: 26px; min-height: 62px; }
+    .demo-card p { font-size: 22px; }
+    .demo-card a { font-size: 20px; display: block; margin-top: 8px; font-weight: 600; }
+    .demo-links { margin-top: auto; }
+    .demo-card .duration { margin-top: 16px; color: var(--cp-text-soft); font: 17px Consolas, "Courier New", monospace; }
+    .demo-actions { display: flex; align-items: center; gap: 22px; margin-top: 20px; }
+    .slide-button { display: inline-block; text-decoration: none; padding: 14px 23px; border: 1px solid var(--cp-accent); border-radius: 10px; color: var(--cp-accent); background: var(--cp-accent-soft); font-size: 22px; font-weight: 600; }
+    .slide-button:hover { background: var(--cp-accent); color: var(--cp-accent-fg); }
+    .discussion { display: grid; grid-template-columns: .88fr 1.12fr; gap: 68px; align-items: center; flex: 1; }
+    .discussion .big-question { font-size: 88px; }
+    .decision { padding: 25px 0; border-top: 1px solid var(--cp-border); }
+    .decision h3 { margin-bottom: 8px; font-size: 30px; }
+    .decision p { font-size: 24px; color: var(--cp-text-muted); margin-bottom: 0; }
+    .pilot-card { border-top: 2px solid var(--cp-accent); padding: 22px 12px 0 0; }
+    .pilot-card .number { margin-bottom: 20px; }
+    .pilot-card h3 { font-size: 34px; }
+    .pilot-card p { font-size: 24px; }
+    .pilot-card p.small { font-size: 21px; }
+    .closing { justify-content: center; }
+    .closing h2 { font-size: 104px; max-width: 1160px; line-height: 1.03; }
+    .closing .lead { font-size: 30px; max-width: 990px; margin-top: 12px; }
+    .closing .pills { margin-top: 30px; }
+    .closing .slide-foot { margin-top: 76px; }
+    .evidence-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 21px; line-height: 1.35; }
+    .evidence-table th { color: var(--cp-accent); font-weight: 650; text-align: left; padding: 16px 18px; border-bottom: 2px solid var(--cp-border-strong); font-size: 18px; letter-spacing: .08em; text-transform: uppercase; }
+    .evidence-table td { padding: 20px 18px; border-bottom: 1px solid var(--cp-border); vertical-align: top; }
+    .evidence-table td:first-child { width: 22%; font-weight: 650; }
+    .reading-card h3 { font-size: 31px; }
+    .reading-card a { display: inline-block; font-size: 22px; margin-top: 12px; }
+    .source-links { display: flex; flex-wrap: wrap; gap: 14px 28px; margin-top: 26px; }
+    .source-links a { font-size: 20px; }
+    .toolbar { border-top: 1px solid var(--cp-border); position: relative; }
+    .progress-track { position: absolute; top: -2px; left: 0; right: 0; height: 3px; background: var(--cp-border); }
+    .progress { height: 100%; width: 0; background: var(--cp-accent); transition: width .15s ease-out; }
+    .slide-count { min-width: 68px; text-align: center; font: 13px Consolas, "Courier New", Courier, monospace; color: var(--cp-text-muted); }
+    #chapter-label { font-size: 13px; color: var(--cp-text-muted); }
+    #demo-clock { font: 13px Consolas, "Courier New", Courier, monospace; color: var(--cp-accent); min-width: 52px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+    dialog { color: var(--cp-text); background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; padding: 28px; max-width: calc(100vw - 36px); max-height: calc(100dvh - 36px); box-shadow: var(--cp-shadow); }
+    dialog::backdrop { background: var(--cp-overlay); }
+    dialog h2 { font-size: 30px; margin-bottom: 12px; }
+    dialog h3 { font-size: 20px; margin: 24px 0 10px; }
+    dialog p, dialog li { font-size: 16px; line-height: 1.6; }
+    dialog .micro { font-size: 13px; }
+    .dialog-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+    #overview { width: 1000px; }
+    .overview-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; }
+    .overview-item { display: flex; flex-direction: column; gap: 12px; min-height: 136px; padding: 18px; text-align: left; color: var(--cp-text); background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 10px; }
+    .overview-item:hover, .overview-item[aria-current="true"] { border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .overview-item span { color: var(--cp-accent); font-size: 12px; letter-spacing: .06em; }
+    .overview-item strong { font-size: 17px; line-height: 1.3; font-weight: 600; }
+    #notes { width: 660px; }
+    #notes-content { margin-top: 22px; }
+    #notes-content ul, #notes-content ol { padding-left: 23px; }
+    #notes-content code { font-size: 13px; overflow-wrap: anywhere; }
+    #help { width: 720px; }
+    .shortcuts { display: grid; grid-template-columns: 150px 1fr; gap: 10px; font-size: 15px; margin: 20px 0; }
+    kbd { color: var(--cp-accent); font: 13px Consolas, "Courier New", Courier, monospace; }
+    .url-field { display: flex; gap: 12px; margin-top: 12px; }
+    .url-field input { flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--cp-border-strong); border-radius: 10px; color: var(--cp-text); background: var(--cp-bg-elevated); font-size: 14px; }
+    #url-status { margin: 8px 0 0; min-height: 24px; font-size: 13px; color: var(--cp-text-muted); }
+    #status { position: fixed; left: 50%; bottom: 82px; transform: translateX(-50%); border-radius: 10px; background: var(--cp-surface); color: var(--cp-text); padding: 14px 22px; box-shadow: var(--cp-shadow); font-size: 14px; z-index: 5; max-width: 85vw; }
+    #status:empty { display: none; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+    @media (max-width: 700px) {
+      .shell { grid-template-rows: 52px minmax(0, 1fr) 64px; }
+      .topbar, .toolbar { padding: 0 12px; gap: 7px; }
+      .top-label, #chapter-label, .toolbar .optional { display: none; }
+      .control { padding: 8px 10px; font-size: 12px; }
+      .viewport { overflow: auto; }
+      .stage { width: 100%; height: 100%; position: relative; top: 0; left: 0; transform: none; }
+      .slide { padding: 30px 24px; overflow: auto; }
+      h1, .closing h2 { font-size: 51px; }
+      h2, .big-question, .discussion .big-question { font-size: 39px; }
+      h3, .question-card h3, .pilot-card h3 { font-size: 27px; }
+      p, .lead, .hero .lead, .closing .lead { font-size: 20px; }
+      .eyebrow { font-size: 13px; }
+      .two, .three, .four, .hero, .timeline, .calendar-views, .architecture, .discussion { grid-template-columns: 1fr; gap: 23px; }
+      .hero { display: block; }
+      .radar { display: none; }
+      .card { padding: 23px; }
+      .agenda-strip { gap: 16px; flex-wrap: wrap; }
+      .agenda-strip span { font-size: 15px; }
+      .agenda-strip b { font-size: 19px; }
+      .slide-foot { font-size: 12px; margin-top: 30px; align-items: flex-start; }
+      .slide-foot > :last-child { flex-shrink: 1; }
+      .statement { padding: 22px; font-size: 22px; margin-top: 25px; }
+      .brief-row { grid-template-columns: 1fr; gap: 7px; font-size: 20px; margin: 0 20px; }
+      .brief-head { font-size: 19px; padding: 20px; }
+      .result-grid { grid-template-columns: 1fr; }
+      .result-block .pill { max-width: 100%; }
+      .rule-row { display: block; }
+      .rule-row strong { display: block; margin-bottom: 10px; }
+      .rule-row p, .step p, .boundary-list li, .decision p, .pilot-card p, .source-card p { font-size: 20px; }
+      .metric strong { font-size: 74px; }
+      .ops-strip { grid-template-columns: 1fr; flex-shrink: 0; }
+      .ops-strip div + div { border-left: 0; border-top: 1px solid var(--cp-border); }
+      .demo-title { display: block; }
+      .demo-time { display: none; }
+      .demo-card h3 { min-height: 0; }
+      .demo-actions { flex-wrap: wrap; }
+      .demo-actions .small { font-size: 16px; }
+      .overview-grid { grid-template-columns: 1fr 1fr; }
+      .overview-item { min-height: 115px; }
+      .evidence-table { font-size: 15px; }
+      .evidence-table th { font-size: 12px; padding: 10px 6px; }
+      .evidence-table td { padding: 14px 6px; }
+      .evidence-table td:first-child { width: 27%; }
+      .closing .slide-foot { margin-top: 42px; }
+      .url-field { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#slide-1" aria-label="CloudLens, first slide">CloudLens</a>
+      <span class="top-label">Azure lifecycle intelligence</span>
+      <span class="spacer"></span>
+      <button class="control" id="theme-button" title="Toggle light/dark theme (T)" aria-label="Toggle light or dark theme">Theme</button>
+      <button class="control" id="fullscreen-button" title="Fullscreen (F)">Fullscreen</button>
+      <button class="control" id="help-button" title="Presentation controls (?)" aria-label="Presentation help">?</button>
+    </header>
+    <main class="viewport" id="viewport" aria-label="Slide presentation">
+      <div class="stage" id="stage">
+
+        <section class="slide active" data-title="From Azure change to informed action" data-chapter="Introduction" aria-labelledby="title-1">
+          <p class="eyebrow">Azure Lifecycle Sentinel</p>
+          <div class="hero">
+            <div>
+              <h1 id="title-1">Know what<br>changes.<br><span class="accent">See what it<br>could affect.</span></h1>
+              <p class="lead">CloudLens brings Azure announcements, documentation intelligence and resource impact into one reviewable workspace.</p>
+            </div>
+            <div class="radar" role="img" aria-label="CloudLens connects updates, documentation and resource impact">
+              <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div><div class="ring r4"></div>
+              <div class="radar-center">CL</div>
+              <i class="radar-dot" style="left: 370px; top: 118px"></i>
+              <i class="radar-dot" style="left: 95px; top: 310px"></i>
+              <i class="radar-dot" style="left: 350px; top: 398px"></i>
+              <span class="radar-label" style="right: -8px; top: 76px">Azure updates</span>
+              <span class="radar-label" style="left: -26px; top: 340px">Docs &amp; GitHub</span>
+              <span class="radar-label" style="right: -4px; bottom: 54px">Resource impact</span>
+            </div>
+          </div>
+          <div class="agenda-strip"><span><b>15 min</b> context &amp; capabilities</span><span><b>22 min</b> live product walkthrough</span><span><b>8 min</b> discussion</span></div>
+          <div class="slide-foot"><span>Customer briefing &amp; live demonstration</span><span>8 September 2026</span></div>
+          <template class="notes">
+            <h3>Opening | about 1 minute</h3>
+            <p>Position this as a working lifecycle-intelligence platform, not an autonomous remediation product. Say: "The aim is to make the path from an Azure change to an informed engineering decision much shorter."</p>
+            <p>Suggested session: 15 minutes of context (slides 1–9), 22 minutes in the application, then 8 minutes of discussion with slide 10. Slide 11 is optional reference material.</p>
+            <h3>Before presenting</h3>
+            <ol><li>Open this file locally in Edge or Chrome. Use Fullscreen; test the projector and choose the more readable theme.</li><li>Open <a href="https://azr-api-x8c5i2.azurewebsites.net" target="_blank" rel="noopener noreferrer">the CloudLens workspace</a> in another tab; do not show account or subscription administration screens.</li><li>Prepare an existing analysed Docs Intelligence item and, if present, an existing Impact Analysis result. The historical Azure Updates backfill intentionally has no AI analysis.</li><li>Do not start a full backfill, an LLM health check, or an estate-wide scan just to fill the demo. This presentation itself does not call the app or an LLM.</li></ol>
+            <p class="micro">Notes appear on this display. Close them before screen sharing. The deck is offline-capable; live-demo links and external references require connectivity.</p>
+            <h3>Grounding</h3><p><code>README.md</code>, both files in <code>prds</code>, the frontend's <code>App.tsx</code> and current implementations. Documentation and articles contain older architecture and roadmap claims; code takes precedence for today's functionality.</p>
+          </template>
+        </section>
+
+        <section class="slide" data-title="Three questions behind every change" data-chapter="The operating problem" aria-labelledby="title-2">
+          <p class="eyebrow">The operating problem</p>
+          <h2 id="title-2">The announcement is only<br>the beginning of the work.</h2>
+          <p class="lead">A platform team needs to connect a public signal to its own engineering decisions.</p>
+          <div class="three space-top">
+            <div class="question-card"><div class="number">01 / DISCOVER</div><h3>What actually<br>changed?</h3><p class="muted">Retirements, API changes, documentation updates and migration requirements arrive through different channels.</p></div>
+            <div class="question-card"><div class="number">02 / UNDERSTAND</div><h3>Could it affect<br>our estate?</h3><p class="muted">A service name is not an impact assessment. Configuration, scope and query evidence matter.</p></div>
+            <div class="question-card"><div class="number">03 / DECIDE</div><h3>What needs<br>attention next?</h3><p class="muted">Engineers need a source, an action, a deadline where available, and a reason to prioritise.</p></div>
+          </div>
+          <div class="statement space-top">Move from reading scattered announcements to reviewing a shared body of evidence.</div>
+          <div class="slide-foot"><span>Designed for the platform-team ↔ workload-team operating model.</span><span>Problem, not a claimed ROI</span></div>
+          <template class="notes"><h3>Talk track | 1 minute</h3><p>Ask the audience to keep its current triage process in mind. The gap is the work between "Microsoft announced something" and "we know what to do." Avoid quantified time savings or incident-reduction claims: no measured customer outcome is asserted here.</p><p>CloudLens supports discovery, interpretation and candidate impact. Assignment, notification and remediation tracking remain outside the native workflow.</p><h3>Grounding</h3><p><code>README.md</code>, Problem; <code>prds/PlanV2.md</code>, problem statement and current-state matrix. Customer names, quotations and identifying details from the planning document are deliberately excluded.</p></template>
+        </section>
+
+        <section class="slide" data-title="An evolution driven by operational needs" data-chapter="The project story" aria-labelledby="title-3">
+          <p class="eyebrow">The project story</p>
+          <h2 id="title-3">Built around a real operating need.<br>Grown through practical lessons.</h2>
+          <div class="timeline">
+            <div class="era"><div class="date">2024</div><h3>The lifecycle POC</h3><p>RSS, AI interpretation and stored results. The September iteration explored VNet protection, private endpoints and private DNS.</p><span class="pill">Prove the idea</span></div>
+            <div class="era"><div class="date">May 2026</div><h3>From scraper to radar</h3><p>MCP-based signals, a service watchlist, documentation intelligence, a lifecycle calendar and Resource Graph impact analysis.</p><span class="pill">Add context &amp; impact</span></div>
+            <div class="era"><div class="date">Today</div><h3>Coverage &amp; operability</h3><p>Complete catalog enumeration plus RSS reconciliation for Azure Updates. GitHub change monitoring, cost-aware backfill and live job heartbeats.</p><span class="pill accent-pill">Make the system inspectable</span></div>
+          </div>
+          <div class="statement space-top">Originated in a large, regulated financial-services setting.<br>A customer-tailored version is in use.</div>
+          <div class="slide-foot"><span>Historical articles: September 2024 and May 2026. Current capability snapshot: September 2026.</span><span>Customer identity withheld</span></div>
+          <template class="notes"><h3>Talk track | 90 seconds</h3><p>The author originally built this for a large financial-services organisation. The user reports that a customised version is in use, adapted to its compliance landscape. This is anonymous background, not a public customer endorsement, certification or assertion that the public code includes those custom controls.</p><p>The 2024 article describes the earlier infrastructure, including components and credential patterns that differ from today's implementation. The May 2026 article describes the MCP-era ingestion approach. Today Azure Updates uses the full public catalog plus RSS; Microsoft Learn still uses MCP. Explain this as an evolution in source coverage, not as a claim that MCP disappeared from the product.</p><h3>Sources</h3><p><a href="https://moimhossain.com/2024/09/20/streamline-azure-lifecycle-management-with-ai-solutions/" target="_blank" rel="noopener noreferrer">September 2024 article</a><br><a href="https://moimhossain.com/2026/05/20/from-rss-scraper-to-mcp-powered-radar-how-azradar-grew-up/" target="_blank" rel="noopener noreferrer">May 2026 article</a><br><code>AzureUpdatesSource.cs</code>, <code>JobHeartbeatRunner.cs</code>, <code>GitHubCrawlJobHandler.cs</code>.</p></template>
+        </section>
+
+        <section class="slide" data-title="Three live signals and one planned addition" data-chapter="Discover" aria-labelledby="title-4">
+          <p class="eyebrow">Discover</p>
+          <h2 id="title-4">One workspace.<br>Three live signals. One planned.</h2>
+          <div class="four space-top grow">
+            <div class="card source-card"><div class="source-icon" aria-hidden="true">01</div><h3>Azure Updates</h3><p>Enumerate the public catalog and reconcile RSS. Retain source content and detect revised announcements.</p><span class="pill">Catalog + RSS</span></div>
+            <div class="card source-card"><div class="source-icon" aria-hidden="true">02</div><h3>Microsoft Learn</h3><p>Search docs for watched services. Fingerprint result content to avoid re-analysing unchanged material.</p><span class="pill">MCP search</span></div>
+            <div class="card source-card"><div class="source-icon" aria-hidden="true">03</div><h3>GitHub Change Radar</h3><p>Watch selected repositories and paths. Analyse changed Markdown documentation with source context.</p><span class="pill">GitHub REST + diffs</span></div>
+            <div class="card source-card future"><div class="source-icon" aria-hidden="true">04</div><h3>Azure Service Health</h3><p>Planned: bring service incidents, planned maintenance and health advisories into the workspace.</p><span class="pill accent-pill">Future integration</span></div>
+          </div>
+          <div class="slide-foot"><span>Collection coverage and analysis coverage are different. Each source has its own scope.</span><span>Azure Service Health is not yet integrated</span></div>
+          <template class="notes"><h3>Talk track | 90 seconds</h3><p>The Azure Updates ingestion contract is the union exposed by the catalog and RSS during a successful run. It follows continuation pages, checks completeness and detects source revisions. It is not a guarantee about posts removed before a crawl, upstream publication delays or future availability.</p><p>Microsoft Learn makes targeted and broad searches for each watched service, takes up to eight unique results, hashes available result content and analyses at most 8,000 characters per result. The handler uses inline search content or its snippet; do not describe it as exhaustive full-page fetching or whole-site version tracking.</p><p>GitHub monitoring is configurable, bounded change inspection, not an unlimited archive or a guarantee to detect every repository change. See appendix for bounds.</p><p><strong>Azure Service Health is a planned integration.</strong> The intention is to add service incidents, planned maintenance and health advisories alongside the three current source paths. It is not implemented or part of today's demonstration; no delivery date or integration mechanism is promised.</p><h3>Grounding</h3><p><code>AzureUpdatesSource.cs</code>; <code>AzureUpdatesJobHandler.cs</code>; <code>MsLearnIntelligenceJobHandler.cs:43–157</code>; <code>GitHubCrawlJobHandler.cs</code>; four handlers registered in <code>ServiceCollectionExtensions.cs</code>. The planned Service Health addition reflects the presenter's stated direction. Native scheduling, Service Health, Advisor and a dedicated MSRC ingestion handler are not implemented.</p></template>
+        </section>
+
+        <section class="slide" data-title="A reviewable intelligence brief" data-chapter="Understand" aria-labelledby="title-5">
+          <p class="eyebrow">Understand</p>
+          <h2 id="title-5">Turn source material<br>into a reviewable brief.</h2>
+          <div class="two space-top">
+            <div>
+              <p class="lead">AI assists the first pass.<br>Engineers retain the judgement.</p>
+              <div class="rule-row"><strong>Classify</strong><p>Change type and operational severity.</p></div>
+              <div class="rule-row"><strong>Contextualise</strong><p>Affected services and ARM resource types.</p></div>
+              <div class="rule-row"><strong>Prepare</strong><p>Action required, migration guidance and effort estimate.</p></div>
+              <p class="small muted space-top">Source links and confidence help reviewers challenge the interpretation rather than accept a black box.</p>
+            </div>
+            <div class="brief" aria-label="The fields in an analysed item, not a live result">
+              <div class="brief-head"><span>Structured analysis</span><span class="pill">Field map</span></div>
+              <div class="brief-row"><span>What changed</span><strong>Type · severity · brief summary</strong></div>
+              <div class="brief-row"><span>What may be affected</span><strong>Services · resource types</strong></div>
+              <div class="brief-row"><span>What to do</span><strong>Action · migration path · effort</strong></div>
+              <div class="brief-row"><span>When &amp; why</span><strong>Deadline, if stated · sources · confidence</strong></div>
+            </div>
+          </div>
+          <div class="slide-foot"><span>Available for analysed records. Intentionally unanalysed imports are labelled as such.</span><span>AI output ≠ verified truth</span></div>
+          <template class="notes"><h3>Talk track | 90 seconds</h3><p>This is a field map, not a fabricated product result. The common analyser extracts structured JSON including change type, severity, services, resource types, action, deadline, migration path, effort and a model-reported confidence score.</p><p>Confidence is not a calibrated accuracy measurement. The analyser can produce a fallback with confidence zero when analysis fails. Validate source, deadline and guidance before making a production decision.</p><p><strong>Demo caveat:</strong> the 9,887 Azure Updates records imported in the historical backfill were deliberately not analysed. Do not present a blank AI panel as a fault or promise that the next unchanged crawl will fill it. Normal crawls analyse new/revised updates; unchanged intentional skips stay skipped.</p><h3>Grounding</h3><p><code>LlmAnalyzerService.cs:25–139</code>; <code>FeedItemsPage.tsx</code>; <code>AzureUpdatesJobHandler.cs</code>; README historical-backfill section.</p></template>
+        </section>
+
+        <section class="slide" data-title="From a change to candidate resource impact" data-chapter="Connect to the estate" aria-labelledby="title-6">
+          <p class="eyebrow">Connect to the estate</p>
+          <h2 id="title-6">“Does this touch our environment?”</h2>
+          <p class="lead">Blast Radius connects an analysed lifecycle change to Azure Resource Graph.</p>
+          <div class="two space-top">
+            <div class="steps">
+              <div class="step"><div><h3>Generate a targeted query</h3><p>The LLM translates the change context into KQL for potentially affected resources.</p></div></div>
+              <div class="step"><div><h3>Query the authorised scope</h3><p>Use a configured managed identity with Azure read access. Retry query errors with LLM feedback, up to three attempts.</p></div></div>
+              <div class="step"><div><h3>Inspect the evidence</h3><p>Review stored impact results, the generated query and execution diagnostics.</p></div></div>
+            </div>
+            <div class="result-block">
+              <span class="pill accent-pill">Query-derived candidate impact</span>
+              <div class="large-label">A count is useful.<br><span class="accent">A traceable count<br>is more useful.</span></div>
+              <div class="result-grid"><div>Resource totals</div><div>Subscription breakdown</div><div>Regional distribution</div><div>Up to 20 resource details</div></div>
+              <p class="small muted space-top">Coverage depends on the query, accessible resources and returned data. A missing match is not proof of no impact.</p>
+            </div>
+          </div>
+          <div class="slide-foot"><span>Human review remains essential; not a dependency graph or exhaustive estate attestation.</span><span>Read-only resource queries</span></div>
+          <template class="notes"><h3>Talk track | 2 minutes</h3><p>This is the strongest bridge from a generic announcement to the customer's own estate. Demonstrate an existing result, not a promise that every change is ARG-detectable.</p><p>The scan considers analysed retirement/deprecation/breaking-change items from at most 500 feed items and 500 doc insights, excluding deadlines more than 90 days overdue. It requires a configured managed identity attached to the worker with appropriate read access. Some changes deliberately yield SKIP. Only positive matches are stored as impact summaries.</p><p>ARG results are not paginated by the current client. Totals come from ARG, but subscription/region breakdowns use returned rows; top-resource details are capped at 20. A previous positive result is not necessarily removed when a later scan finds zero, so check scan time and diagnostics. Do not equate the fixed "high" match-confidence label with a measured probability.</p><p>The exact generated KQL can be inspected through job diagnostics; do not promise a dedicated query editor. Never expose customer-specific resource names, tags or subscription IDs during a shared demo. Use an appropriate demonstration estate.</p><h3>Grounding</h3><p><code>BlastRadiusJobHandler.cs:35–244</code>; <code>ResourceGraphClient.cs:88–143</code>; <code>ImpactAnalysisPage.tsx</code>; <code>CrawlJobsPage.tsx</code>.</p></template>
+        </section>
+
+        <section class="slide" data-title="From intelligence to a planning conversation" data-chapter="Prioritise" aria-labelledby="title-7">
+          <p class="eyebrow">Prioritise</p>
+          <h2 id="title-7">Make the deadline conversation<br>visual, not anecdotal.</h2>
+          <p class="lead">The Lifecycle Calendar brings dated, analysed items into timeline, quarter and month views.</p>
+          <div class="calendar-views">
+            <div class="card"><span class="pill">Timeline</span><div class="mini-timeline" aria-hidden="true"><i></i><span></span><i></i><span></span><i></i></div><h3>Read the sequence</h3><p class="small muted">See upcoming lifecycle dates in context and review the action behind an item.</p></div>
+            <div class="card"><span class="pill">Quarter</span><div class="quarter-bars" aria-hidden="true"><span></span><span></span><span></span></div><h3>Support planning</h3><p class="small muted">Bring changes into the same horizon as engineering and platform planning.</p></div>
+            <div class="card"><span class="pill">Month</span><div class="month-grid" aria-hidden="true"><i></i><i></i><i class="mark"></i><i></i><i></i><i class="mark"></i><i></i><i></i><i></i><i></i><i class="mark"></i><i></i><i></i><i></i></div><h3>Inspect the date</h3><p class="small muted">Navigate a calendar grid and open the relevant source or item context.</p></div>
+          </div>
+          <div class="statement space-top">Filter by service, change type and severity.<br>Use the dashboard, source detail and impact views alongside the calendar.</div>
+          <div class="slide-foot"><span>Conceptual view symbols, not sample customer data. No remediation completion is implied.</span><span>Only items with extracted deadlines</span></div>
+          <template class="notes"><h3>Talk track | 1 minute</h3><p>Use this as a planning aid, not as a compliance or readiness scorecard. Calendar urgency and severity do not indicate whether anyone has remediated the underlying resources.</p><p>The API reads up to 500 feed records and 500 doc insights, requires an analysis and deadline, and excludes dates more than 90 days overdue. This is not a complete projection of all ingested history. Unanalysed backfill records cannot appear through an extracted deadline they do not have.</p><p>The dashboard aggregates available analysis and impact data. Its counters should not be described as the total ingestion archive or verified customer exposure. Source-aware estate filtering and blast-radius severity amplification remain planned.</p><h3>Grounding</h3><p><code>LifecycleCalendarPage.tsx</code> (timeline / quarter / calendar views); API <code>Program.cs:366–419</code>; <code>DashboardPage.tsx</code>; <code>AppShell.tsx:149–182</code>.</p></template>
+        </section>
+
+        <section class="slide" data-title="An Azure-native operating foundation" data-chapter="Architecture & boundaries" aria-labelledby="title-8">
+          <p class="eyebrow">Architecture &amp; boundaries</p>
+          <h2 id="title-8">A small Azure-native core.<br>Explicit service boundaries.</h2>
+          <div class="architecture">
+            <div class="external-stack"><div class="card"><h3>Browser</h3><p>React + Fluent UI workspace<br>↓ HTTPS to API</p></div><div class="card"><h3>Public sources</h3><p>Azure catalog &amp; RSS<br>Microsoft Learn MCP<br>GitHub REST</p></div></div>
+            <div class="azure-boundary">
+              <p class="eyebrow">Azure deployment core</p>
+              <div class="azure-node">App Service · API + SPA<small>.NET 8 Minimal API / co-hosted UI</small></div>
+              <div class="flow-label">↕ Data and job requests</div>
+              <div class="azure-node">Cosmos DB<small>Source records · insights · jobs · diagnostics</small></div>
+              <div class="flow-label">↓ Change Feed dispatch · ↑ results</div>
+              <div class="azure-node">App Service · JobHost<small>Four pluggable job handlers · outbound source requests</small></div>
+            </div>
+            <div class="external-stack"><div class="card"><h3>Azure OpenAI</h3><p>Worker → structured analysis<br>Managed identity</p></div><div class="card"><h3>Resource Graph</h3><p>Worker → read-only KQL<br>Scoped managed identity</p></div></div>
+          </div>
+          <div class="pills space-top"><span class="pill">VNet-integrated apps</span><span class="pill">Cosmos private endpoint</span><span class="pill">Identity-based Azure access</span><span class="pill">Bicep + container deployment</span></div>
+          <div class="slide-foot"><span>LLM networking, ingress, identity scope and organisational controls must be agreed per deployment.</span><span>Not a compliance certification</span></div>
+          <template class="notes"><h3>Talk track | 90 seconds</h3><p>Explain the intentionally small core: UI and API share one App Service container; jobs live in Cosmos; Change Feed dispatches work to a separate JobHost. Source retrieval and analysis happen in the worker. Results return to Cosmos and are exposed through the API.</p><p>The repository's VNet Bicep pattern integrates both apps and protects Cosmos with a private endpoint and AAD-only access. Cosmos and Azure OpenAI use DefaultAzureCredential with the configured UAMI. Blast Radius uses a separately configurable UAMI. Azure OpenAI can be an existing external endpoint or a private-endpoint deployment pattern; do not assert one universal network boundary.</p><p>"Identity-based Azure access" is intentionally narrower than "zero credentials anywhere": GitHub can optionally use a PAT. Public source APIs require outbound connectivity. The public SPA is not proof of native Entra SSO or per-team application RBAC; those require separate work or deployment controls. Do not use the old POC's Key Vault/key example to describe this implementation.</p><h3>Grounding</h3><p><code>infra/README.md</code>; <code>infra/main.bicep</code>; <code>ServiceCollectionExtensions.cs</code>; <code>Worker.cs</code>; API <code>Program.cs</code>. This is a conceptual component view, not a diagram of customer infrastructure.</p></template>
+        </section>
+
+        <section class="slide" data-title="What is available and what is not" data-chapter="The product boundary" aria-labelledby="title-9">
+          <p class="eyebrow">The product boundary</p>
+          <h2 id="title-9">A working intelligence layer.<br>Not an autonomous control plane.</h2>
+          <div class="two space-top">
+            <div class="card"><div class="boundary-heading"><i class="dot" aria-hidden="true"></i><h3>Available in the current code</h3></div><ul class="boundary-list"><li>Three source paths &amp; configurable watchlists</li><li>AI classification and migration guidance</li><li>Query-derived resource impact</li><li>Calendar, dashboard and detail views</li><li>On-demand jobs, diagnostics and heartbeats</li></ul></div>
+            <div class="card"><div class="boundary-heading"><i class="dot outline-dot" aria-hidden="true"></i><h3>Not native today</h3></div><ul class="boundary-list"><li>Estate-aware “applies to me” ranking</li><li>Teams, email or ITSM notification routing</li><li>Assignment and remediation tracking</li><li>Readiness scoring or autonomous fixes</li><li>Built-in scheduling and per-team SSO/RBAC</li></ul></div>
+          </div>
+          <div class="slide-foot"><span>The PRDs describe a larger direction. Roadmap ideas are not demonstrated as delivered features.</span><span>Human-led response</span></div>
+          <template class="notes"><h3>Talk track | 1 minute</h3><p>Be explicit about the boundary before the live demo. Today the dashboard is pull-oriented. A team still decides ownership, schedules its operating process, approves work and executes remediation using its existing tooling.</p><p>There is no native Teams/email/ServiceNow delivery ledger, acknowledgement workflow, scorecard, dependency cascade, automatic relevance amplification, full estate drift monitor or predictive lifecycle engine. An IJobHandler extension point makes future expansion possible, but does not make an integration exist.</p><p>Azure Service Health is the planned source addition shown on slide 4, not a current handler. Advisor and dedicated MSRC ingestion are also not implemented. A "security-advisory" AI classification does not constitute an MSRC integration. Source, UI and PRD status statements were reconciled against the actual implementations for this deck.</p><h3>Grounding</h3><p><code>prds/PlanV2.md</code> current-state matrix and next-feature sections; API route registrations in <code>Program.cs</code>; handler registrations in <code>ServiceCollectionExtensions.cs</code>; <code>App.tsx</code>.</p></template>
+        </section>
+
+        <section class="slide closing" data-title="Fewer surprises. Better lifecycle decisions." data-chapter="Discussion" aria-labelledby="title-10">
+          <p class="eyebrow">CloudLens / Azure Lifecycle Sentinel</p>
+          <h2 id="title-10">Fewer surprises.<br><span class="accent">Better lifecycle<br>decisions.</span></h2>
+          <p class="lead">Bring the signal, the interpretation and the resource evidence into the same conversation.</p>
+          <div class="pills"><span class="pill">Which services matter most?</span><span class="pill">Where is today's review effort?</span><span class="pill">What would earn your trust?</span></div>
+          <div class="slide-foot"><span><a href="https://github.com/MoimHossain/az-radar" target="_blank" rel="noopener noreferrer">CloudLens source code</a></span><span>Discussion · optional reference slide follows</span></div>
+          <template class="notes"><h3>Closing | discussion</h3><p>Leave the three discussion prompts on screen. Invite the audience to identify the first service or use case worth evaluating. Stop the core presentation here; the next slide is a supporting reference, not more feature promises.</p><p>Use CloudLens consistently as the product name. The anonymised customer adaptation is a separate customised deployment. No customer names or endorsements are included.</p></template>
+        </section>
+
+        <section class="slide" data-title="Scope and limits worth knowing" data-chapter="Appendix · implementation detail" data-appendix="true" aria-labelledby="title-11">
+          <p class="eyebrow">Appendix / Implementation detail</p>
+          <h2 id="title-11">Useful boundaries to keep in view.</h2>
+          <table class="evidence-table">
+            <thead><tr><th>Area</th><th>What the implementation does</th><th>What not to infer</th></tr></thead>
+            <tbody>
+              <tr><td>Azure Updates</td><td>Full catalog pagination + RSS reconciliation; revisions detected; full source retained.</td><td>Not recovery of removed posts, upstream availability, or automatic scheduling.</td></tr>
+              <tr><td>Microsoft Learn</td><td>Up to eight unique search results per watched service; hashes available result content.</td><td>Not every document or every edit; analysis input is bounded.</td></tr>
+              <tr><td>GitHub Radar</td><td>Selected repositories/path prefixes; bounded .md/.mdx changes and lifecycle analysis.</td><td>Not all file types, an exhaustive mirror, dependency inventory or vulnerability scanner.</td></tr>
+              <tr><td>Impact &amp; calendar</td><td>Use up to 500 feed items + 500 doc insights. Impact stores up to 20 resource details.</td><td>Not the entire archive or a complete, paginated estate assessment.</td></tr>
+              <tr><td>AI &amp; workflow</td><td>Model-provided severity, guidance and confidence; source and job evidence for review.</td><td>Not calibrated certainty, a compliance score, ownership routing or executed remediation.</td></tr>
+            </tbody>
+          </table>
+          <div class="slide-foot"><span>Source inspection takes precedence over older article examples and aspirational PRD language.</span><span>September 2026 implementation</span></div>
+          <template class="notes"><h3>Technical Q&amp;A</h3><p>The updated Azure Updates source removes the earlier fixed 50-item ingestion cap. Do not generalise that to all downstream reads: calendar and blast-radius candidate collection still use bounded database reads.</p><p>ARG custom queries use a single response; the client does not follow a skip token. Region/subscription breakdowns therefore reflect returned rows, and query language may itself limit the result set. The stored total is not a guarantee that every related resource is represented.</p><p>Microsoft Learn uses available MCP search content, with an 8,000-character analysis input cap. GitHub processes only .md/.mdx files, uses prefix-based path filters and incremental commit cursors, and bounds commits, files and diff input. Noise checks skip whitespace and front-matter-only changes. Cross-references attach up to five Azure Updates records by affected-service overlap, not a rich semantic relationship engine. The Scan now action queues the global GitHub job, not a single-repository-only run.</p><p>GitHub can use an optional PAT; unauthenticated access has lower rate limits. Do not claim automatic repository discovery, webhook ingestion, universal private-repository support or a comprehensive code/vulnerability scan. Fingerprints and cursors reduce redundant work within processing bounds; they do not establish complete source-change coverage.</p><p>Source material and AI-generated content remain subject to human review. No new native security integrations, automatic notification routing or readiness scoring were inferred from the roadmap.</p><h3>Grounding</h3><p><code>MsLearnIntelligenceJobHandler.cs</code>; <code>GitHubCrawlJobHandler.cs:83–127, 217–282, 305–380</code>; <code>GitHubClient.cs:38–81, 116–139</code>; <code>BlastRadiusJobHandler.cs:221–243</code>; <code>ResourceGraphClient.cs:88–143</code>; API <code>Program.cs:366–419</code>.</p></template>
+        </section>
+
+      </div>
+    </main>
+    <footer class="toolbar" aria-label="Presentation controls">
+      <div class="progress-track" role="progressbar" aria-label="Slide progress" aria-valuemin="1" aria-valuemax="11" aria-valuenow="1" id="progress-track"><div class="progress" id="progress"></div></div>
+      <button class="control" id="previous" aria-label="Previous slide" title="Previous slide (Left / Page Up)">←</button>
+      <span class="slide-count" id="slide-count">01 / 11</span>
+      <button class="control primary" id="next" aria-label="Next slide" title="Next slide (Right / Space / Page Down)">→</button>
+      <span id="chapter-label">Introduction</span>
+      <span class="spacer"></span>
+      <button class="control" id="overview-button" title="Slide overview (O)">Slides</button>
+      <button class="control" id="notes-button" title="Presenter notes (N)">Notes</button>
+    </footer>
+  </div>
+  <div id="announcement" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="status" role="status"></div>
+  <dialog id="overview" aria-labelledby="overview-title"><div class="dialog-head"><div><h2 id="overview-title">Choose a slide</h2><p class="micro muted">Slides 1–10 form the core presentation. The final slide is an optional reference.</p></div><button class="control" data-close aria-label="Close slide overview">Close</button></div><div class="overview-grid" id="overview-grid"></div></dialog>
+  <dialog id="notes" aria-labelledby="notes-title"><div class="dialog-head"><div><h2 id="notes-title">Presenter notes</h2><p class="micro accent">Visible on this display — close before sharing the slide.</p></div><button class="control" data-close aria-label="Close presenter notes">Close</button></div><div id="notes-content"></div></dialog>
+  <dialog id="help" aria-labelledby="help-title">
+    <div class="dialog-head"><h2 id="help-title">Presentation controls</h2><button class="control" data-close aria-label="Close presentation help">Close</button></div>
+    <p>Open <strong>index.html</strong> directly in Edge or Chrome. The slides need no server, installation, external fonts or internet connection. Live links require network access.</p>
+    <div class="shortcuts"><kbd>→ / Space / PgDn</kbd><span>Next slide</span><kbd>← / PgUp</kbd><span>Previous slide</span><kbd>Home / End</kbd><span>First / last slide</span><kbd>O / N</kbd><span>Overview / notes</span><kbd>F / T / ?</kbd><span>Fullscreen / theme / this guide</span><kbd>Esc</kbd><span>Close a dialog or exit browser fullscreen</span></div>
+  </dialog>
+  <noscript><p>Enable JavaScript to use slide navigation, notes and live-demo links.</p></noscript>
+  <script>
+    (() => {
+      "use strict";
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const dialogs = Array.from(document.querySelectorAll("dialog"));
+      const byId = id => document.getElementById(id);
+      let current = 0;
+      let touchStart = null;
+      let statusTimeout;
+
+      function message(text) {
+        byId("status").textContent = text;
+        clearTimeout(statusTimeout);
+        statusTimeout = setTimeout(() => { byId("status").textContent = ""; }, 6000);
+      }
+      function resize() {
+        const viewport = byId("viewport");
+        byId("stage").style.setProperty("--scale", Math.min(viewport.clientWidth / 1600, viewport.clientHeight / 900));
+      }
+      function hashIndex() {
+        const match = /^#slide-(\d+)$/.exec(location.hash);
+        return match ? Math.max(0, Math.min(slides.length - 1, Number(match[1]) - 1)) : 0;
+      }
+      function showSlide(index, updateHash = true) {
+        current = Math.max(0, Math.min(slides.length - 1, index));
+        slides.forEach((slide, i) => {
+          const active = i === current;
+          slide.classList.toggle("active", active);
+          slide.setAttribute("aria-hidden", String(!active));
+          slide.inert = !active;
+          if (active) slide.scrollTop = 0;
+        });
+        byId("slide-count").textContent = `${String(current + 1).padStart(2, "0")} / ${slides.length}`;
+        byId("chapter-label").textContent = slides[current].dataset.chapter;
+        byId("progress").style.width = `${((current + 1) / slides.length) * 100}%`;
+        byId("progress-track").setAttribute("aria-valuenow", current + 1);
+        byId("progress-track").setAttribute("aria-valuemax", slides.length);
+        byId("previous").disabled = current === 0;
+        byId("next").disabled = current === slides.length - 1;
+        byId("announcement").textContent = `Slide ${current + 1} of ${slides.length}: ${slides[current].dataset.title}`;
+        document.title = `CloudLens | ${slides[current].dataset.title}`;
+        document.querySelectorAll(".overview-item").forEach((item, i) => item.setAttribute("aria-current", String(i === current)));
+        if (updateHash && location.hash !== `#slide-${current + 1}`) location.hash = `slide-${current + 1}`;
+      }
+      function openDialog(id) {
+        dialogs.forEach(dialog => { if (dialog.open) dialog.close(); });
+        if (id === "notes") {
+          byId("notes-title").textContent = `${String(current + 1).padStart(2, "0")} · ${slides[current].dataset.title}`;
+          byId("notes-content").replaceChildren(slides[current].querySelector("template.notes").content.cloneNode(true));
+        }
+        byId(id).showModal();
+      }
+      async function fullscreen() {
+        try {
+          if (document.fullscreenElement) await document.exitFullscreen();
+          else await document.documentElement.requestFullscreen();
+        } catch {
+          message("Fullscreen is unavailable here. Use the browser's fullscreen command (usually F11).");
+        }
+      }
+      function toggleTheme() {
+        const dark = document.documentElement.dataset.theme !== "dark";
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        byId("theme-button").setAttribute("aria-label", `Switch to ${dark ? "light" : "dark"} theme`);
+      }
+      slides.forEach((slide, i) => {
+        const button = document.createElement("button");
+        button.className = "overview-item";
+        const caption = document.createElement("span");
+        caption.textContent = `${String(i + 1).padStart(2, "0")} / ${slide.hasAttribute("data-appendix") ? "APPENDIX" : slide.dataset.chapter.toUpperCase()}`;
+        const title = document.createElement("strong");
+        title.textContent = slide.dataset.title;
+        button.append(caption, title);
+        button.addEventListener("click", () => { byId("overview").close(); showSlide(i); });
+        byId("overview-grid").append(button);
+      });
+      byId("previous").addEventListener("click", () => showSlide(current - 1));
+      byId("next").addEventListener("click", () => showSlide(current + 1));
+      byId("overview-button").addEventListener("click", () => openDialog("overview"));
+      byId("notes-button").addEventListener("click", () => openDialog("notes"));
+      byId("help-button").addEventListener("click", () => openDialog("help"));
+      byId("fullscreen-button").addEventListener("click", fullscreen);
+      byId("theme-button").addEventListener("click", toggleTheme);
+      document.querySelectorAll("[data-close]").forEach(button => button.addEventListener("click", () => button.closest("dialog").close()));
+      document.addEventListener("keydown", event => {
+        if (event.ctrlKey || event.metaKey || event.altKey || dialogs.some(dialog => dialog.open)) return;
+        if (event.target.closest("input, textarea, select, [contenteditable='true']")) return;
+        if (event.key === " " && event.target.closest("button, a")) return;
+        const key = event.key.toLowerCase();
+        const commands = {
+          arrowright: () => showSlide(current + 1),
+          pagedown: () => showSlide(current + 1),
+          " ": () => showSlide(current + 1),
+          arrowleft: () => showSlide(current - 1),
+          pageup: () => showSlide(current - 1),
+          home: () => showSlide(0),
+          end: () => showSlide(slides.length - 1),
+          o: () => openDialog("overview"),
+          n: () => openDialog("notes"),
+          f: fullscreen,
+          t: toggleTheme,
+          "?": () => openDialog("help")
+        };
+        if (commands[key]) { event.preventDefault(); commands[key](); }
+      });
+      byId("viewport").addEventListener("touchstart", event => {
+        if (event.touches.length !== 1 || event.target.closest("a, button, input")) return;
+        touchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+      }, { passive: true });
+      byId("viewport").addEventListener("touchend", event => {
+        if (!touchStart || !event.changedTouches.length) return;
+        const dx = event.changedTouches[0].clientX - touchStart.x;
+        const dy = event.changedTouches[0].clientY - touchStart.y;
+        if (Math.abs(dx) > 75 && Math.abs(dx) > Math.abs(dy) * 1.6) showSlide(current + (dx < 0 ? 1 : -1));
+        touchStart = null;
+      }, { passive: true });
+      window.addEventListener("hashchange", () => showSlide(hashIndex(), false));
+      window.addEventListener("resize", resize);
+      document.addEventListener("fullscreenchange", () => {
+        byId("fullscreen-button").textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+        resize();
+      });
+      showSlide(hashIndex(), false);
+      resize();
+    })();
+  </script>
+</body>
+</html>
