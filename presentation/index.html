@@ -163,6 +163,7 @@
     .step h3 { margin-bottom: 8px; font-size: 28px; }
     .step p { font-size: 23px; margin-bottom: 0; }
     .result-block { padding: 28px; background: var(--cp-surface); border-radius: 16px; border: 1px solid var(--cp-border); }
+    .result-block p:last-child { margin-bottom: 0; }
     .result-block .large-label { font-size: 44px; line-height: 1.08; letter-spacing: -.04em; margin: 20px 0; }
     .result-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 22px; }
     .result-grid div { padding: 14px; border-top: 1px solid var(--cp-border); font-size: 23px; }
@@ -330,12 +331,12 @@
     <main class="viewport" id="viewport" aria-label="Slide presentation">
       <div class="stage" id="stage">
 
-        <section class="slide active" data-title="From Azure change to informed action" data-chapter="Introduction" aria-labelledby="title-1">
-          <p class="eyebrow">Azure Lifecycle Sentinel</p>
+        <section class="slide active" data-title="Turn Azure change into informed action" data-chapter="The value proposition" data-takeaway="CloudLens brings source signals, AI interpretation and candidate resource impact into one review. The intended value is less fragmented investigation and better-informed planning; no measured savings or incident reduction is claimed." aria-labelledby="title-1">
+          <p class="eyebrow">CloudLens / The value proposition</p>
           <div class="hero">
             <div>
-              <h1 id="title-1">Know what<br>changes.<br><span class="accent">See what it<br>could affect.</span></h1>
-              <p class="lead">CloudLens brings Azure announcements, documentation intelligence and resource impact into one reviewable workspace.</p>
+              <h1 id="title-1">Turn Azure<br>change into<br><span class="accent">informed<br>action.</span></h1>
+              <p class="lead">Give platform teams one place to understand what changed, assess potential exposure and plan the response.</p>
             </div>
             <div class="radar" role="img" aria-label="CloudLens connects updates, documentation and resource impact">
               <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div><div class="ring r4"></div>
@@ -348,7 +349,7 @@
               <span class="radar-label" style="right: -4px; bottom: 54px">Resource impact</span>
             </div>
           </div>
-          <div class="agenda-strip"><span><b>15 min</b> context &amp; capabilities</span><span><b>22 min</b> live product walkthrough</span><span><b>8 min</b> discussion</span></div>
+          <div class="agenda-strip"><span><b>15 min</b> operating value &amp; fit</span><span><b>22 min</b> see the evidence live</span><span><b>8 min</b> agree where to start</span></div>
           <div class="slide-foot"><span>Customer briefing &amp; live demonstration</span><span>8 September 2026</span></div>
           <template class="notes">
             <h3>Opening | about 1 minute</h3>
@@ -361,59 +362,59 @@
           </template>
         </section>
 
-        <section class="slide" data-title="Three questions behind every change" data-chapter="The operating problem" aria-labelledby="title-2">
-          <p class="eyebrow">The operating problem</p>
-          <h2 id="title-2">The announcement is only<br>the beginning of the work.</h2>
-          <p class="lead">A platform team needs to connect a public signal to its own engineering decisions.</p>
+        <section class="slide" data-title="Fragmented signals create repeated work before teams can decide" data-chapter="The operating problem" data-takeaway="The opportunity is to reduce repeated source gathering, interpretation and exposure checking. Position this as an operating problem to validate with the audience, not as a quantified claim about their costs." aria-labelledby="title-2">
+          <p class="eyebrow">Why the operating model matters</p>
+          <h2 id="title-2">Fragmented signals create repeated work<br>before teams can decide.</h2>
+          <p class="lead">The challenge is connecting public information to the estate and the planning cycle.</p>
           <div class="three space-top">
-            <div class="question-card"><div class="number">01 / DISCOVER</div><h3>What actually<br>changed?</h3><p class="muted">Retirements, API changes, documentation updates and migration requirements arrive through different channels.</p></div>
-            <div class="question-card"><div class="number">02 / UNDERSTAND</div><h3>Could it affect<br>our estate?</h3><p class="muted">A service name is not an impact assessment. Configuration, scope and query evidence matter.</p></div>
-            <div class="question-card"><div class="number">03 / DECIDE</div><h3>What needs<br>attention next?</h3><p class="muted">Engineers need a source, an action, a deadline where available, and a reason to prioritise.</p></div>
+            <div class="question-card"><div class="number">01 / GATHER</div><h3>Reassemble<br>the signal</h3><p class="muted">Announcements and documentation changes sit in different channels, each with its own context and history.</p></div>
+            <div class="question-card"><div class="number">02 / INVESTIGATE</div><h3>Establish<br>potential exposure</h3><p class="muted">Teams must translate a service-level change into a question about their own resources and configuration.</p></div>
+            <div class="question-card"><div class="number">03 / PRIORITISE</div><h3>Build the case<br>for action</h3><p class="muted">A planning decision needs a source, a plausible impact, a proposed action and a date where available.</p></div>
           </div>
-          <div class="statement space-top">Move from reading scattered announcements to reviewing a shared body of evidence.</div>
-          <div class="slide-foot"><span>Designed for the platform-team ↔ workload-team operating model.</span><span>Problem, not a claimed ROI</span></div>
+          <div class="statement space-top"><strong>Operating implication:</strong> make the evidence reusable across platform and workload teams.</div>
+          <div class="slide-foot"><span>The value opportunity is in the work between discovery and a decision.</span><span>Gather → investigate → prioritise</span></div>
           <template class="notes"><h3>Talk track | 1 minute</h3><p>Ask the audience to keep its current triage process in mind. The gap is the work between "Microsoft announced something" and "we know what to do." Avoid quantified time savings or incident-reduction claims: no measured customer outcome is asserted here.</p><p>CloudLens supports discovery, interpretation and candidate impact. Assignment, notification and remediation tracking remain outside the native workflow.</p><h3>Grounding</h3><p><code>README.md</code>, Problem; <code>prds/PlanV2.md</code>, problem statement and current-state matrix. Customer names, quotations and identifying details from the planning document are deliberately excluded.</p></template>
         </section>
 
-        <section class="slide" data-title="An evolution driven by operational needs" data-chapter="The project story" aria-labelledby="title-3">
-          <p class="eyebrow">The project story</p>
-          <h2 id="title-3">Built around a real operating need.<br>Grown through practical lessons.</h2>
+        <section class="slide" data-title="CloudLens evolved from summarisation to resource-aware lifecycle review" data-chapter="Practical credibility" data-takeaway="The evolution reflects operational needs: first consolidate signals, then connect them to resources, then make collection and execution inspectable. A customer-tailored version is in use; this is not a claim of independently measured outcomes or certification." aria-labelledby="title-3">
+          <p class="eyebrow">Practical credibility</p>
+          <h2 id="title-3">CloudLens evolved from summarisation<br>to resource-aware lifecycle review.</h2>
           <div class="timeline">
-            <div class="era"><div class="date">2024</div><h3>The lifecycle POC</h3><p>RSS, AI interpretation and stored results. The September iteration explored VNet protection, private endpoints and private DNS.</p><span class="pill">Prove the idea</span></div>
-            <div class="era"><div class="date">May 2026</div><h3>From scraper to radar</h3><p>MCP-based signals, a service watchlist, documentation intelligence, a lifecycle calendar and Resource Graph impact analysis.</p><span class="pill">Add context &amp; impact</span></div>
-            <div class="era"><div class="date">Today</div><h3>Coverage &amp; operability</h3><p>Complete catalog enumeration plus RSS reconciliation for Azure Updates. GitHub change monitoring, cost-aware backfill and live job heartbeats.</p><span class="pill accent-pill">Make the system inspectable</span></div>
+            <div class="era"><div class="date">2024</div><h3>Consolidate the signal</h3><p>RSS, AI interpretation and stored results established the initial review loop. VNet protection became part of the deployment design.</p><span class="pill">From source to summary</span></div>
+            <div class="era"><div class="date">May 2026</div><h3>Add resource context</h3><p>Watchlists, documentation intelligence and Resource Graph brought source changes closer to estate-level decisions.</p><span class="pill">From summary to impact</span></div>
+            <div class="era"><div class="date">Today</div><h3>Strengthen the evidence</h3><p>Catalog and RSS reconciliation, GitHub monitoring and job diagnostics make coverage and execution easier to inspect.</p><span class="pill accent-pill">From output to traceable review</span></div>
           </div>
-          <div class="statement space-top">Originated in a large, regulated financial-services setting.<br>A customer-tailored version is in use.</div>
+          <div class="statement space-top"><strong>Shaped by regulated financial-services needs.</strong><br>A customer-tailored version is in use.</div>
           <div class="slide-foot"><span>Historical articles: September 2024 and May 2026. Current capability snapshot: September 2026.</span><span>Customer identity withheld</span></div>
           <template class="notes"><h3>Talk track | 90 seconds</h3><p>The author originally built this for a large financial-services organisation. The user reports that a customised version is in use, adapted to its compliance landscape. This is anonymous background, not a public customer endorsement, certification or assertion that the public code includes those custom controls.</p><p>The 2024 article describes the earlier infrastructure, including components and credential patterns that differ from today's implementation. The May 2026 article describes the MCP-era ingestion approach. Today Azure Updates uses the full public catalog plus RSS; Microsoft Learn still uses MCP. Explain this as an evolution in source coverage, not as a claim that MCP disappeared from the product.</p><h3>Sources</h3><p><a href="https://moimhossain.com/2024/09/20/streamline-azure-lifecycle-management-with-ai-solutions/" target="_blank" rel="noopener noreferrer">September 2024 article</a><br><a href="https://moimhossain.com/2026/05/20/from-rss-scraper-to-mcp-powered-radar-how-azradar-grew-up/" target="_blank" rel="noopener noreferrer">May 2026 article</a><br><code>AzureUpdatesSource.cs</code>, <code>JobHeartbeatRunner.cs</code>, <code>GitHubCrawlJobHandler.cs</code>.</p></template>
         </section>
 
-        <section class="slide" data-title="Three live signals and one planned addition" data-chapter="Discover" aria-labelledby="title-4">
-          <p class="eyebrow">Discover</p>
-          <h2 id="title-4">One workspace.<br>Three live signals. One planned.</h2>
+        <section class="slide" data-title="A broader view of Azure change starts with complementary sources" data-chapter="Value · broader visibility" data-takeaway="The three current source paths provide complementary context, not interchangeable copies of one feed. Service Health is the planned extension into service incidents, maintenance and advisories; it is not available today." aria-labelledby="title-4">
+          <p class="eyebrow">Value / Broader change visibility</p>
+          <h2 id="title-4">A broader view of Azure change<br>starts with complementary sources.</h2>
           <div class="four space-top grow">
-            <div class="card source-card"><div class="source-icon" aria-hidden="true">01</div><h3>Azure Updates</h3><p>Enumerate the public catalog and reconcile RSS. Retain source content and detect revised announcements.</p><span class="pill">Catalog + RSS</span></div>
-            <div class="card source-card"><div class="source-icon" aria-hidden="true">02</div><h3>Microsoft Learn</h3><p>Search docs for watched services. Fingerprint result content to avoid re-analysing unchanged material.</p><span class="pill">MCP search</span></div>
-            <div class="card source-card"><div class="source-icon" aria-hidden="true">03</div><h3>GitHub Change Radar</h3><p>Watch selected repositories and paths. Analyse changed Markdown documentation with source context.</p><span class="pill">GitHub REST + diffs</span></div>
-            <div class="card source-card future"><div class="source-icon" aria-hidden="true">04</div><h3>Azure Service Health</h3><p>Planned: bring service incidents, planned maintenance and health advisories into the workspace.</p><span class="pill accent-pill">Future integration</span></div>
+            <div class="card source-card"><div class="source-icon" aria-hidden="true">01</div><h3>Azure Updates</h3><p><strong>Keep a traceable announcement history.</strong> Reconcile catalog and RSS, retaining source content and revisions.</p><span class="pill">Catalog + RSS</span></div>
+            <div class="card source-card"><div class="source-icon" aria-hidden="true">02</div><h3>Microsoft Learn</h3><p><strong>Focus review on watched services.</strong> Search docs and avoid repeating analysis of unchanged result content.</p><span class="pill">MCP search</span></div>
+            <div class="card source-card"><div class="source-icon" aria-hidden="true">03</div><h3>GitHub Change Radar</h3><p><strong>Surface lifecycle-relevant edits.</strong> Analyse Markdown changes in selected repositories and paths.</p><span class="pill">GitHub REST + diffs</span></div>
+            <div class="card source-card future"><div class="source-icon" aria-hidden="true">04</div><h3>Azure Service Health</h3><p><strong>Planned: add service-event context.</strong> Bring incidents, maintenance and advisories alongside lifecycle signals.</p><span class="pill accent-pill">Future integration</span></div>
           </div>
-          <div class="slide-foot"><span>Collection coverage and analysis coverage are different. Each source has its own scope.</span><span>Azure Service Health is not yet integrated</span></div>
+          <div class="slide-foot"><span><strong>Value:</strong> a shared starting point for announcement and documentation review.</span><span>Three live sources · Service Health planned</span></div>
           <template class="notes"><h3>Talk track | 90 seconds</h3><p>The Azure Updates ingestion contract is the union exposed by the catalog and RSS during a successful run. It follows continuation pages, checks completeness and detects source revisions. It is not a guarantee about posts removed before a crawl, upstream publication delays or future availability.</p><p>Microsoft Learn makes targeted and broad searches for each watched service, takes up to eight unique results, hashes available result content and analyses at most 8,000 characters per result. The handler uses inline search content or its snippet; do not describe it as exhaustive full-page fetching or whole-site version tracking.</p><p>GitHub monitoring is configurable, bounded change inspection, not an unlimited archive or a guarantee to detect every repository change. See appendix for bounds.</p><p><strong>Azure Service Health is a planned integration.</strong> The intention is to add service incidents, planned maintenance and health advisories alongside the three current source paths. It is not implemented or part of today's demonstration; no delivery date or integration mechanism is promised.</p><h3>Grounding</h3><p><code>AzureUpdatesSource.cs</code>; <code>AzureUpdatesJobHandler.cs</code>; <code>MsLearnIntelligenceJobHandler.cs:43–157</code>; <code>GitHubCrawlJobHandler.cs</code>; four handlers registered in <code>ServiceCollectionExtensions.cs</code>. The planned Service Health addition reflects the presenter's stated direction. Native scheduling, Service Health, Advisor and a dedicated MSRC ingestion handler are not implemented.</p></template>
         </section>
 
-        <section class="slide" data-title="A reviewable intelligence brief" data-chapter="Understand" aria-labelledby="title-5">
-          <p class="eyebrow">Understand</p>
-          <h2 id="title-5">Turn source material<br>into a reviewable brief.</h2>
+        <section class="slide" data-title="A consistent AI brief gives engineers a structured starting point for triage" data-chapter="Value · consistent triage" data-takeaway="A common analysis format makes the first-pass output reusable: type, urgency, potential scope and suggested action. The benefit is a structured starting point for human triage, not verified accuracy or automatic prioritisation." aria-labelledby="title-5">
+          <p class="eyebrow">Value / Consistent first-pass analysis</p>
+          <h2 id="title-5">A consistent AI brief gives engineers<br>a structured starting point for triage.</h2>
           <div class="two space-top">
             <div>
-              <p class="lead">AI assists the first pass.<br>Engineers retain the judgement.</p>
-              <div class="rule-row"><strong>Classify</strong><p>Change type and operational severity.</p></div>
-              <div class="rule-row"><strong>Contextualise</strong><p>Affected services and ARM resource types.</p></div>
-              <div class="rule-row"><strong>Prepare</strong><p>Action required, migration guidance and effort estimate.</p></div>
-              <p class="small muted space-top">Source links and confidence help reviewers challenge the interpretation rather than accept a black box.</p>
+              <p class="lead">Standardise the first-pass analysis.<br>Keep accountability with engineers.</p>
+              <div class="rule-row"><strong>Triage</strong><p>Focus review with change type and severity.</p></div>
+              <div class="rule-row"><strong>Scope</strong><p>Identify potentially affected services and resource types.</p></div>
+              <div class="rule-row"><strong>Prepare</strong><p>Use action and migration guidance to frame next steps.</p></div>
+              <p class="small muted space-top"><strong>Reviewer action:</strong> check the source, challenge the classification and confirm any deadline before acting.</p>
             </div>
             <div class="brief" aria-label="The fields in an analysed item, not a live result">
-              <div class="brief-head"><span>Structured analysis</span><span class="pill">Field map</span></div>
+              <div class="brief-head"><span>One repeatable review format</span><span class="pill">Field map</span></div>
               <div class="brief-row"><span>What changed</span><strong>Type · severity · brief summary</strong></div>
               <div class="brief-row"><span>What may be affected</span><strong>Services · resource types</strong></div>
               <div class="brief-row"><span>What to do</span><strong>Action · migration path · effort</strong></div>
@@ -424,44 +425,44 @@
           <template class="notes"><h3>Talk track | 90 seconds</h3><p>This is a field map, not a fabricated product result. The common analyser extracts structured JSON including change type, severity, services, resource types, action, deadline, migration path, effort and a model-reported confidence score.</p><p>Confidence is not a calibrated accuracy measurement. The analyser can produce a fallback with confidence zero when analysis fails. Validate source, deadline and guidance before making a production decision.</p><p><strong>Demo caveat:</strong> the 9,887 Azure Updates records imported in the historical backfill were deliberately not analysed. Do not present a blank AI panel as a fault or promise that the next unchanged crawl will fill it. Normal crawls analyse new/revised updates; unchanged intentional skips stay skipped.</p><h3>Grounding</h3><p><code>LlmAnalyzerService.cs:25–139</code>; <code>FeedItemsPage.tsx</code>; <code>AzureUpdatesJobHandler.cs</code>; README historical-backfill section.</p></template>
         </section>
 
-        <section class="slide" data-title="From a change to candidate resource impact" data-chapter="Connect to the estate" aria-labelledby="title-6">
-          <p class="eyebrow">Connect to the estate</p>
-          <h2 id="title-6">“Does this touch our environment?”</h2>
-          <p class="lead">Blast Radius connects an analysed lifecycle change to Azure Resource Graph.</p>
+        <section class="slide" data-title="Resource evidence turns a general change into a targeted investigation" data-chapter="Value · targeted investigation" data-takeaway="Candidate resource matches help turn a broad announcement into a focused engineering investigation. Validate the generated query, scope and scan time before escalation; a missing match is not evidence that there is no exposure." aria-labelledby="title-6">
+          <p class="eyebrow">Value / More focused investigation</p>
+          <h2 id="title-6">Resource evidence turns a general change<br>into a targeted investigation.</h2>
+          <p class="lead">Blast Radius identifies candidate resources within the configured Azure read scope.</p>
           <div class="two space-top">
             <div class="steps">
-              <div class="step"><div><h3>Generate a targeted query</h3><p>The LLM translates the change context into KQL for potentially affected resources.</p></div></div>
-              <div class="step"><div><h3>Query the authorised scope</h3><p>Use a configured managed identity with Azure read access. Retry query errors with LLM feedback, up to three attempts.</p></div></div>
-              <div class="step"><div><h3>Inspect the evidence</h3><p>Review stored impact results, the generated query and execution diagnostics.</p></div></div>
+              <div class="step"><div><h3>Define the exposure question</h3><p>The LLM proposes targeted KQL from an analysed lifecycle change.</p></div></div>
+              <div class="step"><div><h3>Query accessible resources</h3><p>Run a read-only Resource Graph query under the configured managed identity.</p></div></div>
+              <div class="step"><div><h3>Review before escalation</h3><p>Inspect matches, query logic and scan time before deciding what to investigate.</p></div></div>
             </div>
             <div class="result-block">
               <span class="pill accent-pill">Query-derived candidate impact</span>
-              <div class="large-label">A count is useful.<br><span class="accent">A traceable count<br>is more useful.</span></div>
+              <div class="large-label">Focus review on<br><span class="accent">candidate resources.</span></div>
               <div class="result-grid"><div>Resource totals</div><div>Subscription breakdown</div><div>Regional distribution</div><div>Up to 20 resource details</div></div>
               <p class="small muted space-top">Coverage depends on the query, accessible resources and returned data. A missing match is not proof of no impact.</p>
             </div>
           </div>
-          <div class="slide-foot"><span>Human review remains essential; not a dependency graph or exhaustive estate attestation.</span><span>Read-only resource queries</span></div>
+          <div class="slide-foot"><span><strong>Decision implication:</strong> investigate candidate resources before escalating a general announcement.</span><span>Candidate impact · not an estate attestation</span></div>
           <template class="notes"><h3>Talk track | 2 minutes</h3><p>This is the strongest bridge from a generic announcement to the customer's own estate. Demonstrate an existing result, not a promise that every change is ARG-detectable.</p><p>The scan considers analysed retirement/deprecation/breaking-change items from at most 500 feed items and 500 doc insights, excluding deadlines more than 90 days overdue. It requires a configured managed identity attached to the worker with appropriate read access. Some changes deliberately yield SKIP. Only positive matches are stored as impact summaries.</p><p>ARG results are not paginated by the current client. Totals come from ARG, but subscription/region breakdowns use returned rows; top-resource details are capped at 20. A previous positive result is not necessarily removed when a later scan finds zero, so check scan time and diagnostics. Do not equate the fixed "high" match-confidence label with a measured probability.</p><p>The exact generated KQL can be inspected through job diagnostics; do not promise a dedicated query editor. Never expose customer-specific resource names, tags or subscription IDs during a shared demo. Use an appropriate demonstration estate.</p><h3>Grounding</h3><p><code>BlastRadiusJobHandler.cs:35–244</code>; <code>ResourceGraphClient.cs:88–143</code>; <code>ImpactAnalysisPage.tsx</code>; <code>CrawlJobsPage.tsx</code>.</p></template>
         </section>
 
-        <section class="slide" data-title="From intelligence to a planning conversation" data-chapter="Prioritise" aria-labelledby="title-7">
-          <p class="eyebrow">Prioritise</p>
-          <h2 id="title-7">Make the deadline conversation<br>visual, not anecdotal.</h2>
-          <p class="lead">The Lifecycle Calendar brings dated, analysed items into timeline, quarter and month views.</p>
+        <section class="slide" data-title="A shared deadline view helps teams plan lifecycle work alongside delivery" data-chapter="Value · planning visibility" data-takeaway="The calendar brings extracted dates into the team's existing planning horizon. Combine deadline, source context and candidate impact when setting priorities; CloudLens does not schedule remediation or certify completion." aria-labelledby="title-7">
+          <p class="eyebrow">Value / Earlier planning conversations</p>
+          <h2 id="title-7">A shared deadline view helps teams<br>plan lifecycle work alongside delivery.</h2>
+          <p class="lead">Use extracted deadlines to connect near-term reviews with quarterly planning.</p>
           <div class="calendar-views">
-            <div class="card"><span class="pill">Timeline</span><div class="mini-timeline" aria-hidden="true"><i></i><span></span><i></i><span></span><i></i></div><h3>Read the sequence</h3><p class="small muted">See upcoming lifecycle dates in context and review the action behind an item.</p></div>
-            <div class="card"><span class="pill">Quarter</span><div class="quarter-bars" aria-hidden="true"><span></span><span></span><span></span></div><h3>Support planning</h3><p class="small muted">Bring changes into the same horizon as engineering and platform planning.</p></div>
-            <div class="card"><span class="pill">Month</span><div class="month-grid" aria-hidden="true"><i></i><i></i><i class="mark"></i><i></i><i></i><i class="mark"></i><i></i><i></i><i></i><i></i><i class="mark"></i><i></i><i></i><i></i></div><h3>Inspect the date</h3><p class="small muted">Navigate a calendar grid and open the relevant source or item context.</p></div>
+            <div class="card"><span class="pill">Timeline</span><div class="mini-timeline" aria-hidden="true"><i></i><span></span><i></i><span></span><i></i></div><h3>See the sequence</h3><p class="small muted">Review dated changes in order, with the source and proposed action close at hand.</p></div>
+            <div class="card"><span class="pill">Quarter</span><div class="quarter-bars" aria-hidden="true"><span></span><span></span><span></span></div><h3>Set the horizon</h3><p class="small muted">Bring lifecycle dates into existing quarterly engineering and platform planning.</p></div>
+            <div class="card"><span class="pill">Month</span><div class="month-grid" aria-hidden="true"><i></i><i></i><i class="mark"></i><i></i><i></i><i class="mark"></i><i></i><i></i><i></i><i></i><i class="mark"></i><i></i><i></i><i></i></div><h3>Prepare the next review</h3><p class="small muted">Identify upcoming dates that deserve attention at the next engineering review.</p></div>
           </div>
-          <div class="statement space-top">Filter by service, change type and severity.<br>Use the dashboard, source detail and impact views alongside the calendar.</div>
-          <div class="slide-foot"><span>Conceptual view symbols, not sample customer data. No remediation completion is implied.</span><span>Only items with extracted deadlines</span></div>
+          <div class="statement space-top"><strong>Planning action:</strong> combine deadline, source context and candidate impact before setting priority.</div>
+          <div class="slide-foot"><span>Filter the review by service, change type and severity.</span><span>Extracted deadlines only · no completion tracking</span></div>
           <template class="notes"><h3>Talk track | 1 minute</h3><p>Use this as a planning aid, not as a compliance or readiness scorecard. Calendar urgency and severity do not indicate whether anyone has remediated the underlying resources.</p><p>The API reads up to 500 feed records and 500 doc insights, requires an analysis and deadline, and excludes dates more than 90 days overdue. This is not a complete projection of all ingested history. Unanalysed backfill records cannot appear through an extracted deadline they do not have.</p><p>The dashboard aggregates available analysis and impact data. Its counters should not be described as the total ingestion archive or verified customer exposure. Source-aware estate filtering and blast-radius severity amplification remain planned.</p><h3>Grounding</h3><p><code>LifecycleCalendarPage.tsx</code> (timeline / quarter / calendar views); API <code>Program.cs:366–419</code>; <code>DashboardPage.tsx</code>; <code>AppShell.tsx:149–182</code>.</p></template>
         </section>
 
-        <section class="slide" data-title="An Azure-native operating foundation" data-chapter="Architecture & boundaries" aria-labelledby="title-8">
-          <p class="eyebrow">Architecture &amp; boundaries</p>
-          <h2 id="title-8">A small Azure-native core.<br>Explicit service boundaries.</h2>
+        <section class="slide" data-title="Azure-native components support a controlled deployment model" data-chapter="Deployment fit" data-takeaway="Managed identities, private-network options and repeatable infrastructure are building blocks for deployment governance. Agree the actual ingress, access, retention and model-processing controls with security; the architecture is not a compliance certification." aria-labelledby="title-8">
+          <p class="eyebrow">Deployment fit / Control by design</p>
+          <h2 id="title-8">Azure-native components support<br>a controlled deployment model.</h2>
           <div class="architecture">
             <div class="external-stack"><div class="card"><h3>Browser</h3><p>React + Fluent UI workspace<br>↓ HTTPS to API</p></div><div class="card"><h3>Public sources</h3><p>Azure catalog &amp; RSS<br>Microsoft Learn MCP<br>GitHub REST</p></div></div>
             <div class="azure-boundary">
@@ -474,36 +475,36 @@
             </div>
             <div class="external-stack"><div class="card"><h3>Azure OpenAI</h3><p>Worker → structured analysis<br>Managed identity</p></div><div class="card"><h3>Resource Graph</h3><p>Worker → read-only KQL<br>Scoped managed identity</p></div></div>
           </div>
-          <div class="pills space-top"><span class="pill">VNet-integrated apps</span><span class="pill">Cosmos private endpoint</span><span class="pill">Identity-based Azure access</span><span class="pill">Bicep + container deployment</span></div>
-          <div class="slide-foot"><span>LLM networking, ingress, identity scope and organisational controls must be agreed per deployment.</span><span>Not a compliance certification</span></div>
+          <div class="pills space-top"><span class="pill">Private network paths</span><span class="pill">Scoped Azure identities</span><span class="pill">Repeatable deployment</span><span class="pill">Extensible job handlers</span></div>
+          <div class="slide-foot"><span><strong>Deployment decision:</strong> agree identity scope, ingress and data controls with the security team.</span><span>Controls need deployment-specific review</span></div>
           <template class="notes"><h3>Talk track | 90 seconds</h3><p>Explain the intentionally small core: UI and API share one App Service container; jobs live in Cosmos; Change Feed dispatches work to a separate JobHost. Source retrieval and analysis happen in the worker. Results return to Cosmos and are exposed through the API.</p><p>The repository's VNet Bicep pattern integrates both apps and protects Cosmos with a private endpoint and AAD-only access. Cosmos and Azure OpenAI use DefaultAzureCredential with the configured UAMI. Blast Radius uses a separately configurable UAMI. Azure OpenAI can be an existing external endpoint or a private-endpoint deployment pattern; do not assert one universal network boundary.</p><p>"Identity-based Azure access" is intentionally narrower than "zero credentials anywhere": GitHub can optionally use a PAT. Public source APIs require outbound connectivity. The public SPA is not proof of native Entra SSO or per-team application RBAC; those require separate work or deployment controls. Do not use the old POC's Key Vault/key example to describe this implementation.</p><h3>Grounding</h3><p><code>infra/README.md</code>; <code>infra/main.bicep</code>; <code>ServiceCollectionExtensions.cs</code>; <code>Worker.cs</code>; API <code>Program.cs</code>. This is a conceptual component view, not a diagram of customer infrastructure.</p></template>
         </section>
 
-        <section class="slide" data-title="What is available and what is not" data-chapter="The product boundary" aria-labelledby="title-9">
-          <p class="eyebrow">The product boundary</p>
-          <h2 id="title-9">A working intelligence layer.<br>Not an autonomous control plane.</h2>
+        <section class="slide" data-title="CloudLens supplies the evidence; your teams own the response" data-chapter="Accountability & operating fit" data-takeaway="Place CloudLens inside the existing engineering review and change process. It supplies evidence; the organisation still owns validation, priority, accountability, access controls and execution. The right-hand column describes responsibilities, not additional product features." aria-labelledby="title-9">
+          <p class="eyebrow">Accountability / Fit with the operating process</p>
+          <h2 id="title-9">CloudLens supplies the evidence;<br>your teams own the response.</h2>
           <div class="two space-top">
-            <div class="card"><div class="boundary-heading"><i class="dot" aria-hidden="true"></i><h3>Available in the current code</h3></div><ul class="boundary-list"><li>Three source paths &amp; configurable watchlists</li><li>AI classification and migration guidance</li><li>Query-derived resource impact</li><li>Calendar, dashboard and detail views</li><li>On-demand jobs, diagnostics and heartbeats</li></ul></div>
-            <div class="card"><div class="boundary-heading"><i class="dot outline-dot" aria-hidden="true"></i><h3>Not native today</h3></div><ul class="boundary-list"><li>Estate-aware “applies to me” ranking</li><li>Teams, email or ITSM notification routing</li><li>Assignment and remediation tracking</li><li>Readiness scoring or autonomous fixes</li><li>Built-in scheduling and per-team SSO/RBAC</li></ul></div>
+            <div class="card"><div class="boundary-heading"><i class="dot" aria-hidden="true"></i><h3>CloudLens provides the evidence</h3></div><ul class="boundary-list"><li>Three source paths &amp; configurable watchlists</li><li>Structured AI interpretation and guidance</li><li>Query-derived candidate resource impact</li><li>Deadline, dashboard and detail views</li><li>On-demand jobs and execution diagnostics</li></ul></div>
+            <div class="card"><div class="boundary-heading"><i class="dot outline-dot" aria-hidden="true"></i><h3>The organisation owns action</h3></div><ul class="boundary-list"><li>Choose review scope and run cadence</li><li>Validate AI output and candidate matches</li><li>Assign accountability and set priorities</li><li>Approve, execute and track remediation</li><li>Provide access controls and workflow integrations</li></ul></div>
           </div>
-          <div class="slide-foot"><span>The PRDs describe a larger direction. Roadmap ideas are not demonstrated as delivered features.</span><span>Human-led response</span></div>
+          <div class="slide-foot"><span><strong>Operating implication:</strong> embed the evidence in existing review and change processes.</span><span>No native assignment, ITSM routing or remediation</span></div>
           <template class="notes"><h3>Talk track | 1 minute</h3><p>Be explicit about the boundary before the live demo. Today the dashboard is pull-oriented. A team still decides ownership, schedules its operating process, approves work and executes remediation using its existing tooling.</p><p>There is no native Teams/email/ServiceNow delivery ledger, acknowledgement workflow, scorecard, dependency cascade, automatic relevance amplification, full estate drift monitor or predictive lifecycle engine. An IJobHandler extension point makes future expansion possible, but does not make an integration exist.</p><p>Azure Service Health is the planned source addition shown on slide 4, not a current handler. Advisor and dedicated MSRC ingestion are also not implemented. A "security-advisory" AI classification does not constitute an MSRC integration. Source, UI and PRD status statements were reconciled against the actual implementations for this deck.</p><h3>Grounding</h3><p><code>prds/PlanV2.md</code> current-state matrix and next-feature sections; API route registrations in <code>Program.cs</code>; handler registrations in <code>ServiceCollectionExtensions.cs</code>; <code>App.tsx</code>.</p></template>
         </section>
 
-        <section class="slide closing" data-title="Fewer surprises. Better lifecycle decisions." data-chapter="Discussion" aria-labelledby="title-10">
-          <p class="eyebrow">CloudLens / Azure Lifecycle Sentinel</p>
-          <h2 id="title-10">Fewer surprises.<br><span class="accent">Better lifecycle<br>decisions.</span></h2>
-          <p class="lead">Bring the signal, the interpretation and the resource evidence into the same conversation.</p>
-          <div class="pills"><span class="pill">Which services matter most?</span><span class="pill">Where is today's review effort?</span><span class="pill">What would earn your trust?</span></div>
+        <section class="slide closing" data-title="Choose one use case and define what success looks like" data-chapter="The decision" data-takeaway="Close on three tangible outputs: one priority service, a reviewer accountable for judging the evidence, and a comparison with today's process. This is a discussion decision, not a request to approve a budget or commit to a prescribed pilot." aria-labelledby="title-10">
+          <p class="eyebrow">CloudLens / The decision to take forward</p>
+          <h2 id="title-10">Choose one use case.<br><span class="accent">Define what<br>success looks like.</span></h2>
+          <p class="lead">Agree one priority service, a review owner and the evidence needed to justify the next step.</p>
+          <div class="pills"><span class="pill">01 · Priority service</span><span class="pill">02 · Review owner</span><span class="pill">03 · Success evidence</span></div>
           <div class="slide-foot"><span><a href="https://github.com/MoimHossain/az-radar" target="_blank" rel="noopener noreferrer">CloudLens source code</a></span><span>Discussion · optional reference slide follows</span></div>
-          <template class="notes"><h3>Closing | discussion</h3><p>Leave the three discussion prompts on screen. Invite the audience to identify the first service or use case worth evaluating. Stop the core presentation here; the next slide is a supporting reference, not more feature promises.</p><p>Use CloudLens consistently as the product name. The anonymised customer adaptation is a separate customised deployment. No customer names or endorsements are included.</p></template>
+          <template class="notes"><h3>Closing | discussion</h3><p>Turn interest into a specific decision. Ask: Which service creates the most lifecycle-review work today? Who should judge whether the output is useful? What evidence would justify a next step?</p><p>Possible comparison criteria are source coverage within an agreed scope, usefulness of candidate resource matches, and analyst effort against the current process. These are measures to agree, not proven results or built-in scorecard metrics. Avoid introducing a budget, delivery date, savings target or pilot commitment the audience has not discussed.</p><p>Leave with the three named outputs on this slide if the audience is ready. Stop the core presentation here; the next slide is a supporting reference. Use CloudLens consistently. The anonymised customer adaptation remains a separate customised deployment, with no customer names or endorsements included.</p></template>
         </section>
 
-        <section class="slide" data-title="Scope and limits worth knowing" data-chapter="Appendix · implementation detail" data-appendix="true" aria-labelledby="title-11">
-          <p class="eyebrow">Appendix / Implementation detail</p>
-          <h2 id="title-11">Useful boundaries to keep in view.</h2>
+        <section class="slide" data-title="Use the output to guide review, not to certify complete coverage" data-chapter="Appendix · decision boundaries" data-appendix="true" data-takeaway="Responsible use requires knowing what was collected, what was analysed and what was queried. Use these boundaries to qualify a decision, rather than treating a source archive, model confidence or missing match as proof of readiness." aria-labelledby="title-11">
+          <p class="eyebrow">Appendix / Decision boundaries</p>
+          <h2 id="title-11">Use the output to guide review,<br>not to certify complete coverage.</h2>
           <table class="evidence-table">
-            <thead><tr><th>Area</th><th>What the implementation does</th><th>What not to infer</th></tr></thead>
+            <thead><tr><th>Area</th><th>Evidence available</th><th>Decision boundary</th></tr></thead>
             <tbody>
               <tr><td>Azure Updates</td><td>Full catalog pagination + RSS reconciliation; revisions detected; full source retained.</td><td>Not recovery of removed posts, upstream availability, or automatic scheduling.</td></tr>
               <tr><td>Microsoft Learn</td><td>Up to eight unique search results per watched service; hashes available result content.</td><td>Not every document or every edit; analysis input is bounded.</td></tr>
@@ -512,7 +513,7 @@
               <tr><td>AI &amp; workflow</td><td>Model-provided severity, guidance and confidence; source and job evidence for review.</td><td>Not calibrated certainty, a compliance score, ownership routing or executed remediation.</td></tr>
             </tbody>
           </table>
-          <div class="slide-foot"><span>Source inspection takes precedence over older article examples and aspirational PRD language.</span><span>September 2026 implementation</span></div>
+          <div class="slide-foot"><span><strong>Before relying on an output:</strong> confirm source coverage, query scope and freshness.</span><span>September 2026 implementation</span></div>
           <template class="notes"><h3>Technical Q&amp;A</h3><p>The updated Azure Updates source removes the earlier fixed 50-item ingestion cap. Do not generalise that to all downstream reads: calendar and blast-radius candidate collection still use bounded database reads.</p><p>ARG custom queries use a single response; the client does not follow a skip token. Region/subscription breakdowns therefore reflect returned rows, and query language may itself limit the result set. The stored total is not a guarantee that every related resource is represented.</p><p>Microsoft Learn uses available MCP search content, with an 8,000-character analysis input cap. GitHub processes only .md/.mdx files, uses prefix-based path filters and incremental commit cursors, and bounds commits, files and diff input. Noise checks skip whitespace and front-matter-only changes. Cross-references attach up to five Azure Updates records by affected-service overlap, not a rich semantic relationship engine. The Scan now action queues the global GitHub job, not a single-repository-only run.</p><p>GitHub can use an optional PAT; unauthenticated access has lower rate limits. Do not claim automatic repository discovery, webhook ingestion, universal private-repository support or a comprehensive code/vulnerability scan. Fingerprints and cursors reduce redundant work within processing bounds; they do not establish complete source-change coverage.</p><p>Source material and AI-generated content remain subject to human review. No new native security integrations, automatic notification routing or readiness scoring were inferred from the roadmap.</p><h3>Grounding</h3><p><code>MsLearnIntelligenceJobHandler.cs</code>; <code>GitHubCrawlJobHandler.cs:83–127, 217–282, 305–380</code>; <code>GitHubClient.cs:38–81, 116–139</code>; <code>BlastRadiusJobHandler.cs:221–243</code>; <code>ResourceGraphClient.cs:88–143</code>; API <code>Program.cs:366–419</code>.</p></template>
         </section>
 
@@ -587,9 +588,14 @@
         dialogs.forEach(dialog => { if (dialog.open) dialog.close(); });
         if (id === "notes") {
           byId("notes-title").textContent = `${String(current + 1).padStart(2, "0")} · ${slides[current].dataset.title}`;
-          byId("notes-content").replaceChildren(slides[current].querySelector("template.notes").content.cloneNode(true));
+          const heading = document.createElement("h3");
+          heading.textContent = "Executive takeaway";
+          const takeaway = document.createElement("p");
+          takeaway.textContent = slides[current].dataset.takeaway;
+          byId("notes-content").replaceChildren(heading, takeaway, slides[current].querySelector("template.notes").content.cloneNode(true));
         }
         byId(id).showModal();
+        byId(id).scrollTop = 0;
       }
       async function fullscreen() {
         try {
