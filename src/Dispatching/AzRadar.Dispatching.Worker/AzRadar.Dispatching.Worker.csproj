@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-AzRadar.Dispatching.Worker-c70cd788-5292-414c-a10d-e58976d763b6</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.Authentication.Msal" Version="1.8.77" />
+    <PackageReference Include="Microsoft.Agents.Hosting.AspNetCore" Version="1.8.77" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AzRadar.Dispatching.Core\AzRadar.Dispatching.Core.csproj" />
+    <ProjectReference Include="..\..\AzRadar.Shared\AzRadar.Shared.csproj" />
+  </ItemGroup>
+</Project>

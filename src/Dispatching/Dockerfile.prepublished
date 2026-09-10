@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+ARG APP_DLL
+ENV APP_DLL=${APP_DLL}
+WORKDIR /app
+COPY . .
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "dotnet \"$APP_DLL\""]

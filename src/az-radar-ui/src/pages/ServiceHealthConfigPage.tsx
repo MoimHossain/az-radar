@@ -76,9 +76,6 @@ export function ServiceHealthConfigPage() {
   const [events, setEvents] = useState<ServiceHealthEvent[]>([]);
   const [deliveryIntents, setDeliveryIntents] = useState<ServiceHealthDeliveryIntent[]>([]);
   const [subscriptionId, setSubscriptionId] = useState("");
-  const [channelName, setChannelName] = useState("");
-  const [secretUri, setSecretUri] = useState("");
-  const [selectedTypes, setSelectedTypes] = useState<ServiceHealthEventType[]>(["ServiceIssue"]);
   const [testEventType, setTestEventType] = useState<ServiceHealthEventType>("ServiceIssue");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -158,29 +155,6 @@ export function ServiceHealthConfigPage() {
     } finally {
       setBusy(false);
     }
-  };
-
-  const createChannel = async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      await api.createServiceHealthChannel(channelName.trim(), secretUri.trim(), selectedTypes);
-      setChannelName("");
-      setSecretUri("");
-      setSelectedTypes(["ServiceIssue"]);
-      await load();
-      setMessage({ type: "success", text: "Platform Teams channel configuration saved." });
-    } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleEventType = (eventType: ServiceHealthEventType, checked: boolean) => {
-    setSelectedTypes((current) =>
-      checked ? [...new Set([...current, eventType])] : current.filter((value) => value !== eventType),
-    );
   };
 
   if (loading) {
@@ -341,7 +315,7 @@ export function ServiceHealthConfigPage() {
       <Card className={styles.card}>
         <Text weight="semibold">Pending delivery intents</Text>
         <Text size={200} className={styles.muted}>
-          These records are ready for the dispatcher that will be implemented next.
+          Delivery state from the durable Service Bus and Teams bot dispatcher.
         </Text>
         {deliveryIntents.length === 0 && (
           <Text className={styles.muted}>No channel-matched delivery intents yet.</Text>
@@ -360,42 +334,14 @@ export function ServiceHealthConfigPage() {
       </Card>
 
       <Card className={styles.card}>
-        <Text weight="semibold">Add a platform Teams channel</Text>
+        <Text weight="semibold">Platform Teams destinations</Text>
         <Text size={200} className={styles.muted}>
-          Store the Teams Workflow URL in Key Vault and provide its secret URI here. Dispatch is
-          filtered only by the selected event families across all registered subscriptions.
+          Install the AzRadar Teams app in a standard channel. The bot discovers the channel here
+          as disabled; an administrator then selects event families and enables delivery.
         </Text>
-        <div className={styles.row}>
-          <Field label="Display name" style={{ flex: 1, minWidth: "220px" }} required>
-            <Input value={channelName} onChange={(_, data) => setChannelName(data.value)} />
-          </Field>
-          <Field label="Key Vault secret URI" style={{ flex: 2, minWidth: "360px" }} required>
-            <Input
-              className={styles.mono}
-              value={secretUri}
-              onChange={(_, data) => setSecretUri(data.value)}
-              placeholder="https://vault.vault.azure.net/secrets/teams-workflow-url"
-            />
-          </Field>
-        </div>
-        <div className={styles.eventTypes}>
-          {eventTypes.map((eventType) => (
-            <Checkbox
-              key={eventType.value}
-              label={eventType.label}
-              checked={selectedTypes.includes(eventType.value)}
-              onChange={(_, data) => toggleEventType(eventType.value, data.checked === true)}
-            />
-          ))}
-        </div>
-        <Button
-          appearance="primary"
-          icon={busy ? <Spinner size="tiny" /> : <AddRegular />}
-          disabled={busy || !channelName.trim() || !secretUri.trim() || selectedTypes.length === 0}
-          onClick={createChannel}
-        >
-          Add channel
-        </Button>
+        {channels.length === 0 && (
+          <Text className={styles.muted}>No Teams destinations have been discovered yet.</Text>
+        )}
 
         {channels.map((channel) => (
           <div className={styles.item} key={channel.id}>
@@ -403,28 +349,51 @@ export function ServiceHealthConfigPage() {
               <div>
                 <Text weight="semibold">{channel.displayName}</Text>
                 <Text block size={200} className={styles.muted}>
-                  {channel.subscribedEventTypes.join(", ")}
+                  {channel.type === "teams-bot"
+                    ? `${channel.registrationStatus} · ${channel.teamName || "Unknown team"}`
+                    : "Legacy Teams Workflow"}
                 </Text>
               </div>
               <div className={styles.actions}>
                 <Switch
                   checked={channel.enabled}
                   label="Enabled"
+                  disabled={busy || (channel.type === "teams-bot" && channel.registrationStatus !== "registered")}
                   onChange={async (_, data) => {
                     await api.updateServiceHealthChannel({ ...channel, enabled: data.checked });
                     await load();
                   }}
                 />
-                <Button
-                  appearance="subtle"
-                  icon={<DeleteRegular />}
-                  onClick={async () => {
-                    await api.removeServiceHealthChannel(channel.id);
+                {channel.type === "teams-workflow" && (
+                  <Button
+                    appearance="subtle"
+                    icon={<DeleteRegular />}
+                    onClick={async () => {
+                      await api.removeServiceHealthChannel(channel.id);
+                      await load();
+                    }}
+                    aria-label={`Delete ${channel.displayName}`}
+                  />
+                )}
+              </div>
+            </div>
+            <div className={styles.eventTypes}>
+              {eventTypes.map((eventType) => (
+                <Checkbox
+                  key={eventType.value}
+                  label={eventType.label}
+                  checked={channel.subscribedEventTypes.includes(eventType.value)}
+                  disabled={busy}
+                  onChange={async (_, data) => {
+                    const subscribedEventTypes = data.checked === true
+                      ? [...new Set([...channel.subscribedEventTypes, eventType.value])]
+                      : channel.subscribedEventTypes.filter((value) => value !== eventType.value);
+                    if (subscribedEventTypes.length === 0) return;
+                    await api.updateServiceHealthChannel({ ...channel, subscribedEventTypes });
                     await load();
                   }}
-                  aria-label={`Delete ${channel.displayName}`}
                 />
-              </div>
+              ))}
             </div>
           </div>
         ))}

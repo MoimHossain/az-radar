@@ -58,7 +58,7 @@ Azure Service Bus topic (durable delivery work)
 Teams dispatch worker
              |
              v
-Teams Workflows webhook
+Azure Bot Service -> tenant-managed Teams notification app
 ```
 
 This uses Event Hubs and Service Bus for different purposes:
@@ -545,31 +545,33 @@ The consumer completes a Service Bus message only after writing the delivery res
 
 ## 8. Teams Delivery Design
 
-### 8.1 Recommended v1: Teams Workflows webhook
+### 8.1 Selected architecture: tenant-managed Teams notification app
 
-AzRadar sends outbound HTTPS to a Teams Workflow created with the **When a Teams webhook request is
-received** trigger. The workflow posts the supplied Adaptive Card to a channel.
+AzRadar uses an Azure Bot resource with the Microsoft Teams channel enabled and a tenant-managed,
+notification-only Teams app. A dedicated Bot Gateway receives authenticated Azure Bot activities at
+`/api/messages`, captures installation and conversation context, and persists the conversation
+reference in Cosmos DB. A separate dispatch worker sends Adaptive Cards proactively through the Bot
+Connector after consuming durable delivery work from Service Bus.
 
-This does not expose an inbound AzRadar endpoint. The externally reachable endpoint is Microsoft
-Power Automate/Teams infrastructure, and AzRadar is only an outbound client.
-
-Do not build new Office 365 Connector-based incoming webhooks. Microsoft is retiring that connector
-model and recommends Teams Workflows or a Teams app.
+This is the target architecture rather than a temporary webhook bridge. It avoids user-owned flow
+lifecycles, supports stable Teams activity identifiers and future message updates, and provides a
+tenant-admin-governed application installation model. The Bot Gateway is the only new public ingress
+surface. WAF or Front Door hardening is deferred for the pilot, but Bot JWT validation is mandatory.
 
 ### 8.2 Operational constraints
 
-- A webhook/workflow is scoped to a channel.
-- Workflow URLs are secrets and must be stored in Key Vault; Cosmos stores only a secret URI.
-- Each production workflow must have at least two controlled co-owners or an enterprise-approved service
-  ownership model to avoid orphaned flows.
+- The Teams app is installed into each centrally managed channel selected for the pilot.
+- Installation and conversation-update activities create a disabled destination in Cosmos.
+- A CloudLens administrator selects event families and explicitly enables the destination.
+- Persist the Agents SDK conversation reference and required claims; do not store access tokens.
 - Start with standard channels. Private-channel support and posting identity must be validated in
   the regulated enterprise's tenant.
-- Keep Adaptive Cards below the documented Teams webhook message-size limit.
-- Enforce per-channel rate limiting below the documented webhook threshold.
+- Keep Adaptive Cards within Teams and Bot Connector limits.
+- Enforce per-channel rate limiting and bounded concurrency.
 - Respect `Retry-After` and use exponential backoff for HTTP 429 and transient 5xx responses.
-- Circuit-break a failing channel independently so one broken workflow does not delay others.
-- Never log the full workflow URL.
-- Rotate a workflow URL by adding a new Key Vault secret version and testing before cutover.
+- Circuit-break a failing channel independently so one broken installation does not delay others.
+- Mark removed installations inactive and stop routing to them.
+- Never log Bot Connector tokens or unrestricted conversation-reference payloads.
 
 ### 8.3 Channel models
 
@@ -620,12 +622,12 @@ Subsequent updates:
 
 The delivery ledger stores the Teams response identifier when one is available.
 
-### 8.5 Long-term Teams option
+### 8.5 Teams administration boundary
 
-An enterprise-approved Teams notification app can eventually replace per-channel Workflow URLs and enable
-interactive acknowledgement, subscriptions, and richer message updates. It is deferred because a
-bot/app introduces Teams administration, consent, installation, identity, and potentially inbound
-messaging endpoint requirements that conflict with the fast-path security constraint.
+Bicep provisions Azure Bot Service, managed identities, App Services, Service Bus, Cosmos containers,
+networking, and RBAC. The Teams app manifest package is generated from the deployed Bot UAMI client
+ID. Upload, tenant approval, app-policy assignment, and channel installation remain Microsoft 365
+tenant administration operations and are not performed by Azure Resource Manager.
 
 ---
 
@@ -730,9 +732,13 @@ v1.
 ```json
 {
   "id": "channel-id",
-  "type": "teams-workflow",
-  "displayName": "Azure Service Incidents",
-  "secretUri": "https://<vault>.vault.azure.net/secrets/<name>",
+  "type": "teams-bot",
+  "displayName": "Platform Operations / Azure Service Incidents",
+  "tenantId": "<tenant-id>",
+  "teamId": "<team-id>",
+  "channelId": "<channel-id>",
+  "conversationReferenceId": "<conversation-reference-id>",
+  "registrationStatus": "registered",
   "subscribedEventTypes": ["ServiceIssue"],
   "rateLimitPerSecond": 2,
   "dataClassification": "standard",
@@ -970,7 +976,8 @@ Use separate managed identities for:
 | Subscription provisioning UAMI | Registered-subscription diagnostic-setting read/write/delete as configured; read access for validation; Event Hub authorization-rule `listKeys` on the dedicated rule. |
 | Ingress worker | Event Hubs Data Receiver; Cosmos data-plane write to Service Health containers. |
 | Enrichment worker | Cosmos read/write; Resource Graph Reader scope; Azure OpenAI user; Service Bus sender. |
-| Teams dispatcher | Service Bus receiver; Key Vault secret read for approved channel secrets; Cosmos delivery write. |
+| Bot Gateway | Azure Bot UAMI for Connector authentication; Cosmos read/write for conversation registration. |
+| Teams dispatcher | Service Bus sender/receiver; Cosmos delivery read/write; attached Azure Bot UAMI for proactive Connector authentication. |
 | Coverage reconciler | Uses the dedicated subscription provisioning UAMI; does not use the general runtime identity. |
 
 Do not grant broad Owner or Contributor at tenant root. The v1 design requires no tenant-root or
@@ -979,11 +986,12 @@ scoped central-resource permissions.
 
 ### Network
 
-- Private endpoints for Event Hubs consumer access, Service Bus, Cosmos DB, Key Vault, and Azure
+- Private endpoints for Event Hubs consumer access, Service Bus, Cosmos DB, and Azure
   OpenAI where supported by the regulated enterprise's landing zone.
 - Private DNS integrated with the workload VNet.
-- Controlled outbound egress to Teams Workflows through the approved firewall path.
-- No new inbound internet path to AzRadar.
+- Controlled outbound egress to Azure Bot Service through the approved firewall path.
+- The dedicated Bot Gateway is public for Azure Bot callbacks; core API, workers, messaging, and
+  data stores remain private.
 - Enable the Event Hubs trusted Microsoft services bypass only because Azure Monitor diagnostic
   settings require it; document and monitor this exception.
 
@@ -1009,7 +1017,8 @@ privileged customer administrator runs for each pilot subscription before regist
 
 - TLS 1.2 or higher.
 - Customer-managed keys where required by organizational policy and supported by the selected SKU.
-- Workflow URLs stored only in Key Vault and redacted from logs, UI, exceptions, and telemetry.
+- Conversation references are treated as restricted routing metadata and redacted from logs,
+  exceptions, and telemetry.
 - Restricted security events stored in a separate access-controlled container or account if organizational
   classification policy requires stronger separation.
 - Field-level allowlists for Teams, telemetry, and Azure OpenAI.
@@ -1041,7 +1050,7 @@ Some security advisories require elevated access and may contain sensitive detai
 | Azure OpenAI unavailable | Deterministic message sends; AI status is failed/pending. |
 | Service Bus unavailable | Outbox remains unpublished and retries. |
 | Teams 429 | Honor `Retry-After`, reschedule, and preserve per-channel ordering. |
-| Teams workflow deleted/orphaned | Mark channel unhealthy; dead-letter after policy; route critical events to platform fallback. |
+| Teams app uninstalled or conversation invalidated | Disable the destination; dead-letter after policy; route critical events to platform fallback. |
 | Poison message | Quarantine or dead-letter with redacted diagnostics and replay tooling. |
 
 ### Delivery state machine
@@ -1100,7 +1109,8 @@ Every log and trace uses:
 - `channelId`
 - `traceId`
 
-Never include workflow URLs or unrestricted event descriptions in operational log properties.
+Never include Bot Connector tokens, serialized conversation references, or unrestricted event
+descriptions in operational log properties.
 
 ---
 
@@ -1252,7 +1262,7 @@ without a public AzRadar endpoint.
 | Provisioning UAMI lacks access to a registered subscription | Reject activation with `permission-required` and show the exact role-assignment instructions. |
 | Azure Monitor requires Event Hub trusted-service bypass | Isolate the namespace, restrict all other network paths, document the exception, and monitor configuration drift. |
 | One incident generates thousands of subscription records | Correlate by tracking ID before AI and routing; retain subscription details in the aggregate. |
-| Teams Workflows are user-owned and can become orphaned | Require co-owners/service ownership, monitor health, and keep a fallback channel. |
+| Teams app is removed or blocked by tenant policy | Detect uninstall events, disable routing, monitor health, and keep a fallback channel. |
 | Teams throttles burst delivery | Per-channel Service Bus sessions, rate limiter, coalescing, digests, and `Retry-After` handling. |
 | Sensitive security content leaks to broad channels or AI | Restricted event path, field allowlists, AI disabled by default, and separate authorization. |
 | AI hallucination changes operational meaning | Keep Microsoft facts unchanged, label AI text, enforce schema, and prohibit AI severity downgrade/suppression. |
@@ -1274,7 +1284,7 @@ These decisions do not block the architecture, but must be resolved before produ
 5. Is the Azure Monitor trusted-service firewall bypass approved for the dedicated Event Hub?
 6. How many central platform Teams channels should the pilot use, and are they standard or private?
 7. Which event families should each initial channel receive?
-8. What service account/co-ownership model is approved for Teams Workflows?
+8. Which tenant app catalog, app permission policy, and installation process are approved for the Teams app?
 9. Which event types may be sent to Azure OpenAI, especially security advisories?
 10. What are the data classification and retention requirements for Service Health payloads?
 11. What is the platform fallback and out-of-band escalation path when Teams is unavailable?
@@ -1320,8 +1330,9 @@ Research was checked against current Microsoft documentation on 2026-09-10.
    — Event Hub action support, managed identity support, webhook constraints, and retry behavior.
 10. [Create activity log alerts for Service Health using Bicep](https://learn.microsoft.com/azure/service-health/alerts-activity-log-service-notifications-bicep)
    — automated alert-rule configuration and event filters.
-11. [Create Incoming Webhooks with Teams Workflows](https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook)
-    — recommended Workflows pattern, ownership constraints, payload size, and throttling.
+11. [Proactive messages in Teams](https://learn.microsoft.com/microsoftteams/platform/bots/how-to/conversations/send-proactive-messages)
+    and [Azure Bot Service identity](https://learn.microsoft.com/azure/bot-service/bot-builder-authentication)
+    — conversation installation requirements, proactive delivery, and managed identity.
 12. [Azure Event Hubs quotas and limits](https://learn.microsoft.com/azure/event-hubs/event-hubs-quotas)
     — tier, partition, throughput, retention, and feature limits.
 13. [Azure Service Bus architecture best practices](https://learn.microsoft.com/azure/service-bus-messaging/service-bus-performance-improvements)
@@ -1342,12 +1353,12 @@ Proceed with a pilot based on:
 4. **Resource Graph reconciliation and impacted-resource enrichment.**
 5. **Deterministic mandatory routing, with Azure OpenAI used only for additive enrichment.**
 6. **A Cosmos outbox feeding Service Bus for reliable, isolated destination delivery.**
-7. **Teams Workflows webhooks for the initial outbound-only Teams integration, filtered by
-   administrator-selected Service Health event family.**
+7. **A Bicep-provisioned Azure Bot, tenant-managed Teams notification app, public minimal Bot
+   Gateway, and proactive dispatch worker, filtered by administrator-selected event family.**
 8. **A dedicated, Bicep-provisioned subscription provisioning UAMI whose client ID is separately
    configurable and whose permissions are granted only on registered subscriptions.**
 
 This design gives a regulated enterprise a controlled pilot without requiring management-group
-enforcement, avoids a new public ingress endpoint, and creates an auditable platform that can evolve
+enforcement, isolates the required public Bot callback from the core platform, and creates an auditable platform that can evolve
 from selected subscriptions and platform channels into tenant-scale, ownership-aware workload
 routing.

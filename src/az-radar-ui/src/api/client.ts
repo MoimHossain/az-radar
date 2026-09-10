@@ -242,8 +242,16 @@ export interface ServiceHealthSubscription {
 export interface ServiceHealthChannel {
   id: string;
   displayName: string;
-  type: "teams-workflow";
+  type: "teams-workflow" | "teams-bot";
   secretUri: string;
+  tenantId: string;
+  teamId: string;
+  teamName: string;
+  channelId: string;
+  channelName: string;
+  conversationReferenceId: string;
+  registrationStatus: "pending" | "registered" | "uninstalled";
+  lastRegisteredAt?: string;
   subscribedEventTypes: ServiceHealthEventType[];
   enabled: boolean;
   createdAt: string;
@@ -412,22 +420,12 @@ export const api = {
   getServiceHealthChannels: () =>
     apiFetch<ServiceHealthChannel[]>("/api/service-health/channels"),
 
-  createServiceHealthChannel: (
-    displayName: string,
-    secretUri: string,
-    subscribedEventTypes: ServiceHealthEventType[],
-  ) =>
-    apiFetch<ServiceHealthChannel>("/api/service-health/channels", {
-      method: "POST",
-      body: JSON.stringify({ displayName, secretUri, subscribedEventTypes, enabled: true }),
-    }),
-
   updateServiceHealthChannel: (channel: ServiceHealthChannel) =>
     apiFetch<ServiceHealthChannel>(`/api/service-health/channels/${channel.id}`, {
       method: "PUT",
       body: JSON.stringify({
         displayName: channel.displayName,
-        secretUri: channel.secretUri,
+        secretUri: channel.secretUri || null,
         subscribedEventTypes: channel.subscribedEventTypes,
         enabled: channel.enabled,
       }),

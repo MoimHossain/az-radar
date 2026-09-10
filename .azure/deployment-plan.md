@@ -258,6 +258,123 @@ subscription is registered and verified as `active`.
 ## 13. API/UI Deployment Verification
 
 - Image: `moimhossain/az-radar-api:blue`
+
+---
+
+## 14. CloudLens Teams Dispatch Phase
+
+**Goal:** Deploy the isolated CloudLens Teams dispatch boundary through Azure
+Bot Service, a public minimal Bot Gateway, private Service Bus, and a private
+dispatch worker. Generate the tenant-uploadable Teams app package and stop for
+the user's Teams admin installation step.
+
+**Deployment boundary:** This phase creates only new dispatch resources and
+images. It does not modify, restart, or switch the existing production API/UI
+App Service. The related API/UI administration changes remain code-only until
+a separately authorized release.
+
+### Architecture
+
+| Component | Azure service | Configuration |
+|-----------|---------------|---------------|
+| Bot registration | Azure Bot Service | F0, Teams channel, UAMI-backed, CloudLens display identity |
+| Bot callback | Linux App Service | Dedicated B1 plan, public HTTPS `/api/messages`, Bot JWT validation |
+| Durable delivery | Service Bus | Premium namespace, private endpoint, duplicate detection |
+| Dispatch consumer | Linux App Service | Dedicated B1 plan, VNet integrated, Always On |
+| Runtime identities | User-assigned managed identities | Separate gateway and worker identities; bot UAMI also attached to worker for proactive sends |
+| Conversation state | Existing Cosmos account | Two `/id` containers for conversation references and delivery attempts |
+| Teams package | Repository artifact | Manifest and generated PNG icons branded CloudLens |
+
+### Provisioning Limit Checklist
+
+Quota CLI returned no provider-specific records for Microsoft.Web,
+Microsoft.ServiceBus, or Microsoft.Network in Central US. Azure Resource Graph
+counts and documented fixed limits are used for these unsupported quota
+surfaces.
+
+| Resource Type | Number to Deploy | Total After Deployment | Limit/Quota | Notes |
+|---------------|------------------|------------------------|-------------|-------|
+| `Microsoft.Web/serverfarms` | 2 | 4 | 100 per resource group in the documented App Service limit surface | Current Central US count: 2 |
+| `Microsoft.Web/sites` | 2 | 4 | App Service subscription limits remain well above the pilot count | Current Central US count: 2 |
+| `Microsoft.ServiceBus/namespaces` | 1 | 1 | 100 namespaces per subscription | Current Central US count: 0 |
+| `Microsoft.ManagedIdentity/userAssignedIdentities` | 2 | 8 | 200 per subscription | Current Central US count: 6 |
+| `Microsoft.BotService/botServices` | 1 | 1 | Pilot remains below documented subscription limits | Current count: 0 |
+| `Microsoft.Network/privateEndpoints` | 1 | 4 | 1,000 per VNet | Current Central US count: 3 |
+| Cosmos DB serverless containers | 2 | 17 | 25 per serverless account | Current target account count: 15 |
+
+**Status:** All planned dispatch resources are within the applicable limits.
+
+### Execution Checklist
+
+- [x] Implement dispatch contracts and Cosmos repository
+- [x] Implement transactional outbox publisher
+- [x] Implement Service Bus Teams delivery consumer
+- [x] Implement proactive Teams messaging and delivery audit
+- [x] Implement authenticated Bot Gateway and channel registration
+- [x] Add CloudLens Teams manifest and packaging script
+- [x] Add standalone Bicep and dispatch Dockerfiles
+- [x] Add administration API/UI support for discovered bot destinations
+- [x] Build solution, type-check UI, run dispatch tests, compile Bicep
+- [x] Confirm Central US subscription context from the approved pilot plan
+- [x] Check dispatch resource provisioning limits
+- [x] Mark dispatch phase Ready for Validation
+- [x] Invoke `azure-validate`
+  - [x] 1. Core Validation (CLI, authentication, Bicep build, ARM validation, and what-if)
+  - [x] 2. Docker Build (Bot Gateway and dispatch worker)
+  - [x] 3. Azure Policy Validation
+- [x] Build and push initial dispatch images
+- [x] Invoke `azure-deploy`
+- [x] Deploy and verify new dispatch resources
+- [x] Generate CloudLens Teams app package using the deployed Bot client ID
+- [x] Hand the package to the user for Teams admin portal upload and installation
+
+### Dispatch Role Assignment Verification
+
+- Status: Verified
+- Identities checked: `az-radar-bot-gateway-uami`,
+  `az-radar-dispatch-worker-uami`
+- Roles confirmed: gateway UAMI receives Cosmos DB Built-in Data Contributor;
+  worker UAMI receives Cosmos DB Built-in Data Contributor, Azure Service Bus
+  Data Sender, and Azure Service Bus Data Receiver at resource scope
+- Bot Connector authentication uses the gateway UAMI client ID through Azure
+  Bot Service and the Agents SDK; no credential or Azure data-plane role is
+  used for that OAuth flow
+- Issues: None
+
+### Dispatch Validation Proof
+
+| Check | Command Run | Result | Timestamp |
+|-------|-------------|--------|-----------|
+| Azure preflight | `validate-deployment.ps1 -Scope group -ResourceGroup az-radar-vnet-rg -Template .\src\Dispatching\infra\main.bicep -Parameters .\src\Dispatching\infra\main.bicepparam -Subscription 5e22addc-6168-4683-afd0-789a121ca5d3` | Pass: authenticated, Bicep compiled, ARM validation passed, what-if reported 20 creates, 0 modifies, 0 deletes | 2026-09-10T15:51:19+02:00 |
+| Solution build | `dotnet build AzRadar.slnx -p:Platform="Any CPU"` | Pass: 0 warnings, 0 errors | 2026-09-10T15:51:19+02:00 |
+| Dispatch tests | `dotnet test src\Dispatching\AzRadar.Dispatching.Tests\AzRadar.Dispatching.Tests.csproj --no-restore` | Pass: 4 tests | 2026-09-10T15:51:19+02:00 |
+| UI type check | `npx tsc --noEmit` from `src\az-radar-ui` | Pass | 2026-09-10T15:51:19+02:00 |
+| Bot Gateway image | Local Release publish plus `Dockerfile.prepublished` | Pass: `sha256:0c2e21282b7185aa7905e910a22ac66f0f53e820ac893d23ab178ad38c906562` | 2026-09-10T15:51:19+02:00 |
+| Dispatch worker image | Local Release publish plus `Dockerfile.prepublished` | Pass: `sha256:e334d87a44bbde737c87a98f7019678599aa2a7ccc222c1a6e95379eee2f2544` | 2026-09-10T15:51:19+02:00 |
+| Teams package | `package.ps1 -BotClientId 11111111-1111-1111-1111-111111111111` | Pass: manifest, color icon, and outline icon packaged | 2026-09-10T15:51:19+02:00 |
+| Azure policy review | `az policy assignment list --subscription 5e22addc-6168-4683-afd0-789a121ca5d3 --disable-scope-strict-match` | Pass: assigned Defender initiatives do not deny planned resource types | 2026-09-10T15:51:19+02:00 |
+
+### Dispatch Deployment Verification
+
+- Deployment: `cloudlens-teams-dispatch-20260910`
+- State: Succeeded
+- CloudLens Bot client ID: `8df1e881-4682-4919-88f0-9a5035a572d1`
+- Bot Gateway: `https://az-radar-bot-ay637nckh3ebc.azurewebsites.net`
+- Bot Gateway health: running
+- Azure Bot Teams channel: enabled and provisioned
+- Service Bus namespace: `az-radar-dispatch-ay637nckh3ebc`
+- Topic/subscription: `service-health-delivery` / `teams-realtime`
+- Dispatch worker image: `moimhossain/az-radar-dispatch-worker:green`
+- Dispatch worker ingress: disabled
+- Worker liveness: Service Bus reported active connections, opened connections,
+  successful requests, and incoming requests after the green deployment
+- Cosmos containers: `teams-conversation-references`,
+  `teams-delivery-attempts`, both partitioned by `/id`
+- Live RBAC: worker has Azure Service Bus Data Sender and Data Receiver;
+  gateway and worker have Cosmos DB Built-in Data Contributor
+- Teams package:
+  `src\Dispatching\TeamsApp\artifacts\CloudLens-Teams-App.zip`
+- Existing production API/UI App Service: unchanged
 - Docker digest:
   `sha256:cab4d6e0008127a53c0ba9b941c6f5948ff1c41621eeb107956d96f3920591a3`
 - Existing runtime UAMI retained

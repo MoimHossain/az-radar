@@ -1,0 +1,18 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json
+WORKDIR /src
+COPY src/AzRadar.Shared/AzRadar.Shared.csproj src/AzRadar.Shared/
+COPY src/Dispatching/AzRadar.Dispatching.Core/AzRadar.Dispatching.Core.csproj src/Dispatching/AzRadar.Dispatching.Core/
+COPY src/Dispatching/AzRadar.Dispatching.BotGateway/AzRadar.Dispatching.BotGateway.csproj src/Dispatching/AzRadar.Dispatching.BotGateway/
+RUN dotnet restore src/Dispatching/AzRadar.Dispatching.BotGateway/AzRadar.Dispatching.BotGateway.csproj --source "$NUGET_SOURCE"
+COPY src/AzRadar.Shared/ src/AzRadar.Shared/
+COPY src/Dispatching/AzRadar.Dispatching.Core/ src/Dispatching/AzRadar.Dispatching.Core/
+COPY src/Dispatching/AzRadar.Dispatching.BotGateway/ src/Dispatching/AzRadar.Dispatching.BotGateway/
+RUN dotnet publish src/Dispatching/AzRadar.Dispatching.BotGateway/AzRadar.Dispatching.BotGateway.csproj --no-restore -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "AzRadar.Dispatching.BotGateway.dll"]

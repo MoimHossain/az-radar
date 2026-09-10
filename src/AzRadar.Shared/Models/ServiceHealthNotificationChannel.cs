@@ -16,6 +16,27 @@ public class ServiceHealthNotificationChannel
     [JsonPropertyName("secretUri")]
     public string SecretUri { get; set; } = string.Empty;
 
+    [JsonPropertyName("tenantId")]
+    public string TenantId { get; set; } = string.Empty;
+
+    [JsonPropertyName("teamId")]
+    public string TeamId { get; set; } = string.Empty;
+
+    [JsonPropertyName("teamName")]
+    public string TeamName { get; set; } = string.Empty;
+
+    [JsonPropertyName("channelId")]
+    public string ChannelId { get; set; } = string.Empty;
+
+    [JsonPropertyName("channelName")]
+    public string ChannelName { get; set; } = string.Empty;
+
+    [JsonPropertyName("conversationReferenceId")]
+    public string ConversationReferenceId { get; set; } = string.Empty;
+
+    [JsonPropertyName("registrationStatus")]
+    public string RegistrationStatus { get; set; } = ServiceHealthChannelRegistrationStatuses.Pending;
+
     [JsonPropertyName("subscribedEventTypes")]
     public List<string> SubscribedEventTypes { get; set; } = [];
 
@@ -27,11 +48,22 @@ public class ServiceHealthNotificationChannel
 
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("lastRegisteredAt")]
+    public DateTimeOffset? LastRegisteredAt { get; set; }
 }
 
 public static class ServiceHealthChannelTypes
 {
     public const string TeamsWorkflow = "teams-workflow";
+    public const string TeamsBot = "teams-bot";
+}
+
+public static class ServiceHealthChannelRegistrationStatuses
+{
+    public const string Pending = "pending";
+    public const string Registered = "registered";
+    public const string Uninstalled = "uninstalled";
 }
 
 public static class ServiceHealthEventTypes

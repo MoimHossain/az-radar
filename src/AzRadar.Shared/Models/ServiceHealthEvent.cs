@@ -100,11 +100,41 @@ public class ServiceHealthDeliveryIntent
 
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("queuedAt")]
+    public DateTimeOffset? QueuedAt { get; set; }
+
+    [JsonPropertyName("deliveredAt")]
+    public DateTimeOffset? DeliveredAt { get; set; }
+
+    [JsonPropertyName("serviceBusMessageId")]
+    public string ServiceBusMessageId { get; set; } = string.Empty;
+
+    [JsonPropertyName("attemptCount")]
+    public int AttemptCount { get; set; }
+
+    [JsonPropertyName("lastErrorCode")]
+    public string? LastErrorCode { get; set; }
+
+    [JsonPropertyName("lastErrorMessage")]
+    public string? LastErrorMessage { get; set; }
+
+    [JsonPropertyName("teamsActivityId")]
+    public string? TeamsActivityId { get; set; }
 }
 
 public static class ServiceHealthDeliveryIntentStatuses
 {
     public const string Pending = "pending";
+    public const string Queued = "queued";
+    public const string Dispatching = "dispatching";
+    public const string RetryScheduled = "retry-scheduled";
+    public const string Delivered = "delivered";
+    public const string DeadLettered = "dead-lettered";
+    public const string Cancelled = "cancelled";
 }
 
 public class ServiceHealthEventCheckpoint

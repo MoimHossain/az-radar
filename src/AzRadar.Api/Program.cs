@@ -470,13 +470,14 @@ app.MapPost("/api/service-health/channels", async (
     UpsertServiceHealthChannelRequest request,
     ICosmosDbService db) =>
 {
-    var validationError = ValidateServiceHealthChannel(request);
+    var validationError = ValidateServiceHealthChannel(request, requireSecretUri: true);
     if (validationError != null) return Results.BadRequest(new { error = validationError });
 
     var channel = new ServiceHealthNotificationChannel
     {
         DisplayName = request.DisplayName.Trim(),
-        SecretUri = request.SecretUri.Trim(),
+        Type = ServiceHealthChannelTypes.TeamsWorkflow,
+        SecretUri = request.SecretUri?.Trim() ?? string.Empty,
         SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes),
         Enabled = request.Enabled
     };
@@ -489,23 +490,35 @@ app.MapPut("/api/service-health/channels/{id}", async (
     UpsertServiceHealthChannelRequest request,
     ICosmosDbService db) =>
 {
-    var validationError = ValidateServiceHealthChannel(request);
-    if (validationError != null) return Results.BadRequest(new { error = validationError });
+    var channels = await db.GetServiceHealthChannelsAsync();
+    var channel = channels.FirstOrDefault(item => item.Id == id);
+    if (channel == null) return Results.NotFound();
 
-    var channel = new ServiceHealthNotificationChannel
-    {
-        Id = id,
-        DisplayName = request.DisplayName.Trim(),
-        SecretUri = request.SecretUri.Trim(),
-        SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes),
-        Enabled = request.Enabled
-    };
+    var validationError = ValidateServiceHealthChannel(
+        request,
+        requireSecretUri: channel.Type == ServiceHealthChannelTypes.TeamsWorkflow);
+    if (validationError != null) return Results.BadRequest(new { error = validationError });
+    if (request.Enabled &&
+        channel.Type == ServiceHealthChannelTypes.TeamsBot &&
+        channel.RegistrationStatus != ServiceHealthChannelRegistrationStatuses.Registered)
+        return Results.BadRequest(new { error = "Only a registered Teams bot destination can be enabled." });
+
+    channel.DisplayName = request.DisplayName.Trim();
+    channel.SecretUri = request.SecretUri?.Trim() ?? channel.SecretUri;
+    channel.SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes);
+    channel.Enabled = request.Enabled;
+    channel.UpdatedAt = DateTimeOffset.UtcNow;
     var saved = await db.UpsertServiceHealthChannelAsync(channel);
     return Results.Ok(saved);
 });
 
 app.MapDelete("/api/service-health/channels/{id}", async (string id, ICosmosDbService db) =>
 {
+    var channels = await db.GetServiceHealthChannelsAsync();
+    var channel = channels.FirstOrDefault(item => item.Id == id);
+    if (channel?.Type == ServiceHealthChannelTypes.TeamsBot)
+        return Results.BadRequest(new { error = "Uninstall the Teams app instead of deleting a discovered bot destination." });
+
     var deleted = await db.DeleteServiceHealthChannelAsync(id);
     return deleted ? Results.NoContent() : Results.NotFound();
 });
@@ -700,7 +713,7 @@ public record UpdateConfigRequest(string Value, string? Description = null);
 public record RegisterServiceHealthSubscriptionRequest(string SubscriptionId);
 public record UpsertServiceHealthChannelRequest(
     string DisplayName,
-    string SecretUri,
+    string? SecretUri,
     List<string> SubscribedEventTypes,
     bool Enabled = true);
 public record PublishServiceHealthTestEventRequest(
@@ -731,12 +744,15 @@ public partial class Program
         return owner.Length > 0 && repo.Length > 0;
     }
 
-    private static string? ValidateServiceHealthChannel(UpsertServiceHealthChannelRequest request)
+    private static string? ValidateServiceHealthChannel(
+        UpsertServiceHealthChannelRequest request,
+        bool requireSecretUri)
     {
         if (string.IsNullOrWhiteSpace(request.DisplayName))
             return "Display name is required.";
-        if (!Uri.TryCreate(request.SecretUri, UriKind.Absolute, out var secretUri) ||
-            !string.Equals(secretUri.Scheme, "https", StringComparison.OrdinalIgnoreCase))
+        if (requireSecretUri &&
+            (!Uri.TryCreate(request.SecretUri, UriKind.Absolute, out var secretUri) ||
+             !string.Equals(secretUri.Scheme, "https", StringComparison.OrdinalIgnoreCase)))
             return "Secret URI must be an absolute HTTPS Key Vault secret URI.";
         if (request.SubscribedEventTypes == null || request.SubscribedEventTypes.Count == 0)
             return "Select at least one Service Health event type.";
