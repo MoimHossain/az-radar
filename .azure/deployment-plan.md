@@ -4,6 +4,94 @@
 
 Generated: 2026-09-08
 
+## Current release: Teams destination activation (2026-09-10)
+
+The user authorized deployment of the pending API/UI changes and activation of
+the registered Incidents Teams channel. This supersedes the earlier demo-time
+API/UI restriction. Target: existing `azr-api-x8c5i2` in `az-radar-vnet-rg`,
+Central US, subscription `5e22addc-6168-4683-afd0-789a121ca5d3`.
+
+Deploy application code only: no infrastructure, identity, networking, or app
+setting changes. Current API image is `moimhossain/az-radar-api:green`;
+build and deploy `blue`, retaining `green` for rollback.
+
+- [x] All validation checks pass for the Teams administration release
+  - [x] Core validation: CLI/auth, targeted API/dispatch tests, frontend build;
+        ARM validate/what-if are not applicable to this image-only release.
+  - [x] Docker build for API/UI
+  - [x] Azure Policy validation
+  - [x] Existing runtime identity role verification
+- [x] Deploy API/UI blue image and confirm updated destination metadata/UI
+- [x] Enable only the registered Incidents destination for `ServiceIssue`
+- [x] Publish synthetic incident and confirm durable Teams delivery receipt
+
+### Teams administration release validation proof (2026-09-10, 16:35-16:44 CEST)
+
+- `az account show`, `az webapp config show`, `az group show`: confirmed approved
+  subscription, existing Central US target, and current green image.
+- `dotnet test tests\AzRadar.Api.Tests --no-restore --verbosity quiet`: exit 0.
+- `dotnet test src\Dispatching\AzRadar.Dispatching.Tests --no-restore --verbosity quiet`:
+  4 passed.
+- `dotnet publish src\AzRadar.Api\AzRadar.Api.csproj --no-restore -c Release -p:UseAppHost=false ...`:
+  succeeded.
+- `npm --prefix src\az-radar-ui run build`: TypeScript and Vite succeeded;
+  existing bundle-size advisory only. Restored dependencies after missing Vite.
+- Standard Docker build hit unavailable NuGet.org; the Microsoft public mirror
+  lacked ResourceGraph. Used locally restored/published output and the existing
+  `src\Dispatching\Dockerfile.prepublished` with `APP_DLL=AzRadar.Api.dll`.
+  Copied the freshly built UI into `wwwroot` before containerization.
+- Final blue image build succeeded:
+  `sha256:e1d5ec7671e3740d6842388f7eb186201fe750960ed4424db3422496ae102016`.
+- `az policy assignment list`: existing Defender assignments do not conflict
+  with this image-only update; no resource/property changes beyond the image.
+- Static existing Bicep role mapping and live role queries confirm runtime
+  Cosmos Data Contributor plus Event Hubs Data Sender/Receiver. No RBAC changes.
+- ARM/Bicep provisioning, quota changes and what-if: not applicable, since
+  this release deploys only an image to an existing App Service.
+
+Prior release evidence follows for historical context.
+
+### Worker correction discovered during end-to-end activation
+
+The first synthetic incident reached the outbox and Service Bus, but failed before
+Teams delivery because default JSON deserialization did not restore the SDK's
+camel-cased conversation routing fields. Use `ProtocolJsonSerializer.ToObject`
+to pair with the gateway's `Conversation.ToJson()`. Reject incomplete references
+as permanent failures instead of retrying eight times.
+
+Scope expands only to an image update of the existing private dispatch worker:
+`az-radar-dispatch-ay637nckh3ebc`, green to blue. No gateway, network, identity
+or infrastructure changes; retain green as rollback.
+
+- [x] Core validation: SDK round-trip regression tests, 7 dispatch tests passed
+- [x] Worker Release publish and Docker build succeeded
+- [x] Policy and static role configuration unchanged from validated deployment
+- [x] Deploy corrected worker and publish a new synthetic incident
+
+Validation proof (2026-09-10, 16:49 CEST):
+`dotnet test src\Dispatching\AzRadar.Dispatching.Tests --verbosity quiet` passed
+all 7 tests; Release publish and `Dockerfile.prepublished` build succeeded.
+Worker blue image: `sha256:f6252a372e95743c1b32e3a2417d1f9df95be6183b19e0456a04fb45bb314d14`.
+Live worker role queries confirm Service Bus Data Sender/Receiver at namespace
+scope and Cosmos Data Contributor at account scope; both UAMIs remain attached.
+The failed synthetic attempt is retained in the delivery audit, not deleted.
+
+### Teams activation deployment result (2026-09-10, 16:52 CEST)
+
+- API/UI: `azr-api-x8c5i2`, blue image, registry digest
+  `sha256:a4fff51e871729ae078d5ff664b013476c715f396037d608c03f02508b710e2e`.
+  Health endpoint returned healthy and the new `index-Dn7AtHJA.js` UI bundle is served.
+- Worker: `az-radar-dispatch-ay637nckh3ebc`, blue image, registry digest
+  `sha256:e92853ac2e82e900019e5dcd3ae0433738081b5275d3efc8d170f2f86a14f798`.
+  Private ingress and Always On retained.
+- Registered Incidents channel enabled with exactly `ServiceIssue`. Existing
+  conversation and tenant/channel identifiers were preserved.
+- Synthetic event `TEST-20260910145218` reached Teams at 16:52:33 CEST.
+  Delivery intent `5393322113d8047e6f43ad856f16211e3fe1845a52240e01a92c6d77c0af1a6e`
+  is `delivered`, attempt count 1, no errors, Teams activity ID `1789051953441`.
+- Previous green API and worker images remain available for rollback.
+- Administration UI: https://azr-api-x8c5i2.azurewebsites.net/service-health
+
 ---
 
 ## 1. Project Overview

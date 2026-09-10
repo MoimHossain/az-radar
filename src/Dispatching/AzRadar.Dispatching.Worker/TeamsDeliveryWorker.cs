@@ -8,6 +8,7 @@ using AzRadar.Shared.Models;
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Builder.App.Proactive;
 using Microsoft.Agents.Core.Models;
+using Microsoft.Agents.Core.Serialization;
 using Microsoft.Extensions.Options;
 
 namespace AzRadar.Dispatching.Worker;
@@ -169,10 +170,7 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
                     $"Teams conversation '{reference.Id}' is not active.");
             }
 
-            var conversation = JsonSerializer.Deserialize<Conversation>(reference.ConversationJson)
-                ?? throw new PermanentDispatchException(
-                    "ConversationInvalid",
-                    $"Teams conversation '{reference.Id}' could not be deserialized.");
+            var conversation = RestoreConversation(reference.ConversationJson);
             var cardJson = _cardRenderer.Render(serviceHealthEvent);
             var activity = MessageFactory.Attachment(new Attachment
             {
@@ -245,11 +243,32 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
         where T : class =>
         await task ?? throw new PermanentDispatchException(code, message);
 
+    internal static Conversation RestoreConversation(string json)
+    {
+        // Pair the gateway's Conversation.ToJson() with the SDK's protocol serializer.
+        var conversation = ProtocolJsonSerializer.ToObject<Conversation>(json);
+        if (conversation?.Reference == null ||
+            string.IsNullOrWhiteSpace(conversation.Reference.ChannelId) ||
+            string.IsNullOrWhiteSpace(conversation.Reference.Conversation?.Id) ||
+            string.IsNullOrWhiteSpace(conversation.Reference.ServiceUrl) ||
+            string.IsNullOrWhiteSpace(conversation.Identity.FindFirst("aud")?.Value))
+        {
+            throw new JsonException("The stored Teams conversation is missing routing or bot identity data.");
+        }
+
+        return conversation;
+    }
+
     private static DispatchFailure ClassifyFailure(Exception exception)
     {
         if (exception is PermanentDispatchException permanent)
         {
             return new DispatchFailure(permanent.Code, true);
+        }
+
+        if (exception is JsonException)
+        {
+            return new DispatchFailure("ConversationInvalid", true);
         }
 
         if (exception is HttpRequestException httpException)

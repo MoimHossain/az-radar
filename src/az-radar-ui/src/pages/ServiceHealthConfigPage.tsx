@@ -157,6 +157,22 @@ export function ServiceHealthConfigPage() {
     }
   };
 
+  const updateChannel = async (channel: ServiceHealthChannel) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.updateServiceHealthChannel({
+        ...channel,
+        displayName: channel.displayName || channel.channelName || "Teams channel",
+      });
+      await load();
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
     return <div className={styles.container}><Spinner label="Loading Service Health configuration..." /></div>;
   }
@@ -313,7 +329,7 @@ export function ServiceHealthConfigPage() {
       </Card>
 
       <Card className={styles.card}>
-        <Text weight="semibold">Pending delivery intents</Text>
+        <Text weight="semibold">Recent delivery intents</Text>
         <Text size={200} className={styles.muted}>
           Delivery state from the durable Service Bus and Teams bot dispatcher.
         </Text>
@@ -336,8 +352,8 @@ export function ServiceHealthConfigPage() {
       <Card className={styles.card}>
         <Text weight="semibold">Platform Teams destinations</Text>
         <Text size={200} className={styles.muted}>
-          Install the AzRadar Teams app in a standard channel. The bot discovers the channel here
-          as disabled; an administrator then selects event families and enables delivery.
+          Add CloudLens Alerts to your team and send @CloudLens Alerts register in a standard channel.
+          The channel appears here as disabled; select event families before enabling delivery.
         </Text>
         {channels.length === 0 && (
           <Text className={styles.muted}>No Teams destinations have been discovered yet.</Text>
@@ -347,7 +363,7 @@ export function ServiceHealthConfigPage() {
           <div className={styles.item} key={channel.id}>
             <div className={styles.itemTop}>
               <div>
-                <Text weight="semibold">{channel.displayName}</Text>
+                <Text weight="semibold">{channel.displayName || channel.channelName || "Teams channel"}</Text>
                 <Text block size={200} className={styles.muted}>
                   {channel.type === "teams-bot"
                     ? `${channel.registrationStatus} · ${channel.teamName || "Unknown team"}`
@@ -358,11 +374,9 @@ export function ServiceHealthConfigPage() {
                 <Switch
                   checked={channel.enabled}
                   label="Enabled"
-                  disabled={busy || (channel.type === "teams-bot" && channel.registrationStatus !== "registered")}
-                  onChange={async (_, data) => {
-                    await api.updateServiceHealthChannel({ ...channel, enabled: data.checked });
-                    await load();
-                  }}
+                  disabled={busy || (!channel.enabled && channel.subscribedEventTypes.length === 0) ||
+                    (channel.type === "teams-bot" && channel.registrationStatus !== "registered")}
+                  onChange={(_, data) => updateChannel({ ...channel, enabled: data.checked })}
                 />
                 {channel.type === "teams-workflow" && (
                   <Button
@@ -389,8 +403,7 @@ export function ServiceHealthConfigPage() {
                       ? [...new Set([...channel.subscribedEventTypes, eventType.value])]
                       : channel.subscribedEventTypes.filter((value) => value !== eventType.value);
                     if (subscribedEventTypes.length === 0) return;
-                    await api.updateServiceHealthChannel({ ...channel, subscribedEventTypes });
-                    await load();
+                    await updateChannel({ ...channel, subscribedEventTypes });
                   }}
                 />
               ))}

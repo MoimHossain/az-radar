@@ -8,4 +8,4 @@ param privateEndpointSubnetId = '/subscriptions/5e22addc-6168-4683-afd0-789a121c
 param gatewayIntegrationSubnetId = '/subscriptions/5e22addc-6168-4683-afd0-789a121ca5d3/resourceGroups/az-radar-vnet-rg/providers/Microsoft.Network/virtualNetworks/az-radar-vnet/subnets/snet-app-api'
 param workerIntegrationSubnetId = '/subscriptions/5e22addc-6168-4683-afd0-789a121ca5d3/resourceGroups/az-radar-vnet-rg/providers/Microsoft.Network/virtualNetworks/az-radar-vnet/subnets/snet-app-job'
 param gatewayImage = 'moimhossain/az-radar-bot-gateway:blue'
-param workerImage = 'moimhossain/az-radar-dispatch-worker:green'
+param workerImage = 'moimhossain/az-radar-dispatch-worker:blue'

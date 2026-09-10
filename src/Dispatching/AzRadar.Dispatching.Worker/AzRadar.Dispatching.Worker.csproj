@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="AzRadar.Dispatching.Tests" />
     <ProjectReference Include="..\AzRadar.Dispatching.Core\AzRadar.Dispatching.Core.csproj" />
     <ProjectReference Include="..\..\AzRadar.Shared\AzRadar.Shared.csproj" />
   </ItemGroup>

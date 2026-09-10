@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AzRadar.Dispatching.Core\AzRadar.Dispatching.Core.csproj" />
+    <ProjectReference Include="..\AzRadar.Dispatching.Worker\AzRadar.Dispatching.Worker.csproj" />
     <ProjectReference Include="..\..\AzRadar.Shared\AzRadar.Shared.csproj" />
   </ItemGroup>
 

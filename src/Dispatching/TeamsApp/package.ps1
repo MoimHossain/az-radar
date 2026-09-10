@@ -18,6 +18,8 @@ Set-Content -Path (Join-Path $stagingDirectory 'manifest.json') -Value $manifest
 
 Add-Type -AssemblyName System.Drawing
 
+$sourceIcon = [System.Drawing.Bitmap]::new("$PSScriptRoot\cloud-computing.png")
+
 function New-TeamsIcon {
     param(
         [string] $Path,
@@ -25,20 +27,33 @@ function New-TeamsIcon {
         [bool] $Outline
     )
 
-    $bitmap = [System.Drawing.Bitmap]::new($Size, $Size)
+    $bitmap = [System.Drawing.Bitmap]::new($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
-        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $graphics.Clear([System.Drawing.Color]::Transparent)
-        $margin = [Math]::Max(2, [int]($Size * 0.12))
-        $rect = [System.Drawing.Rectangle]::new($margin, $margin, $Size - (2 * $margin), $Size - (2 * $margin))
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
         if ($Outline) {
-            $pen = [System.Drawing.Pen]::new([System.Drawing.Color]::White, [Math]::Max(2, $Size * 0.08))
-            try { $graphics.DrawEllipse($pen, $rect) } finally { $pen.Dispose() }
+            $graphics.Clear([System.Drawing.Color]::Transparent)
+            $symbolSize = $Size
         }
         else {
-            $brush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(0, 120, 212))
-            try { $graphics.FillEllipse($brush, $rect) } finally { $brush.Dispose() }
+            $graphics.Clear([System.Drawing.Color]::White)
+            $symbolSize = 120
+        }
+        $scale = [Math]::Min($symbolSize / $sourceBounds.Width, $symbolSize / $sourceBounds.Height)
+        $width = [int][Math]::Round($sourceBounds.Width * $scale)
+        $height = [int][Math]::Round($sourceBounds.Height * $scale)
+        $rect = [System.Drawing.Rectangle]::new([int](($Size - $width) / 2), [int](($Size - $height) / 2), $width, $height)
+        $graphics.DrawImage($sourceIcon, $rect, $sourceBounds, [System.Drawing.GraphicsUnit]::Pixel)
+
+        if ($Outline) {
+            # Preserve the artwork's transparency and antialiasing, but use Teams' white-only glyph.
+            for ($y = 0; $y -lt $Size; $y++) {
+                for ($x = 0; $x -lt $Size; $x++) {
+                    $alpha = $bitmap.GetPixel($x, $y).A
+                    $bitmap.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($alpha, 255, 255, 255))
+                }
+            }
         }
         $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
     }
@@ -48,13 +63,37 @@ function New-TeamsIcon {
     }
 }
 
-New-TeamsIcon -Path (Join-Path $stagingDirectory 'color.png') -Size 192 -Outline $false
-New-TeamsIcon -Path (Join-Path $stagingDirectory 'outline.png') -Size 32 -Outline $true
+try {
+    # Trim source padding so the outline fills its canvas and the color mark fits the safe area.
+    $left = $sourceIcon.Width
+    $top = $sourceIcon.Height
+    $right = -1
+    $bottom = -1
+    for ($y = 0; $y -lt $sourceIcon.Height; $y++) {
+        for ($x = 0; $x -lt $sourceIcon.Width; $x++) {
+            if ($sourceIcon.GetPixel($x, $y).A -gt 0) {
+                $left = [Math]::Min($left, $x)
+                $top = [Math]::Min($top, $y)
+                $right = [Math]::Max($right, $x)
+                $bottom = [Math]::Max($bottom, $y)
+            }
+        }
+    }
+    if ($right -lt 0) {
+        throw 'The source icon contains no visible pixels.'
+    }
+    $sourceBounds = [System.Drawing.Rectangle]::new($left, $top, $right - $left + 1, $bottom - $top + 1)
+    New-TeamsIcon -Path (Join-Path $stagingDirectory 'color.png') -Size 192 -Outline $false
+    New-TeamsIcon -Path (Join-Path $stagingDirectory 'outline.png') -Size 32 -Outline $true
+}
+finally {
+    $sourceIcon.Dispose()
+}
 
 if (Test-Path $OutputPath) {
     Remove-Item $OutputPath
 }
-Compress-Archive -Path "$stagingDirectory\*" -DestinationPath $OutputPath
+Compress-Archive -Path (Join-Path $stagingDirectory 'manifest.json'), (Join-Path $stagingDirectory 'color.png'), (Join-Path $stagingDirectory 'outline.png') -DestinationPath $OutputPath
 Remove-Item -Recurse $stagingDirectory
 
 Write-Host "Created CloudLens Teams app package: $OutputPath"
