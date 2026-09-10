@@ -10,6 +10,7 @@ import { ImpactAnalysisPage } from "./pages/ImpactAnalysisPage";
 import { BlastRadiusConfigPage } from "./pages/BlastRadiusConfigPage";
 import { LifecycleCalendarPage } from "./pages/LifecycleCalendarPage";
 import { RepositoryWatchlistPage } from "./pages/RepositoryWatchlistPage";
+import { ServiceHealthConfigPage } from "./pages/ServiceHealthConfigPage";
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
             <Route path="/impact-analysis" element={<ImpactAnalysisPage />} />
             <Route path="/blast-radius-config" element={<BlastRadiusConfigPage />} />
             <Route path="/lifecycle-calendar" element={<LifecycleCalendarPage />} />
+            <Route path="/service-health" element={<ServiceHealthConfigPage />} />
           </Routes>
         </AppShell>
       </BrowserRouter>

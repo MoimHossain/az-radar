@@ -37,6 +37,7 @@ export interface FeedItem {
 }
 
 export interface LlmAnalysis {
+  suggestedTitle: string;
   changeType: string;
   severity: string;
   affectedServices: string[];
@@ -218,6 +219,67 @@ export interface AffectedResource {
   tags: Record<string, string>;
 }
 
+export type ServiceHealthEventType =
+  | "ServiceIssue"
+  | "PlannedMaintenance"
+  | "HealthAdvisory"
+  | "SecurityAdvisory";
+
+export interface ServiceHealthSubscription {
+  id: string;
+  displayName: string;
+  tenantId: string;
+  status: string;
+  diagnosticSettingName: string;
+  eventHubName: string;
+  provisioningIdentityClientId: string;
+  lastVerifiedAt?: string;
+  lastProvisioningAttemptAt?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+}
+
+export interface ServiceHealthChannel {
+  id: string;
+  displayName: string;
+  type: "teams-workflow";
+  secretUri: string;
+  subscribedEventTypes: ServiceHealthEventType[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServiceHealthEvent {
+  id: string;
+  eventDataId: string;
+  trackingId: string;
+  subscriptionId: string;
+  eventType: ServiceHealthEventType;
+  status: string;
+  level: string;
+  title: string;
+  summary: string;
+  service: string;
+  region: string;
+  eventTimestamp: string;
+  receivedAt: string;
+  isSynthetic: boolean;
+  llmAnalysis?: LlmAnalysis;
+  routingStatus: string;
+  matchingChannelIds: string[];
+}
+
+export interface ServiceHealthDeliveryIntent {
+  id: string;
+  eventId: string;
+  channelId: string;
+  channelDisplayName: string;
+  eventType: ServiceHealthEventType;
+  status: string;
+  createdAt: string;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -225,7 +287,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
-  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as
+      | { error?: string; lastErrorMessage?: string }
+      | null;
+    throw new Error(body?.error || body?.lastErrorMessage || `API error: ${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 
@@ -318,4 +385,74 @@ export const api = {
     apiFetch<BlastRadiusSummary>(`/api/blast-radius/${id}`),
 
   getCalendarItems: () => apiFetch<CalendarItem[]>("/api/calendar"),
+
+  // Service Health
+  getServiceHealthSubscriptions: () =>
+    apiFetch<ServiceHealthSubscription[]>("/api/service-health/subscriptions"),
+
+  registerServiceHealthSubscription: (subscriptionId: string) =>
+    apiFetch<ServiceHealthSubscription>("/api/service-health/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ subscriptionId }),
+    }),
+
+  verifyServiceHealthSubscription: (subscriptionId: string) =>
+    apiFetch<ServiceHealthSubscription>(`/api/service-health/subscriptions/${subscriptionId}/verify`, {
+      method: "POST",
+    }),
+
+  removeServiceHealthSubscription: (subscriptionId: string, removeDiagnosticSetting = false) =>
+    fetch(
+      `${API_BASE}/api/service-health/subscriptions/${subscriptionId}?removeDiagnosticSetting=${removeDiagnosticSetting}`,
+      { method: "DELETE" },
+    ).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
+  getServiceHealthChannels: () =>
+    apiFetch<ServiceHealthChannel[]>("/api/service-health/channels"),
+
+  createServiceHealthChannel: (
+    displayName: string,
+    secretUri: string,
+    subscribedEventTypes: ServiceHealthEventType[],
+  ) =>
+    apiFetch<ServiceHealthChannel>("/api/service-health/channels", {
+      method: "POST",
+      body: JSON.stringify({ displayName, secretUri, subscribedEventTypes, enabled: true }),
+    }),
+
+  updateServiceHealthChannel: (channel: ServiceHealthChannel) =>
+    apiFetch<ServiceHealthChannel>(`/api/service-health/channels/${channel.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        displayName: channel.displayName,
+        secretUri: channel.secretUri,
+        subscribedEventTypes: channel.subscribedEventTypes,
+        enabled: channel.enabled,
+      }),
+    }),
+
+  removeServiceHealthChannel: (id: string) =>
+    fetch(`${API_BASE}/api/service-health/channels/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
+  publishServiceHealthTestEvent: (
+    subscriptionId: string,
+    eventType: ServiceHealthEventType,
+  ) =>
+    apiFetch<{ eventDataId: string; trackingId: string; eventType: ServiceHealthEventType; publishedAt: string }>(
+      "/api/service-health/test-events",
+      {
+        method: "POST",
+        body: JSON.stringify({ subscriptionId, eventType }),
+      },
+    ),
+
+  getServiceHealthEvents: (limit = 50) =>
+    apiFetch<ServiceHealthEvent[]>(`/api/service-health/events?limit=${limit}`),
+
+  getServiceHealthDeliveryIntents: (limit = 50) =>
+    apiFetch<ServiceHealthDeliveryIntent[]>(`/api/service-health/delivery-intents?limit=${limit}`),
 };

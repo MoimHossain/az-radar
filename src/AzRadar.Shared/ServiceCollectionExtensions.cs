@@ -32,6 +32,13 @@ public static class ServiceCollectionExtensions
             });
         });
         services.AddSingleton<ICosmosDbService, CosmosDbService>();
+        services.AddSingleton<IServiceHealthSubscriptionProvisioner>(sp =>
+            new ServiceHealthSubscriptionProvisioner(
+                new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                sp.GetRequiredService<IOptions<ServiceHealthProvisioningSettings>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ServiceHealthSubscriptionProvisioner>>()));
+        services.AddSingleton<IServiceHealthEventProcessor, ServiceHealthEventProcessor>();
+        services.AddSingleton<IServiceHealthTestEventPublisher, ServiceHealthTestEventPublisher>();
 
         // Azure OpenAI via Managed Identity (UAMI)
         services.AddSingleton(sp =>

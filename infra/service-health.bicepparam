@@ -1,0 +1,11 @@
+using './service-health.bicep'
+
+param location = 'centralus'
+param vnetName = 'az-radar-vnet'
+param privateEndpointSubnetName = 'snet-private-endpoints'
+param runtimeIdentityName = 'az-radar-uami'
+param provisioningIdentityName = 'az-radar-service-health-provisioner'
+param eventHubsSkuName = 'Standard'
+param cosmosAccountName = 'az-radar-cosmos-ay637nckh3ebc'
+param cosmosDatabaseName = 'az-radar-db'
+param diagnosticSettingName = 'az-radar-service-health'

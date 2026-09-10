@@ -17,6 +17,7 @@ import {
   PlugConnectedRegular,
   CalendarRegular,
   BranchRegular,
+  HeartPulseRegular,
 } from "@fluentui/react-icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -181,6 +182,7 @@ const navSections: NavSection[] = [
       { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
       { path: "/repo-watchlist", label: "Repository Watchlist", icon: <BranchRegular /> },
       { path: "/blast-radius-config", label: "Blast Radius Config", icon: <PlugConnectedRegular /> },
+      { path: "/service-health", label: "Service Health", icon: <HeartPulseRegular /> },
     ],
   },
 ];

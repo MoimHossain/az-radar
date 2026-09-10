@@ -18,6 +18,12 @@ public class CosmosDbSettings
     public string AppConfigContainer { get; set; } = "app-config";
     public string BlastRadiusContainer { get; set; } = "blast-radius-results";
     public string DiagnosticsContainer { get; set; } = "job-diagnostics";
+    public string ServiceHealthSubscriptionsContainer { get; set; } = "service-health-subscriptions";
+    public string ServiceHealthChannelsContainer { get; set; } = "service-health-channels";
+    public string ServiceHealthEventsContainer { get; set; } = "service-health-events";
+    public string ServiceHealthDeliveryIntentsContainer { get; set; } = "service-health-delivery-intents";
+    public string ServiceHealthCheckpointsContainer { get; set; } = "service-health-checkpoints";
+    public string ServiceHealthQuarantineContainer { get; set; } = "service-health-quarantine";
 
     /// <summary>
     /// Client ID of the UAMI used to authenticate with Cosmos DB.

@@ -23,6 +23,12 @@ public class CosmosDbService : ICosmosDbService
     private Container? _appConfigContainer;
     private Container? _blastRadiusContainer;
     private Container? _diagnosticsContainer;
+    private Container? _serviceHealthSubscriptionsContainer;
+    private Container? _serviceHealthChannelsContainer;
+    private Container? _serviceHealthEventsContainer;
+    private Container? _serviceHealthDeliveryIntentsContainer;
+    private Container? _serviceHealthCheckpointsContainer;
+    private Container? _serviceHealthQuarantineContainer;
 
     public CosmosDbService(
         CosmosClient client,
@@ -61,6 +67,18 @@ public class CosmosDbService : ICosmosDbService
             _settings.BlastRadiusContainer, "/id", cancellationToken);
         _diagnosticsContainer = await CreateContainerIfNotExistsAsync(
             _settings.DiagnosticsContainer, "/jobId", cancellationToken);
+        _serviceHealthSubscriptionsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.ServiceHealthSubscriptionsContainer, "/id", cancellationToken);
+        _serviceHealthChannelsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.ServiceHealthChannelsContainer, "/id", cancellationToken);
+        _serviceHealthEventsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.ServiceHealthEventsContainer, "/id", cancellationToken);
+        _serviceHealthDeliveryIntentsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.ServiceHealthDeliveryIntentsContainer, "/id", cancellationToken);
+        _serviceHealthCheckpointsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.ServiceHealthCheckpointsContainer, "/id", cancellationToken);
+        _serviceHealthQuarantineContainer = await CreateContainerIfNotExistsAsync(
+            _settings.ServiceHealthQuarantineContainer, "/id", cancellationToken);
 
         _logger.LogInformation("Cosmos DB initialized successfully");
     }
@@ -96,6 +114,24 @@ public class CosmosDbService : ICosmosDbService
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container Diagnostics => _diagnosticsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container ServiceHealthSubscriptions => _serviceHealthSubscriptionsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container ServiceHealthChannels => _serviceHealthChannelsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container ServiceHealthEvents => _serviceHealthEventsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container ServiceHealthDeliveryIntents => _serviceHealthDeliveryIntentsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container ServiceHealthCheckpoints => _serviceHealthCheckpointsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container ServiceHealthQuarantine => _serviceHealthQuarantineContainer
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     // --- CrawlJob operations ---
@@ -528,5 +564,211 @@ public class CosmosDbService : ICosmosDbService
             results.AddRange(response);
         }
         return results;
+    }
+
+    // --- Service Health subscription registry ---
+
+    public async Task<ServiceHealthSubscription> UpsertServiceHealthSubscriptionAsync(
+        ServiceHealthSubscription subscription, CancellationToken cancellationToken = default)
+    {
+        subscription.UpdatedAt = DateTimeOffset.UtcNow;
+        var response = await ServiceHealthSubscriptions.UpsertItemAsync(
+            subscription, new PartitionKey(subscription.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<ServiceHealthSubscription?> GetServiceHealthSubscriptionAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await ServiceHealthSubscriptions.ReadItemAsync<ServiceHealthSubscription>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<ServiceHealthSubscription>> GetServiceHealthSubscriptionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var query = ServiceHealthSubscriptions.GetItemQueryIterator<ServiceHealthSubscription>(
+            new QueryDefinition("SELECT * FROM c ORDER BY c.createdAt DESC"));
+        var results = new List<ServiceHealthSubscription>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<bool> DeleteServiceHealthSubscriptionAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ServiceHealthSubscriptions.DeleteItemAsync<ServiceHealthSubscription>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    // --- Service Health notification channels ---
+
+    public async Task<ServiceHealthNotificationChannel> UpsertServiceHealthChannelAsync(
+        ServiceHealthNotificationChannel channel, CancellationToken cancellationToken = default)
+    {
+        channel.UpdatedAt = DateTimeOffset.UtcNow;
+        var response = await ServiceHealthChannels.UpsertItemAsync(
+            channel, new PartitionKey(channel.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<IReadOnlyList<ServiceHealthNotificationChannel>> GetServiceHealthChannelsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var query = ServiceHealthChannels.GetItemQueryIterator<ServiceHealthNotificationChannel>(
+            new QueryDefinition("SELECT * FROM c ORDER BY c.createdAt DESC"));
+        var results = new List<ServiceHealthNotificationChannel>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<bool> DeleteServiceHealthChannelAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ServiceHealthChannels.DeleteItemAsync<ServiceHealthNotificationChannel>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    // --- Service Health ingestion ---
+
+    public async Task<bool> TryStoreServiceHealthEventAsync(
+        ServiceHealthEvent serviceHealthEvent,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ServiceHealthEvents.CreateItemAsync(
+                serviceHealthEvent,
+                new PartitionKey(serviceHealthEvent.Id),
+                cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<ServiceHealthEvent>> GetServiceHealthEventsAsync(
+        int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var query = ServiceHealthEvents.GetItemQueryIterator<ServiceHealthEvent>(
+            new QueryDefinition("SELECT TOP @limit * FROM c ORDER BY c.receivedAt DESC")
+                .WithParameter("@limit", Math.Clamp(limit, 1, 200)));
+        var results = new List<ServiceHealthEvent>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<bool> TryCreateServiceHealthDeliveryIntentAsync(
+        ServiceHealthDeliveryIntent intent,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ServiceHealthDeliveryIntents.CreateItemAsync(
+                intent,
+                new PartitionKey(intent.Id),
+                cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+    }
+
+    public async Task<IReadOnlyList<ServiceHealthDeliveryIntent>> GetServiceHealthDeliveryIntentsAsync(
+        int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var query = ServiceHealthDeliveryIntents.GetItemQueryIterator<ServiceHealthDeliveryIntent>(
+            new QueryDefinition("SELECT TOP @limit * FROM c ORDER BY c.createdAt DESC")
+                .WithParameter("@limit", Math.Clamp(limit, 1, 200)));
+        var results = new List<ServiceHealthDeliveryIntent>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<ServiceHealthEventCheckpoint?> GetServiceHealthCheckpointAsync(
+        string partitionId,
+        CancellationToken cancellationToken = default)
+    {
+        var id = $"partition-{partitionId}";
+        try
+        {
+            var response = await ServiceHealthCheckpoints.ReadItemAsync<ServiceHealthEventCheckpoint>(
+                id,
+                new PartitionKey(id),
+                cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task UpsertServiceHealthCheckpointAsync(
+        ServiceHealthEventCheckpoint checkpoint,
+        CancellationToken cancellationToken = default)
+    {
+        checkpoint.Id = $"partition-{checkpoint.PartitionId}";
+        checkpoint.UpdatedAt = DateTimeOffset.UtcNow;
+        await ServiceHealthCheckpoints.UpsertItemAsync(
+            checkpoint,
+            new PartitionKey(checkpoint.Id),
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task StoreServiceHealthQuarantineRecordAsync(
+        ServiceHealthQuarantineRecord record,
+        CancellationToken cancellationToken = default)
+    {
+        await ServiceHealthQuarantine.CreateItemAsync(
+            record,
+            new PartitionKey(record.Id),
+            cancellationToken: cancellationToken);
     }
 }

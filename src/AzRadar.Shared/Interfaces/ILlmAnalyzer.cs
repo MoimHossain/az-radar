@@ -28,4 +28,8 @@ public interface ILlmAnalyzer
     Task<LlmAnalysis> AnalyzeDocChangeAsync(
         RepoChangeContext change,
         CancellationToken cancellationToken = default);
+
+    Task<LlmAnalysis> AnalyzeServiceHealthEventAsync(
+        ServiceHealthEvent serviceHealthEvent,
+        CancellationToken cancellationToken = default);
 }

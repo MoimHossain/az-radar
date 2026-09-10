@@ -4,7 +4,7 @@
 
 ## 1. Problem Statement
 
-Enterprise organizations (Rabobank, ABN-AMRO, ING, and similar) operate a **platform team ↔ workload team** model where:
+Large regulated enterprises operate a **platform team ↔ workload team** model where:
 
 - A **Platform Engineering team** owns the Azure landing zone, Entra ID, subscriptions, policies, and guardrails.
 - **Workload teams** receive vended subscriptions and build on top of the platform under policy enforcement.
@@ -327,7 +327,7 @@ Each team gets a **Lifecycle Readiness Score (0-100)** based on:
 
 **Dashboard Views:**
 
-- **Organization-wide Score** — "Rabobank Azure Lifecycle Readiness: 78/100"
+- **Organization-wide Score** — "Enterprise Azure Lifecycle Readiness: 78/100"
 - **Per-Team Breakdown** — Ranked table of all teams with their scores
 - **Trend Over Time** — Is the organization getting better or worse at lifecycle management?
 - **Risk Register** — Sorted list of the highest-risk unresolved lifecycle items
@@ -557,9 +557,9 @@ Using historical patterns from Azure Updates, the AI can predict upcoming change
 | Service Health API integration | ❌ — superseded for now by MRC MCP (covers planned changes); revisit when targeting incident-level signals |
 | Email digest | ❌ — folded into Phase 2.5 (Notification Router) |
 
-### Phase 2.5: 🎯 ABN-AMRO-Driven Next Wave — 🔜 **RECOMMENDED NEXT**
+### Phase 2.5: 🎯 Regulated-Industry-Driven Next Wave — 🔜 **RECOMMENDED NEXT**
 
-See **[§9 Next Recommended Features](#9-next-recommended-features-may-2026)** for the detailed scope. Drives directly from the May 2026 customer meeting and ABN's "Vision Statement for a service lifecycle roadmap" deck.
+See **[§9 Next Recommended Features](#9-next-recommended-features-may-2026)** for the detailed scope. Drives directly from regulated-industry customer discovery and a "Vision Statement for a service lifecycle roadmap" deck.
 
 ### Phase 3: 📊 Enterprise Dashboard — Partially Delivered
 
@@ -633,7 +633,7 @@ Unchanged from the original plan: Azure DevOps sync, ServiceNow integration (now
 
 ## 9. Next Recommended Features (May 2026)
 
-Grounded in the **ABN-AMRO PO meeting (May 2026)** and the customer's "Current lifecycle transparency challenges" / "Vision Statement for a service lifecycle roadmap" deck.
+Grounded in a **regulated-industry product-owner meeting (May 2026)** and the customer's "Current lifecycle transparency challenges" / "Vision Statement for a service lifecycle roadmap" deck.
 
 The two strongest unmet needs are (a) the platform team is **drowning in noise** because the system shows every public Azure change rather than only those that hit *their* estate, and (b) signals stay **trapped inside AzRadar** instead of arriving in the channels where teams already work (Teams, ServiceNow, email).
 
@@ -641,7 +641,7 @@ The two features below are chosen because:
 
 - they map directly to *recurring, on-the-record asks* from the meeting (Johnny: noise reduction; Akil: missed updates when on vacation; both: ServiceNow integration);
 - they are **integration / orchestration work on top of components that are already built**, not new ingestion infrastructure — therefore high value-to-effort;
-- together they upgrade AzRadar from a pull dashboard into the **"single authoritative roadmap + push fabric"** the ABN slide calls for.
+- together they upgrade AzRadar from a pull dashboard into the **"single authoritative roadmap + push fabric"** the customer vision calls for.
 
 ---
 
@@ -678,7 +678,7 @@ The two features below are chosen because:
 6. **Override:** customer can pin a feed item as *"Watch anyway"* (e.g. for a preview feature they plan to adopt) — stored on the feed item document.
 
 **Definition of done:**
-- After one full blast-radius pass, an ABN engineer opening the Calendar sees ≤ 20 items, not 200+.
+- After one full blast-radius pass, a platform engineer opening the Calendar sees ≤ 20 items, not 200+.
 - Every item carries `💥 N resources` and a deadline-aware severity badge.
 - The Dashboard "Urgent" counter changes meaning to "urgent **and** affecting your estate".
 
@@ -699,7 +699,7 @@ The two features below are chosen because:
 
 **Why it's the right thing now:**
 - It directly removes the human single-point-of-failure (the weekly manual review).
-- Combined with Feature A, ABN gets a **filtered, prioritised stream** delivered to ServiceNow + Teams automatically — that *is* the "central planning artifact" from slide 2.
+- Combined with Feature A, the organization gets a **filtered, prioritised stream** delivered to ServiceNow + Teams automatically — that *is* the "central planning artifact" from slide 2.
 - All ingredients exist: structured items, blast-radius, deadlines. The new work is dispatch + templates + dedup, not analysis.
 
 **Scope:**
@@ -724,12 +724,12 @@ The two features below are chosen because:
 7. **First-run safety:** every new rule is created in `dry-run: true` mode and posts only to a `console-channel` (writes to the ledger but does not send externally) until the operator flips it live. Prevents an inaugural rule from carpet-bombing ServiceNow with the entire backlog.
 
 **Definition of done:**
-- ABN can connect their ServiceNow tenant with one rule (`severity ≥ high AND appliesToMe`) and see real Change Requests appear, deduplicated, with the correct `assignment_group`.
+- The organization can connect its ServiceNow tenant with one rule (`severity ≥ high AND appliesToMe`) and see real Change Requests appear, deduplicated, with the correct `assignment_group`.
 - Akil can enable a weekly digest for the platform team's Teams channel and receive a single deduplicated summary every Monday — vacation-proof.
 - Every external send is traceable in the ledger and visible in the dashboard's new "Deliveries" tile.
 
 **Risk / things to watch:**
-- ServiceNow connectors at banks usually require a service account, IP allow-listing, and CR approval. Plan for a 2-week integration test window with ABN, not a same-day demo.
+- ServiceNow connectors at regulated enterprises usually require a service account, IP allow-listing, and CR approval. Plan for a two-week integration test window with the organization, not a same-day demo.
 - The dry-run gate is non-negotiable; first delivery should be a hand-tested explicit toggle, not an automatic kickoff.
 
 ---

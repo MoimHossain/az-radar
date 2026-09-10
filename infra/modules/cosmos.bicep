@@ -37,6 +37,12 @@ var containers = [
   { name: 'app-config', partitionKey: '/id' }
   { name: 'blast-radius-results', partitionKey: '/id' }
   { name: 'job-diagnostics', partitionKey: '/jobId' }
+  { name: 'service-health-subscriptions', partitionKey: '/id' }
+  { name: 'service-health-channels', partitionKey: '/id' }
+  { name: 'service-health-events', partitionKey: '/id' }
+  { name: 'service-health-delivery-intents', partitionKey: '/id' }
+  { name: 'service-health-checkpoints', partitionKey: '/id' }
+  { name: 'service-health-quarantine', partitionKey: '/id' }
 ]
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {

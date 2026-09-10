@@ -9,12 +9,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection(CosmosDbSettings.SectionName));
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
 builder.Services.Configure<GitHubSettings>(builder.Configuration.GetSection(GitHubSettings.SectionName));
+builder.Services.Configure<ServiceHealthProvisioningSettings>(
+    builder.Configuration.GetSection(ServiceHealthProvisioningSettings.SectionName));
+builder.Services.Configure<ServiceHealthEventHubSettings>(
+    builder.Configuration.GetSection(ServiceHealthEventHubSettings.SectionName));
 
 // Register shared services
 builder.Services.AddAzRadarSharedServices();
 
 // Register the Change Feed processor as a hosted service
 builder.Services.AddHostedService<ChangeFeedWorker>();
+builder.Services.AddHostedService<ServiceHealthIngressWorker>();
 
 var app = builder.Build();
 

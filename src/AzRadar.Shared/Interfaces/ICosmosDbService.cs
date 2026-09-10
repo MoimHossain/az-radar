@@ -76,4 +76,38 @@ public interface ICosmosDbService
     Task StoreDiagnosticAsync(JobDiagnosticEntry entry, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<JobDiagnosticEntry>> GetDiagnosticsForJobAsync(
         string jobId, CancellationToken cancellationToken = default);
+
+    // Service Health subscription registry
+    Task<ServiceHealthSubscription> UpsertServiceHealthSubscriptionAsync(
+        ServiceHealthSubscription subscription, CancellationToken cancellationToken = default);
+    Task<ServiceHealthSubscription?> GetServiceHealthSubscriptionAsync(
+        string id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ServiceHealthSubscription>> GetServiceHealthSubscriptionsAsync(
+        CancellationToken cancellationToken = default);
+    Task<bool> DeleteServiceHealthSubscriptionAsync(
+        string id, CancellationToken cancellationToken = default);
+
+    // Service Health notification channels
+    Task<ServiceHealthNotificationChannel> UpsertServiceHealthChannelAsync(
+        ServiceHealthNotificationChannel channel, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ServiceHealthNotificationChannel>> GetServiceHealthChannelsAsync(
+        CancellationToken cancellationToken = default);
+    Task<bool> DeleteServiceHealthChannelAsync(
+        string id, CancellationToken cancellationToken = default);
+
+    // Service Health ingestion
+    Task<bool> TryStoreServiceHealthEventAsync(
+        ServiceHealthEvent serviceHealthEvent, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ServiceHealthEvent>> GetServiceHealthEventsAsync(
+        int limit = 50, CancellationToken cancellationToken = default);
+    Task<bool> TryCreateServiceHealthDeliveryIntentAsync(
+        ServiceHealthDeliveryIntent intent, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ServiceHealthDeliveryIntent>> GetServiceHealthDeliveryIntentsAsync(
+        int limit = 50, CancellationToken cancellationToken = default);
+    Task<ServiceHealthEventCheckpoint?> GetServiceHealthCheckpointAsync(
+        string partitionId, CancellationToken cancellationToken = default);
+    Task UpsertServiceHealthCheckpointAsync(
+        ServiceHealthEventCheckpoint checkpoint, CancellationToken cancellationToken = default);
+    Task StoreServiceHealthQuarantineRecordAsync(
+        ServiceHealthQuarantineRecord record, CancellationToken cancellationToken = default);
 }

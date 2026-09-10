@@ -46,6 +46,12 @@ param appServicePlanSku string = 'B1'
 @description('Name of the user-assigned managed identity created and used by the apps.')
 param managedIdentityName string = '${namePrefix}-uami'
 
+@description('Name of the dedicated UAMI used to configure Service Health diagnostic settings on registered subscriptions.')
+param serviceHealthProvisioningIdentityName string = '${namePrefix}-service-health-provisioner'
+
+@description('Globally unique Event Hubs namespace name for Service Health ingestion.')
+param serviceHealthEventHubsNamespaceName string = '${namePrefix}-service-health-${uniqueString(resourceGroup().id)}'
+
 @description('Optional: extra UAMI resource ids to ALSO attach to both web apps (e.g. a subscription-reader identity). The created UAMI is always attached.')
 param additionalAppIdentityResourceIds array = []
 
@@ -104,8 +110,23 @@ module identity 'modules/identity.bicep' = {
   }
 }
 
+module serviceHealthProvisioningIdentity 'modules/identity.bicep' = {
+  name: 'service-health-provisioning-identity'
+  params: {
+    location: location
+    name: serviceHealthProvisioningIdentityName
+    tags: tags
+  }
+}
+
 // Always attach/grant the created UAMI; callers may add extra identities.
-var appIdentityResourceIds = union([identity.outputs.resourceId], additionalAppIdentityResourceIds)
+var appIdentityResourceIds = union(
+  [
+    identity.outputs.resourceId
+    serviceHealthProvisioningIdentity.outputs.resourceId
+  ],
+  additionalAppIdentityResourceIds
+)
 var cosmosDataPrincipalIds = union([identity.outputs.principalId], additionalCosmosDataPrincipalIds)
 var managedIdentityClientId = identity.outputs.clientId
 
@@ -128,6 +149,27 @@ module cosmosRbac 'modules/cosmos-rbac.bicep' = {
   params: {
     cosmosAccountName: cosmos.outputs.accountName
     principalIds: cosmosDataPrincipalIds
+  }
+}
+
+// ----------------------------- Service Health ingestion ------------------
+
+module serviceHealthEventHubs 'modules/event-hubs.bicep' = {
+  name: 'service-health-event-hubs'
+  params: {
+    location: location
+    namespaceName: serviceHealthEventHubsNamespaceName
+    eventHubName: 'service-health'
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    vnetId: network.outputs.vnetId
+    receiverPrincipalIds: [
+      identity.outputs.principalId
+    ]
+    senderPrincipalIds: [
+      identity.outputs.principalId
+    ]
+    provisioningPrincipalId: serviceHealthProvisioningIdentity.outputs.principalId
+    tags: tags
   }
 }
 
@@ -182,9 +224,25 @@ var commonCosmosSettings = [
   { name: 'CosmosDb__Endpoint', value: cosmos.outputs.endpoint }
   { name: 'CosmosDb__DatabaseName', value: databaseName }
   { name: 'CosmosDb__ManagedIdentityClientId', value: managedIdentityClientId }
+  { name: 'CosmosDb__ServiceHealthSubscriptionsContainer', value: 'service-health-subscriptions' }
+  { name: 'CosmosDb__ServiceHealthChannelsContainer', value: 'service-health-channels' }
+  { name: 'CosmosDb__ServiceHealthEventsContainer', value: 'service-health-events' }
+  { name: 'CosmosDb__ServiceHealthDeliveryIntentsContainer', value: 'service-health-delivery-intents' }
+  { name: 'CosmosDb__ServiceHealthCheckpointsContainer', value: 'service-health-checkpoints' }
+  { name: 'CosmosDb__ServiceHealthQuarantineContainer', value: 'service-health-quarantine' }
   { name: 'OpenAi__Endpoint', value: effectiveOpenAiEndpoint }
   { name: 'OpenAi__DeploymentName', value: effectiveOpenAiDeployment }
   { name: 'OpenAi__ManagedIdentityClientId', value: managedIdentityClientId }
+  { name: 'ServiceHealthProvisioning__ManagedIdentityClientId', value: serviceHealthProvisioningIdentity.outputs.clientId }
+  { name: 'ServiceHealthProvisioning__DiagnosticSettingName', value: 'az-radar-service-health' }
+  { name: 'ServiceHealthProvisioning__EventHubAuthorizationRuleId', value: serviceHealthEventHubs.outputs.authorizationRuleId }
+  { name: 'ServiceHealthProvisioning__EventHubName', value: serviceHealthEventHubs.outputs.eventHubName }
+  { name: 'ServiceHealthEventHub__FullyQualifiedNamespace', value: serviceHealthEventHubs.outputs.fullyQualifiedNamespace }
+  { name: 'ServiceHealthEventHub__EventHubName', value: serviceHealthEventHubs.outputs.eventHubName }
+  { name: 'ServiceHealthEventHub__ConsumerGroup', value: 'azradar-live' }
+  { name: 'ServiceHealthEventHub__ManagedIdentityClientId', value: managedIdentityClientId }
+  { name: 'ServiceHealthEventHub__EnableIngress', value: 'true' }
+  { name: 'ServiceHealthEventHub__EnableTestPublisher', value: 'false' }
   { name: 'WEBSITES_PORT', value: '8080' }
   { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
   { name: 'WEBSITE_HTTPLOGGING_RETENTION_DAYS', value: '3' }
@@ -235,6 +293,12 @@ output managedIdentityName string = identity.outputs.name
 output managedIdentityResourceId string = identity.outputs.resourceId
 output managedIdentityClientId string = identity.outputs.clientId
 output managedIdentityPrincipalId string = identity.outputs.principalId
+output serviceHealthProvisioningIdentityResourceId string = serviceHealthProvisioningIdentity.outputs.resourceId
+output serviceHealthProvisioningIdentityClientId string = serviceHealthProvisioningIdentity.outputs.clientId
+output serviceHealthProvisioningIdentityPrincipalId string = serviceHealthProvisioningIdentity.outputs.principalId
+output serviceHealthEventHubsNamespace string = serviceHealthEventHubs.outputs.fullyQualifiedNamespace
+output serviceHealthEventHubName string = serviceHealthEventHubs.outputs.eventHubName
+output serviceHealthEventHubAuthorizationRuleId string = serviceHealthEventHubs.outputs.authorizationRuleId
 
 // LLM endpoint the apps are configured to use (in-tenant private endpoint when
 // deployOpenAi is true, otherwise the externally provided endpoint).

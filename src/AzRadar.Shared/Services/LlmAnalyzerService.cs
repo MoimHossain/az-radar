@@ -70,6 +70,77 @@ public class LlmAnalyzerService : ILlmAnalyzer
         }
     }
 
+    public async Task<LlmAnalysis> AnalyzeServiceHealthEventAsync(
+        ServiceHealthEvent serviceHealthEvent,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "Analyzing Service Health event {TrackingId}: {Title}",
+            serviceHealthEvent.TrackingId,
+            serviceHealthEvent.Title);
+
+        try
+        {
+            var messages = new List<ChatMessage>
+            {
+                new SystemChatMessage("""
+                    You analyze Azure Service Health notifications for an enterprise platform team.
+                    The event family and Azure-reported status are authoritative. Do not downgrade,
+                    suppress, or reinterpret an active incident as informational.
+
+                    Respond with valid JSON matching this schema:
+                    {
+                      "suggestedTitle": "concise operational title",
+                      "changeType": "service-incident | planned-maintenance | health-advisory | security-advisory",
+                      "severity": "critical | high | medium | low | informational",
+                      "affectedServices": ["Azure services"],
+                      "affectedResourceTypes": [],
+                      "actionRequired": "recommended platform-team action",
+                      "deadline": "YYYY-MM-DD or null",
+                      "effortEstimate": "low | medium | high | very-high",
+                      "migrationPath": "",
+                      "microsoftDocLinks": [],
+                      "aiConfidence": 0.0,
+                      "briefSummary": "2-3 sentence plain-language summary"
+                    }
+
+                    Preserve uncertainty. Security advisories and active service incidents must
+                    receive at least medium severity unless the source clearly states no impact.
+                    """),
+                new UserChatMessage($"""
+                    Event family: {serviceHealthEvent.EventType}
+                    Incident type: {serviceHealthEvent.IncidentType}
+                    Status: {serviceHealthEvent.Status}
+                    Level: {serviceHealthEvent.Level}
+                    Service: {serviceHealthEvent.Service}
+                    Region: {serviceHealthEvent.Region}
+                    Title: {serviceHealthEvent.Title}
+                    Communication:
+                    {serviceHealthEvent.Summary}
+                    """)
+            };
+
+            var response = await _chatClient.CompleteChatAsync(
+                messages,
+                new ChatCompletionOptions
+                {
+                    Temperature = 0.1f,
+                    ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat()
+                },
+                cancellationToken);
+            var analysis = JsonSerializer.Deserialize<LlmAnalysis>(response.Value.Content[0].Text);
+            return analysis ?? CreateServiceHealthFallback(serviceHealthEvent);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "LLM analysis failed for Service Health event {TrackingId}",
+                serviceHealthEvent.TrackingId);
+            return CreateServiceHealthFallback(serviceHealthEvent);
+        }
+    }
+
     private static string GetSystemPrompt() => """
         You are an Azure lifecycle intelligence analyst. Your job is to analyze Azure update announcements 
         and extract structured metadata that helps enterprise platform teams understand the impact.
@@ -131,6 +202,39 @@ public class LlmAnalyzerService : ILlmAnalyzer
         MicrosoftDocLinks = [item.Link],
         AiConfidence = 0.0,
         BriefSummary = $"Unable to analyze: {item.Title}"
+    };
+
+    private static LlmAnalysis CreateServiceHealthFallback(ServiceHealthEvent serviceHealthEvent) => new()
+    {
+        SuggestedTitle = serviceHealthEvent.Title,
+        ChangeType = serviceHealthEvent.EventType switch
+        {
+            ServiceHealthEventTypes.ServiceIssue => "service-incident",
+            ServiceHealthEventTypes.PlannedMaintenance => "planned-maintenance",
+            ServiceHealthEventTypes.SecurityAdvisory => "security-advisory",
+            _ => "health-advisory"
+        },
+        Severity = serviceHealthEvent.EventType switch
+        {
+            ServiceHealthEventTypes.ServiceIssue => SeverityLevels.High,
+            ServiceHealthEventTypes.SecurityAdvisory => SeverityLevels.High,
+            ServiceHealthEventTypes.PlannedMaintenance => SeverityLevels.Medium,
+            _ => SeverityLevels.Low
+        },
+        AffectedServices = string.IsNullOrWhiteSpace(serviceHealthEvent.Service)
+            ? []
+            : [serviceHealthEvent.Service],
+        AffectedResourceTypes = [],
+        ActionRequired = serviceHealthEvent.EventType == ServiceHealthEventTypes.ServiceIssue
+            ? "Assess workload impact and begin incident triage."
+            : "Review the notification and identify affected workloads.",
+        EffortEstimate = "low",
+        MigrationPath = string.Empty,
+        MicrosoftDocLinks = [],
+        AiConfidence = 0,
+        BriefSummary = string.IsNullOrWhiteSpace(serviceHealthEvent.Summary)
+            ? serviceHealthEvent.Title
+            : serviceHealthEvent.Summary
     };
 
     public async Task<LlmAnalysis> AnalyzeDocChangeAsync(

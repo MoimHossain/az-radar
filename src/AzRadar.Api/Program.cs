@@ -12,6 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection(CosmosDbSettings.SectionName));
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
 builder.Services.Configure<GitHubSettings>(builder.Configuration.GetSection(GitHubSettings.SectionName));
+builder.Services.Configure<ServiceHealthProvisioningSettings>(
+    builder.Configuration.GetSection(ServiceHealthProvisioningSettings.SectionName));
+builder.Services.Configure<ServiceHealthEventHubSettings>(
+    builder.Configuration.GetSection(ServiceHealthEventHubSettings.SectionName));
 
 // Register shared services
 builder.Services.AddAzRadarSharedServices();
@@ -189,7 +193,7 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
             a.Analysis.ActionRequired,
             affectedServices = a.Analysis.AffectedServices,
             a.Source,
-            daysRemaining = (int?)null as int?,
+            daysRemaining = (int?)null,
         })
         .ToList()
         .Select(d =>
@@ -349,6 +353,199 @@ app.MapPatch("/api/repo-watchlist/{id}", async (string id, UpdateRepoWatchReques
     return Results.Ok(updated);
 });
 
+// --- Service Health subscription registration ---
+app.MapGet("/api/service-health/subscriptions", async (ICosmosDbService db) =>
+{
+    var subscriptions = await db.GetServiceHealthSubscriptionsAsync();
+    return Results.Ok(subscriptions);
+});
+
+app.MapPost("/api/service-health/subscriptions", async (
+    RegisterServiceHealthSubscriptionRequest request,
+    IServiceHealthSubscriptionProvisioner provisioner,
+    IOptions<ServiceHealthProvisioningSettings> options,
+    ICosmosDbService db) =>
+{
+    if (!Guid.TryParse(request.SubscriptionId, out var subscriptionGuid))
+        return Results.BadRequest(new { error = "Subscription ID must be a valid GUID." });
+
+    var subscriptionId = subscriptionGuid.ToString();
+    var existing = await db.GetServiceHealthSubscriptionAsync(subscriptionId);
+    var settings = options.Value;
+    var item = existing ?? new ServiceHealthSubscription
+    {
+        Id = subscriptionId,
+        CreatedAt = DateTimeOffset.UtcNow
+    };
+
+    item.Status = ServiceHealthSubscriptionStatus.Registering;
+    item.LastProvisioningAttemptAt = DateTimeOffset.UtcNow;
+    item.DiagnosticSettingName = settings.DiagnosticSettingName;
+    item.EventHubAuthorizationRuleId = settings.EventHubAuthorizationRuleId;
+    item.EventHubName = settings.EventHubName;
+    item.ProvisioningIdentityClientId = settings.ManagedIdentityClientId;
+    item.LastErrorCode = null;
+    item.LastErrorMessage = null;
+    await db.UpsertServiceHealthSubscriptionAsync(item);
+
+    ServiceHealthProvisioningResult result;
+    try
+    {
+        result = await provisioner.ProvisionAsync(subscriptionId);
+    }
+    catch (Exception ex)
+    {
+        result = new ServiceHealthProvisioningResult(
+            false,
+            ServiceHealthSubscriptionStatus.ConfigurationFailed,
+            subscriptionId,
+            string.Empty,
+            "ProvisioningException",
+            ex.Message);
+    }
+
+    item.DisplayName = result.DisplayName;
+    item.TenantId = result.TenantId;
+    item.Status = result.Status;
+    item.LastErrorCode = result.ErrorCode;
+    item.LastErrorMessage = result.ErrorMessage;
+    item.LastVerifiedAt = result.Succeeded ? DateTimeOffset.UtcNow : null;
+    var saved = await db.UpsertServiceHealthSubscriptionAsync(item);
+
+    return result.Succeeded
+        ? Results.Created($"/api/service-health/subscriptions/{saved.Id}", saved)
+        : Results.Json(saved, statusCode: result.Status == ServiceHealthSubscriptionStatus.PermissionRequired ? 403 : 502);
+});
+
+app.MapPost("/api/service-health/subscriptions/{id}/verify", async (
+    string id,
+    IServiceHealthSubscriptionProvisioner provisioner,
+    ICosmosDbService db) =>
+{
+    if (!Guid.TryParse(id, out var subscriptionGuid))
+        return Results.BadRequest(new { error = "Subscription ID must be a valid GUID." });
+
+    var subscriptionId = subscriptionGuid.ToString();
+    var item = await db.GetServiceHealthSubscriptionAsync(subscriptionId);
+    if (item is null) return Results.NotFound();
+
+    var result = await provisioner.VerifyAsync(subscriptionId);
+    item.DisplayName = result.DisplayName;
+    item.TenantId = result.TenantId;
+    item.Status = result.Status;
+    item.LastErrorCode = result.ErrorCode;
+    item.LastErrorMessage = result.ErrorMessage;
+    item.LastVerifiedAt = result.Succeeded ? DateTimeOffset.UtcNow : item.LastVerifiedAt;
+    var saved = await db.UpsertServiceHealthSubscriptionAsync(item);
+    return result.Succeeded
+        ? Results.Ok(saved)
+        : Results.Json(saved, statusCode: result.Status == ServiceHealthSubscriptionStatus.PermissionRequired ? 403 : 502);
+});
+
+app.MapDelete("/api/service-health/subscriptions/{id}", async (
+    string id,
+    bool? removeDiagnosticSetting,
+    IServiceHealthSubscriptionProvisioner provisioner,
+    ICosmosDbService db) =>
+{
+    if (!Guid.TryParse(id, out var subscriptionGuid))
+        return Results.BadRequest(new { error = "Subscription ID must be a valid GUID." });
+
+    var subscriptionId = subscriptionGuid.ToString();
+    if (removeDiagnosticSetting == true)
+        await provisioner.DeleteAsync(subscriptionId);
+
+    var deleted = await db.DeleteServiceHealthSubscriptionAsync(subscriptionId);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
+// --- Service Health platform Teams channels ---
+app.MapGet("/api/service-health/channels", async (ICosmosDbService db) =>
+{
+    var channels = await db.GetServiceHealthChannelsAsync();
+    return Results.Ok(channels);
+});
+
+app.MapPost("/api/service-health/channels", async (
+    UpsertServiceHealthChannelRequest request,
+    ICosmosDbService db) =>
+{
+    var validationError = ValidateServiceHealthChannel(request);
+    if (validationError != null) return Results.BadRequest(new { error = validationError });
+
+    var channel = new ServiceHealthNotificationChannel
+    {
+        DisplayName = request.DisplayName.Trim(),
+        SecretUri = request.SecretUri.Trim(),
+        SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes),
+        Enabled = request.Enabled
+    };
+    var saved = await db.UpsertServiceHealthChannelAsync(channel);
+    return Results.Created($"/api/service-health/channels/{saved.Id}", saved);
+});
+
+app.MapPut("/api/service-health/channels/{id}", async (
+    string id,
+    UpsertServiceHealthChannelRequest request,
+    ICosmosDbService db) =>
+{
+    var validationError = ValidateServiceHealthChannel(request);
+    if (validationError != null) return Results.BadRequest(new { error = validationError });
+
+    var channel = new ServiceHealthNotificationChannel
+    {
+        Id = id,
+        DisplayName = request.DisplayName.Trim(),
+        SecretUri = request.SecretUri.Trim(),
+        SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes),
+        Enabled = request.Enabled
+    };
+    var saved = await db.UpsertServiceHealthChannelAsync(channel);
+    return Results.Ok(saved);
+});
+
+app.MapDelete("/api/service-health/channels/{id}", async (string id, ICosmosDbService db) =>
+{
+    var deleted = await db.DeleteServiceHealthChannelAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
+app.MapGet("/api/service-health/events", async (int? limit, ICosmosDbService db) =>
+{
+    var events = await db.GetServiceHealthEventsAsync(limit ?? 50);
+    return Results.Ok(events);
+});
+
+app.MapGet("/api/service-health/delivery-intents", async (int? limit, ICosmosDbService db) =>
+{
+    var intents = await db.GetServiceHealthDeliveryIntentsAsync(limit ?? 50);
+    return Results.Ok(intents);
+});
+
+app.MapPost("/api/service-health/test-events", async (
+    PublishServiceHealthTestEventRequest request,
+    IOptions<ServiceHealthEventHubSettings> options,
+    IServiceHealthTestEventPublisher publisher,
+    ICosmosDbService db) =>
+{
+    if (!options.Value.EnableTestPublisher)
+        return Results.NotFound();
+    if (!Guid.TryParse(request.SubscriptionId, out var subscriptionGuid))
+        return Results.BadRequest(new { error = "Subscription ID must be a valid GUID." });
+    if (!ServiceHealthEventTypes.Supported.Contains(request.EventType))
+        return Results.BadRequest(new { error = $"Unsupported Service Health event type '{request.EventType}'." });
+
+    var subscriptionId = subscriptionGuid.ToString();
+    var subscription = await db.GetServiceHealthSubscriptionAsync(subscriptionId);
+    if (subscription == null || subscription.Status != ServiceHealthSubscriptionStatus.Active)
+        return Results.BadRequest(new { error = "Register and verify the subscription before publishing a test event." });
+
+    var eventType = ServiceHealthEventTypes.Supported.First(
+        supported => string.Equals(supported, request.EventType, StringComparison.OrdinalIgnoreCase));
+    var result = await publisher.PublishAsync(subscriptionId, eventType);
+    return Results.Accepted("/api/service-health/events", result);
+});
+
 // --- DocInsight endpoints ---
 app.MapGet("/api/doc-insights", async (ICosmosDbService db, string? serviceName, int? limit, string? source) =>
 {
@@ -500,6 +697,15 @@ public record UpdateRepoWatchRequest(
     List<string>? PathFilters = null,
     string? Label = null);
 public record UpdateConfigRequest(string Value, string? Description = null);
+public record RegisterServiceHealthSubscriptionRequest(string SubscriptionId);
+public record UpsertServiceHealthChannelRequest(
+    string DisplayName,
+    string SecretUri,
+    List<string> SubscribedEventTypes,
+    bool Enabled = true);
+public record PublishServiceHealthTestEventRequest(
+    string SubscriptionId,
+    string EventType = ServiceHealthEventTypes.ServiceIssue);
 
 public partial class Program
 {
@@ -524,4 +730,30 @@ public partial class Program
         repo = parts[1].Replace(".git", "", StringComparison.OrdinalIgnoreCase);
         return owner.Length > 0 && repo.Length > 0;
     }
+
+    private static string? ValidateServiceHealthChannel(UpsertServiceHealthChannelRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+            return "Display name is required.";
+        if (!Uri.TryCreate(request.SecretUri, UriKind.Absolute, out var secretUri) ||
+            !string.Equals(secretUri.Scheme, "https", StringComparison.OrdinalIgnoreCase))
+            return "Secret URI must be an absolute HTTPS Key Vault secret URI.";
+        if (request.SubscribedEventTypes == null || request.SubscribedEventTypes.Count == 0)
+            return "Select at least one Service Health event type.";
+        var unsupported = request.SubscribedEventTypes
+            .Where(type => !ServiceHealthEventTypes.Supported.Contains(type))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return unsupported.Count == 0
+            ? null
+            : $"Unsupported Service Health event type(s): {string.Join(", ", unsupported)}.";
+    }
+
+    private static List<string> NormalizeEventTypes(IEnumerable<string> eventTypes) =>
+        eventTypes
+            .Select(type => ServiceHealthEventTypes.Supported.First(
+                supported => string.Equals(supported, type, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(type => type)
+            .ToList();
 }
