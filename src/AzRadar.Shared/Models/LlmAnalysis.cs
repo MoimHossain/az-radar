@@ -21,6 +21,9 @@ public class LlmAnalysis
     [JsonPropertyName("affectedServices")]
     public List<string> AffectedServices { get; set; } = [];
 
+    [JsonPropertyName("affectedRegions")]
+    public List<string> AffectedRegions { get; set; } = [];
+
     [JsonPropertyName("affectedResourceTypes")]
     public List<string> AffectedResourceTypes { get; set; } = [];
 

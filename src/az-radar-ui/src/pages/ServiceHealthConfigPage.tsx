@@ -39,6 +39,9 @@ const eventTypes: Array<{ value: ServiceHealthEventType; label: string }> = [
 
 type ServiceHealthTab = "subscriptions" | "events" | "intents";
 
+const compactId = (value: string) =>
+  value.length <= 32 ? value : `${value.slice(0, 14)}…${value.slice(-14)}`;
+
 const useStyles = makeStyles({
   container: {
     display: "flex",
@@ -312,9 +315,21 @@ export function ServiceHealthConfigPage() {
               <div className={styles.item} key={channel.id}>
                 <div className={styles.itemTop}>
                   <div>
-                    <Text weight="semibold">{channel.displayName || channel.channelName || "Teams channel"}</Text>
+                    <Text weight="semibold">
+                      {channel.teamName && channel.channelName
+                        ? `${channel.teamName} / ${channel.channelName}`
+                        : channel.displayName || channel.channelName || "Teams channel"}
+                    </Text>
                     <Text block size={200} className={styles.muted}>
-                      {channel.registrationStatus} · {channel.teamName || "Teams"}
+                      {channel.registrationStatus} · Teams app destination
+                    </Text>
+                    <Text
+                      block
+                      size={200}
+                      className={`${styles.muted} ${styles.mono}`}
+                      title={channel.channelId}
+                    >
+                      Channel ID: {compactId(channel.channelId || channel.id)}
                     </Text>
                   </div>
                   <Badge

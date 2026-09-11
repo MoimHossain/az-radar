@@ -41,6 +41,7 @@ export interface LlmAnalysis {
   changeType: string;
   severity: string;
   affectedServices: string[];
+  affectedRegions: string[];
   affectedResourceTypes: string[];
   actionRequired: string;
   deadline?: string;
@@ -95,6 +96,7 @@ export interface WatchlistItem {
   aliases: string[];
   searchTerms: string[];
   resourceProvider: string;
+  regions: string[];
   addedAt: string;
 }
 
@@ -334,10 +336,12 @@ export const api = {
   // Watchlist
   getWatchlist: () => apiFetch<WatchlistItem[]>("/api/watchlist"),
 
-  addToWatchlist: (serviceName: string) =>
+  getAzureRegions: () => apiFetch<string[]>("/api/azure-regions"),
+
+  addToWatchlist: (serviceName: string, regions: string[]) =>
     apiFetch<WatchlistItem>("/api/watchlist", {
       method: "POST",
-      body: JSON.stringify({ serviceName }),
+      body: JSON.stringify({ serviceName, regions }),
     }),
 
   removeFromWatchlist: (id: string) =>

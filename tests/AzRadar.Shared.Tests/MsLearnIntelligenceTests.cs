@@ -26,6 +26,9 @@ public class MsLearnIntelligenceJobHandlerTests
             _llmAnalyzerMock.Object,
             _cosmosDbMock.Object,
             logger.Object);
+        _cosmosDbMock
+            .Setup(x => x.UpdateCrawlJobAsync(It.IsAny<CrawlJob>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CrawlJob job, CancellationToken _) => job);
     }
 
     [Fact]
@@ -99,7 +102,13 @@ public class MsLearnIntelligenceJobHandlerTests
             .ReturnsAsync(true);
 
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { ChangeType = ChangeTypes.Retirement, Severity = SeverityLevels.High, AiConfidence = 0.9 });
+            .ReturnsAsync(new LlmAnalysis
+            {
+                ChangeType = ChangeTypes.Retirement,
+                Severity = SeverityLevels.High,
+                AiConfidence = 0.9,
+                AffectedServices = ["Azure Kubernetes Service"]
+            });
 
         var job = new CrawlJob { Id = "test-3", JobType = CrawlJobTypes.MsLearnIntelligence };
         await _handler.HandleAsync(job);
@@ -135,6 +144,7 @@ public class MsLearnIntelligenceJobHandlerTests
         {
             Id = DocInsight.GenerateId("https://learn.microsoft.com/redis/tls"),
             ContentHash = DocInsight.HashContent(docContent),
+            LlmAnalysis = new LlmAnalysis { AffectedServices = ["Azure Redis Cache"] }
         };
         _cosmosDbMock.Setup(x => x.GetDocInsightAsync(existingInsight.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingInsight);
@@ -183,7 +193,12 @@ public class MsLearnIntelligenceJobHandlerTests
             .ReturnsAsync(true);
 
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { ChangeType = ChangeTypes.Retirement, AiConfidence = 0.85 });
+            .ReturnsAsync(new LlmAnalysis
+            {
+                ChangeType = ChangeTypes.Retirement,
+                AiConfidence = 0.85,
+                AffectedServices = ["Azure Redis Cache"]
+            });
 
         var job = new CrawlJob { Id = "test-5", JobType = CrawlJobTypes.MsLearnIntelligence };
         await _handler.HandleAsync(job);
@@ -197,6 +212,41 @@ public class MsLearnIntelligenceJobHandlerTests
             It.IsAny<CancellationToken>()), Times.Once);
 
         job.Result!.NewItems.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task HandleAsync_SearchResultForUnwatchedService_IsNotStored()
+    {
+        _cosmosDbMock.Setup(x => x.GetWatchlistAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new WatchlistItem { ServiceName = "AKS", Regions = ["West Europe"] }]);
+        _mcpClientMock.Setup(x => x.SearchDocsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new McpSearchResult(
+                    "Artifact Streaming update",
+                    "https://learn.microsoft.com/artifact-streaming",
+                    "Artifact Streaming in East US")
+                {
+                    FullContent = "Artifact Streaming is available in East US."
+                }
+            ]);
+        _cosmosDbMock.Setup(x => x.GetDocInsightAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DocInsight?)null);
+        _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmAnalysis
+            {
+                AffectedServices = ["Artifact Streaming"],
+                AffectedRegions = ["East US"],
+                AiConfidence = 0.9
+            });
+
+        var job = new CrawlJob();
+        await _handler.HandleAsync(job);
+
+        _cosmosDbMock.Verify(
+            x => x.UpsertDocInsightAsync(It.IsAny<DocInsight>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        job.Result!.SkippedItems.Should().Be(1);
     }
 }
 

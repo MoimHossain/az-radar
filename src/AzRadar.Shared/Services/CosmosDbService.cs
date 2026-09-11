@@ -321,6 +321,21 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
+    public async Task<bool> DeleteFeedItemAsync(string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await DeleteBlastRadiusSummariesForSourceAsync(id, cancellationToken);
+            await FeedItems.DeleteItemAsync<FeedItem>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     // --- Watchlist operations ---
 
     public async Task<WatchlistItem> CreateWatchlistItemAsync(
@@ -477,6 +492,40 @@ public class CosmosDbService : ICosmosDbService
         await DocInsights.UpsertItemAsync(
             insight, new PartitionKey(insight.Id), cancellationToken: cancellationToken);
         return true;
+    }
+
+    public async Task<bool> DeleteDocInsightAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await DeleteBlastRadiusSummariesForSourceAsync(id, cancellationToken);
+            await DocInsights.DeleteItemAsync<DocInsight>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    private async Task DeleteBlastRadiusSummariesForSourceAsync(
+        string sourceItemId, CancellationToken cancellationToken)
+    {
+        var query = BlastRadius.GetItemQueryIterator<BlastRadiusSummary>(
+            new QueryDefinition("SELECT c.id FROM c WHERE c.sourceItemId = @sourceItemId")
+                .WithParameter("@sourceItemId", sourceItemId));
+
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            foreach (var summary in response)
+            {
+                await BlastRadius.DeleteItemAsync<BlastRadiusSummary>(
+                    summary.Id, new PartitionKey(summary.Id), cancellationToken: cancellationToken);
+            }
+        }
     }
 
     // --- AppConfig operations ---

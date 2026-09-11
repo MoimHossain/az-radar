@@ -6,6 +6,7 @@ using Microsoft.Agents.Builder.App;
 using Microsoft.Agents.Builder.App.Proactive;
 using Microsoft.Agents.Builder.State;
 using Microsoft.Agents.Core.Models;
+using Microsoft.Agents.Extensions.Teams.Connector;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -55,7 +56,8 @@ public sealed class AzRadarNotificationAgent : AgentApplication
             return;
         }
 
-        if (!TryCreateRegistration(turnContext, out var registration))
+        var registration = await CreateRegistrationAsync(turnContext, cancellationToken);
+        if (registration == null)
         {
             _logger.LogInformation(
                 "Teams app installed in team {TeamId}; waiting for a channel registration message",
@@ -75,7 +77,8 @@ public sealed class AzRadarNotificationAgent : AgentApplication
         ITurnState turnState,
         CancellationToken cancellationToken)
     {
-        if (TryCreateRegistration(turnContext, out var registration))
+        var registration = await CreateRegistrationAsync(turnContext, cancellationToken);
+        if (registration != null)
         {
             await _repository.UpsertConversationReferenceAsync(registration, cancellationToken);
         }
@@ -86,7 +89,8 @@ public sealed class AzRadarNotificationAgent : AgentApplication
         ITurnState turnState,
         CancellationToken cancellationToken)
     {
-        if (!TryCreateRegistration(turnContext, out var registration))
+        var registration = await CreateRegistrationAsync(turnContext, cancellationToken);
+        if (registration == null)
         {
             await turnContext.SendActivityAsync(
                 MessageFactory.Text("This command must be sent from a Teams channel."),
@@ -99,6 +103,42 @@ public sealed class AzRadarNotificationAgent : AgentApplication
             MessageFactory.Text(
                 "This channel is registered with CloudLens. Select its Service Health event families in AzRadar to start notifications."),
             cancellationToken);
+    }
+
+    private async Task<TeamsConversationReferenceDocument?> CreateRegistrationAsync(
+        ITurnContext turnContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryCreateRegistration(turnContext, out var registration))
+        {
+            return null;
+        }
+
+        try
+        {
+            var team = await TeamsInfo.GetTeamDetailsAsync(
+                turnContext,
+                registration.TeamId,
+                cancellationToken);
+            var channels = await TeamsInfo.GetTeamChannelsAsync(
+                turnContext,
+                registration.TeamId,
+                cancellationToken);
+            registration.TeamName = team?.Name ?? registration.TeamName;
+            registration.ChannelName = channels?
+                .FirstOrDefault(channel => channel.Id == registration.ChannelId)?
+                .Name ?? registration.ChannelName;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not resolve Teams names for {TeamId}/{ChannelId}; registration will use stable IDs",
+                registration.TeamId,
+                registration.ChannelId);
+        }
+
+        return registration;
     }
 
     private static bool TryCreateRegistration(

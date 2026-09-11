@@ -29,6 +29,15 @@ public class AzureUpdatesJobHandlerTests
         _cosmosDbMock
             .Setup(x => x.UpdateCrawlJobAsync(It.IsAny<CrawlJob>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((CrawlJob job, CancellationToken _) => job);
+        _cosmosDbMock
+            .Setup(x => x.GetWatchlistAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new WatchlistItem { ServiceName = "Test Service" },
+                new WatchlistItem { ServiceName = "Azure Kubernetes Service" },
+                new WatchlistItem { ServiceName = "Azure Cache for Redis" },
+                new WatchlistItem { ServiceName = "Azure SQL" }
+            ]);
     }
 
     [Fact]
@@ -92,7 +101,7 @@ public class AzureUpdatesJobHandlerTests
             .ReturnsAsync(new FeedItem
             {
                 Id = "existing", SourceContentHash = AzureUpdatesJobHandler.GenerateContentHash(updates[0]),
-                LlmAnalysis = new LlmAnalysis { AiConfidence = 0.9 }
+                LlmAnalysis = new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] }
             });
 
         var job = new CrawlJob { Id = "test-job-4", JobType = CrawlJobTypes.AzureUpdates };
@@ -125,7 +134,7 @@ public class AzureUpdatesJobHandlerTests
             .ReturnsAsync(true);
         _llmAnalyzerMock
             .Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.5 });
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.5, AffectedServices = ["Test Service"] });
 
         var job = new CrawlJob { Id = "my-job-id", JobType = CrawlJobTypes.AzureUpdates };
         await _handler.HandleAsync(job);
@@ -202,7 +211,7 @@ public class AzureUpdatesJobHandlerTests
                 Id = id,
                 SourceContentHash = AzureUpdatesJobHandler.GenerateContentHash(
                     updates.Single(u => AzureUpdatesJobHandler.GenerateDedupId(u.Id) == id)),
-                LlmAnalysis = new LlmAnalysis { AiConfidence = 0.9 }
+                LlmAnalysis = new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] }
             });
 
         var job = new CrawlJob();
@@ -226,7 +235,7 @@ public class AzureUpdatesJobHandlerTests
             .ReturnsAsync(new AzureUpdatesSnapshot(
                 [new() { Id = "123", Title = "Update", Modified = "2026-09-01T00:00:00Z" }], 1, 1));
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis());
+            .ReturnsAsync(new LlmAnalysis { AffectedServices = ["Test Service"] });
         _cosmosDbMock.Setup(x => x.TryStoreFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
@@ -236,6 +245,40 @@ public class AzureUpdatesJobHandlerTests
         job.Result!.NewItems.Should().Be(0);
         job.Result.SkippedItems.Should().Be(1);
         job.Result.TotalChecked.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task HandleAsync_UnwatchedService_DeletesExistingItem()
+    {
+        var update = new AzureUpdateItem
+        {
+            Id = "artifact-streaming",
+            Title = "Artifact Streaming update",
+            Description = "Artifact Streaming is changing",
+            Products = ["Artifact Streaming"],
+            Modified = "2026-09-01T00:00:00Z"
+        };
+        _sourceMock.Setup(x => x.GetUpdatesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AzureUpdatesSnapshot([update], 1, 1));
+        _cosmosDbMock.Setup(x => x.GetFeedItemAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedItem { Id = "existing", ETag = "etag" });
+        _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmAnalysis
+            {
+                AiConfidence = 0.9,
+                AffectedServices = ["Artifact Streaming"]
+            });
+
+        var job = new CrawlJob();
+        await _handler.HandleAsync(job);
+
+        _cosmosDbMock.Verify(
+            x => x.DeleteFeedItemAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _cosmosDbMock.Verify(
+            x => x.TryReplaceFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        job.Result!.SkippedItems.Should().Be(1);
     }
 
     [Fact]
@@ -310,7 +353,7 @@ public class AzureUpdatesJobHandlerTests
         _cosmosDbMock.Setup(x => x.TryReplaceFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9 });
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] });
 
         var job = new CrawlJob();
         await _handler.HandleAsync(job);
@@ -335,7 +378,7 @@ public class AzureUpdatesJobHandlerTests
         _cosmosDbMock.Setup(x => x.GetFeedItemAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new FeedItem { ETag = "etag" });
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9 });
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] });
 
         var act = () => _handler.HandleAsync(new CrawlJob());
 
@@ -357,7 +400,7 @@ public class AzureUpdatesJobHandlerTests
         _cosmosDbMock.Setup(x => x.TryReplaceFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9 });
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] });
 
         await _handler.HandleAsync(new CrawlJob());
 
@@ -423,7 +466,7 @@ public class AzureUpdatesJobHandlerTests
         _cosmosDbMock.Setup(x => x.TryReplaceFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9 });
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] });
 
         await _handler.HandleAsync(new CrawlJob());
 

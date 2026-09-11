@@ -19,6 +19,9 @@ public class WatchlistItem
     [JsonPropertyName("resourceProvider")]
     public string ResourceProvider { get; set; } = string.Empty;
 
+    [JsonPropertyName("regions")]
+    public List<string> Regions { get; set; } = [];
+
     [JsonPropertyName("addedAt")]
     public DateTimeOffset AddedAt { get; set; } = DateTimeOffset.UtcNow;
 }

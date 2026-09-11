@@ -34,6 +34,7 @@ public class AzureUpdatesJobHandler : IJobHandler
 
         var snapshot = await _source.GetUpdatesAsync(cancellationToken);
         var updates = snapshot.Items;
+        var watchlist = await _cosmosDb.GetWatchlistAsync(cancellationToken);
 
         await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
         {
@@ -48,6 +49,7 @@ public class AzureUpdatesJobHandler : IJobHandler
         int newItems = 0;
         int updatedItems = 0;
         int skipped = 0;
+        int discarded = 0;
         job.Result = new CrawlJobResult();
 
         foreach (var update in updates)
@@ -58,9 +60,32 @@ public class AzureUpdatesJobHandler : IJobHandler
             var contentHash = GenerateContentHash(update);
 
             var existing = await _cosmosDb.GetFeedItemAsync(id, cancellationToken);
+            if (!job.SkipLlmAnalysis && watchlist.Count == 0)
+            {
+                if (existing != null)
+                    await _cosmosDb.DeleteFeedItemAsync(id, cancellationToken);
+                discarded++;
+                skipped++;
+                if ((newItems + updatedItems + skipped) % 50 == 0)
+                    await SaveProgressAsync();
+                continue;
+            }
+
             if (existing?.SourceContentHash == contentHash &&
                 (existing.LlmAnalysis?.AiConfidence > 0 || existing.LlmAnalysisSkipped))
             {
+                if (!job.SkipLlmAnalysis && !existing.LlmAnalysisSkipped &&
+                    FindWatchlistMatch(existing.LlmAnalysis, update.Products) is null)
+                {
+                    await _cosmosDb.DeleteFeedItemAsync(id, cancellationToken);
+                    discarded++;
+                    skipped++;
+                    _logger.LogInformation(
+                        "Deleted Azure update {Id} because it no longer matches the service and region watchlist",
+                        update.Id);
+                    continue;
+                }
+
                 skipped++;
                 if ((newItems + updatedItems + skipped) % 50 == 0)
                     await SaveProgressAsync();
@@ -101,6 +126,21 @@ public class AzureUpdatesJobHandler : IJobHandler
                 feedItem.LlmAnalysis = analysis;
             }
 
+            if (!job.SkipLlmAnalysis &&
+                FindWatchlistMatch(feedItem.LlmAnalysis, update.Products) is null)
+            {
+                if (existing != null)
+                    await _cosmosDb.DeleteFeedItemAsync(id, cancellationToken);
+                discarded++;
+                skipped++;
+                _logger.LogInformation(
+                    "Discarded Azure update {Id} because it does not match the service and region watchlist",
+                    update.Id);
+                if (!job.SkipLlmAnalysis || (newItems + updatedItems + skipped) % 50 == 0)
+                    await SaveProgressAsync();
+                continue;
+            }
+
             if (existing != null)
             {
                 if (!await _cosmosDb.TryReplaceFeedItemAsync(feedItem, cancellationToken))
@@ -125,8 +165,18 @@ public class AzureUpdatesJobHandler : IJobHandler
         };
 
         _logger.LogInformation(
-            "Azure Updates crawl complete: {New} new, {Updated} updated, {Skipped} skipped, {Total} total",
-            newItems, updatedItems, skipped, updates.Count);
+            "Azure Updates crawl complete: {New} new, {Updated} updated, {Skipped} skipped, " +
+            "{Discarded} discarded by watchlist, {Total} total",
+            newItems, updatedItems, skipped, discarded, updates.Count);
+
+        WatchlistItem? FindWatchlistMatch(LlmAnalysis? analysis, IEnumerable<string> sourceProducts)
+        {
+            var affectedServices = (analysis?.AffectedServices ?? [])
+                .Concat(sourceProducts)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            return WatchlistRelevanceMatcher.FindMatch(
+                watchlist, affectedServices, analysis?.AffectedRegions);
+        }
 
         async Task SaveProgressAsync()
         {

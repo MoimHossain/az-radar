@@ -283,14 +283,29 @@ app.MapGet("/api/watchlist", async (ICosmosDbService db) =>
     return Results.Ok(items);
 });
 
+app.MapGet("/api/azure-regions", () => Results.Ok(AzureRegionCatalog.PublicRegions));
+
 app.MapPost("/api/watchlist", async (CreateWatchlistRequest request, ICosmosDbService db) =>
 {
+    if (string.IsNullOrWhiteSpace(request.ServiceName))
+        return Results.BadRequest(new { error = "Service name is required." });
+
+    var regions = new List<string>();
+    foreach (var region in request.Regions ?? [])
+    {
+        if (!AzureRegionCatalog.TryGetCanonicalName(region, out var canonicalRegion))
+            return Results.BadRequest(new { error = $"Unknown Azure region '{region}'." });
+        if (!regions.Contains(canonicalRegion, StringComparer.OrdinalIgnoreCase))
+            regions.Add(canonicalRegion);
+    }
+
     var item = new WatchlistItem
     {
-        ServiceName = request.ServiceName,
+        ServiceName = request.ServiceName.Trim(),
         Aliases = request.Aliases ?? [],
         SearchTerms = request.SearchTerms ?? [],
         ResourceProvider = request.ResourceProvider ?? string.Empty,
+        Regions = regions,
     };
     var created = await db.CreateWatchlistItemAsync(item);
     return Results.Created($"/api/watchlist/{created.Id}", created);
@@ -697,6 +712,7 @@ app.Run();
 public record CreateCrawlJobRequest(string JobType, bool SkipLlmAnalysis = false);
 public record CreateWatchlistRequest(
     string ServiceName,
+    List<string>? Regions = null,
     List<string>? Aliases = null,
     List<string>? SearchTerms = null,
     string? ResourceProvider = null);

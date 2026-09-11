@@ -39,6 +39,7 @@ public interface ICosmosDbService
     /// Replaces a changed source item only if its ETag still matches the version read.
     /// </summary>
     Task<bool> TryReplaceFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default);
+    Task<bool> DeleteFeedItemAsync(string id, CancellationToken cancellationToken = default);
 
     // Watchlist operations
     Task<WatchlistItem> CreateWatchlistItemAsync(WatchlistItem item, CancellationToken cancellationToken = default);
@@ -60,6 +61,7 @@ public interface ICosmosDbService
         string? source = null,
         CancellationToken cancellationToken = default);
     Task<bool> UpsertDocInsightAsync(DocInsight insight, CancellationToken cancellationToken = default);
+    Task<bool> DeleteDocInsightAsync(string id, CancellationToken cancellationToken = default);
 
     // AppConfig operations
     Task<AppConfig?> GetAppConfigAsync(string key, CancellationToken cancellationToken = default);

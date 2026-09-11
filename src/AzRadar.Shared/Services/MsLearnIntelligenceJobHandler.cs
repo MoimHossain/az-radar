@@ -44,6 +44,7 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
         int newItems = 0;
         int skipped = 0;
         int totalChecked = 0;
+        int discarded = 0;
 
         foreach (var service in watchlist)
         {
@@ -104,7 +105,21 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                 var existing = await _cosmosDb.GetDocInsightAsync(docId, cancellationToken);
                 if (existing != null && existing.ContentHash == contentHash)
                 {
-                    _logger.LogDebug("Doc unchanged: {Title}", searchResult.Title);
+                    if (WatchlistRelevanceMatcher.FindMatch(
+                            watchlist,
+                            existing.LlmAnalysis?.AffectedServices ?? [],
+                            existing.LlmAnalysis?.AffectedRegions) is null)
+                    {
+                        await _cosmosDb.DeleteDocInsightAsync(docId, cancellationToken);
+                        discarded++;
+                        _logger.LogInformation(
+                            "Deleted unchanged doc {Title} because it no longer matches the service and region watchlist",
+                            searchResult.Title);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Doc unchanged: {Title}", searchResult.Title);
+                    }
                     skipped++;
                     continue;
                 }
@@ -125,6 +140,19 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
 
                 _logger.LogInformation("Analyzing doc: {Title}", searchResult.Title);
                 var analysis = await _llmAnalyzer.AnalyzeFeedItemAsync(feedItem, cancellationToken);
+                var matchedWatch = WatchlistRelevanceMatcher.FindMatch(
+                    watchlist, analysis.AffectedServices, analysis.AffectedRegions);
+                if (matchedWatch is null)
+                {
+                    if (existing != null)
+                        await _cosmosDb.DeleteDocInsightAsync(docId, cancellationToken);
+                    discarded++;
+                    skipped++;
+                    _logger.LogInformation(
+                        "Discarded MS Learn doc {Title} because it does not match the service and region watchlist",
+                        searchResult.Title);
+                    continue;
+                }
 
                 // Prefer the AI-generated title, which reflects the actual substance of the content
                 // rather than a generic or misleading source page title (e.g. an FAQ page title that
@@ -137,7 +165,7 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                 {
                     Id = docId,
                     Source = "ms-learn",
-                    ServiceName = service.ServiceName,
+                    ServiceName = matchedWatch.ServiceName,
                     DocUrl = feedItem.Link,
                     Title = title,
                     Snippet = searchResult.Snippet,
@@ -175,8 +203,9 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
         };
 
         _logger.LogInformation(
-            "MS Learn Intelligence complete: {New} new/updated, {Skipped} unchanged, {Total} total",
-            newItems, skipped, totalChecked);
+            "MS Learn Intelligence complete: {New} new/updated, {Skipped} skipped, " +
+            "{Discarded} discarded by watchlist, {Total} total",
+            newItems, skipped, discarded, totalChecked);
     }
 
     private static string NormalizeUrl(string url)

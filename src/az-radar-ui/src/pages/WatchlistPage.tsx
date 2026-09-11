@@ -7,6 +7,8 @@ import {
   Spinner,
   Input,
   Button,
+  Dropdown,
+  Option,
   Table,
   TableBody,
   TableCell,
@@ -39,9 +41,18 @@ const useStyles = makeStyles({
     display: "flex",
     alignItems: "center",
     gap: "12px",
+    flexWrap: "wrap",
   },
   addInput: {
     minWidth: "320px",
+  },
+  regionDropdown: {
+    minWidth: "320px",
+  },
+  regionList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "4px",
   },
   tableCard: {
     overflow: "hidden",
@@ -61,6 +72,8 @@ export function WatchlistPage() {
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [newService, setNewService] = useState("");
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
 
   const loadWatchlist = () => {
@@ -74,6 +87,7 @@ export function WatchlistPage() {
 
   useEffect(() => {
     loadWatchlist();
+    api.getAzureRegions().then(setAvailableRegions).catch(console.error);
   }, []);
 
   const handleAdd = async () => {
@@ -81,9 +95,10 @@ export function WatchlistPage() {
     if (!name) return;
     setAdding(true);
     try {
-      const item = await api.addToWatchlist(name);
+      const item = await api.addToWatchlist(name, selectedRegions);
       setItems((prev) => [...prev, item]);
       setNewService("");
+      setSelectedRegions([]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -131,6 +146,19 @@ export function WatchlistPage() {
             if (e.key === "Enter") handleAdd();
           }}
         />
+        <Dropdown
+          className={styles.regionDropdown}
+          multiselect
+          placeholder="All regions (optional)"
+          selectedOptions={selectedRegions}
+          onOptionSelect={(_, data) => setSelectedRegions(data.selectedOptions)}
+        >
+          {availableRegions.map((region) => (
+            <Option key={region} value={region}>
+              {region}
+            </Option>
+          ))}
+        </Dropdown>
         <Button
           appearance="primary"
           icon={<AddRegular />}
@@ -171,6 +199,7 @@ export function WatchlistPage() {
             <TableHeader>
               <TableRow>
                 <TableHeaderCell>Service Name</TableHeaderCell>
+                <TableHeaderCell>Regions</TableHeaderCell>
                 <TableHeaderCell style={{ width: 140 }}>
                   Date Added
                 </TableHeaderCell>
@@ -184,6 +213,19 @@ export function WatchlistPage() {
                     <Badge appearance="tint" size="medium">
                       {item.serviceName}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className={styles.regionList}>
+                      {(item.regions?.length ?? 0) === 0 ? (
+                        <Text size={200}>All regions</Text>
+                      ) : (
+                        item.regions.map((region) => (
+                          <Badge key={region} appearance="outline" size="small">
+                            {region}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Text size={200}>

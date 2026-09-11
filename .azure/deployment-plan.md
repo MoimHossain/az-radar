@@ -4,6 +4,71 @@
 
 Generated: 2026-09-08
 
+## Current release: Service and region scoped watchlist (2026-09-11)
+
+Issue #7 adds optional Azure regions to Service Watchlist entries and filters Azure Updates and
+Microsoft Learn intelligence before persistence using LLM-extracted canonical services/regions
+plus deterministic alias, acronym, and region matching.
+
+This is an application-image-only release to the existing App Services:
+
+- API/UI: `azr-api-x8c5i2` in `az-radar-vnet-rg`
+- JobHost: `azr-job-x8c5i2` in `az-radar-vnet-rg`
+- Location: Central US
+- Recipe: Azure CLI App Service container image update
+- Infrastructure, identities, RBAC, networking, and app settings: unchanged
+- Rollback: switch each App Service to its previous blue/green image tag
+
+Planned validation:
+
+- [x] All validation checks pass
+  - [x] Core validation: Azure CLI/authentication and application build; ARM validate/what-if are
+        not applicable because this release changes only existing App Service image references.
+  - [x] Docker build for API/UI and JobHost
+  - [x] Azure Policy validation
+- [x] `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore`
+- [x] 35 focused Azure Updates, Microsoft Learn, and watchlist relevance tests
+- [x] `npx tsc --noEmit`
+- [x] `git diff --check`
+- [x] Confirm Azure subscription, resource group location, and current image tags
+- [x] Build and push opposite blue/green API and JobHost images
+- [x] Update and restart both App Services
+- [x] Verify `/api/azure-regions`, scoped watchlist persistence, UI availability, and JobHost health
+
+## 7. Validation Proof
+
+- 2026-09-11: full solution build succeeded with 0 warnings and 0 errors.
+- 2026-09-11: focused test suite passed 35/35.
+- 2026-09-11: frontend TypeScript check completed successfully.
+- 2026-09-11: patch whitespace validation completed successfully.
+- 2026-09-11: Azure CLI authentication confirmed subscription
+  `MOHOSSA-M365CPI50986977` (`5e22addc-6168-4683-afd0-789a121ca5d3`); the user confirmed
+  Central US and the existing `az-radar-vnet-rg` target.
+- 2026-09-11: existing API and JobHost user-assigned managed identities confirmed attached.
+- 2026-09-11: static Bicep review confirmed UAMI attachment in `infra/modules/web-app.bicep`,
+  Cosmos data-plane contributor assignments in `infra/modules/cosmos-rbac.bicep`, and the
+  existing Azure OpenAI user role design in `infra/modules/openai.bicep`.
+- 2026-09-11: subscription policy assignments are existing Defender policies and do not conflict
+  with an image-only update.
+- 2026-09-11: standard Docker build was blocked by Docker-to-NuGet `NU1301`; locally restored
+  Release publishes and the validated runtime-only Dockerfile produced API blue image
+  `sha256:4f4d4fd541e80db72512a27bcb5f71071576cc12de16218e2696b19db90feba6` and JobHost green
+  image `sha256:f4dfeac288ecec5380905cb7b2df26daf7b9f3b46d9931bfac440ba76996b57e`.
+
+### Deployment result
+
+- Docker Hub API blue digest:
+  `sha256:f2922fb58d7d608a9063149f9bac6c5a76904ba4c863df0d89848a0d03342fc6`.
+- Docker Hub JobHost green digest:
+  `sha256:aef2f756109af8588d40a0fdc7f2506d0e35d86b0c779406819618c7571b70af`.
+- `azr-api-x8c5i2` is running API blue with Always On enabled.
+- `azr-job-x8c5i2` is running JobHost green with Always On enabled.
+- Live API/UI smoke test returned HTTP 200, 58 Azure regions, five watchlist entries with the
+  additive `regions` field, and explicit HTTP 400 rejection for an unknown region.
+- Live runtime role verification confirmed Cosmos DB Built-in Data Contributor and Cognitive
+  Services OpenAI User for the JobHost UAMI. App Service log download remains intentionally
+  inaccessible from the public client because the SCM endpoint is IP restricted.
+
 ## Current release: Teams destination activation (2026-09-10)
 
 The user authorized deployment of the pending API/UI changes and activation of

@@ -151,6 +151,7 @@ public class LlmAnalyzerService : ILlmAnalyzer
           "changeType": "retirement | deprecation | breaking-change | security-advisory | new-feature | migration-required | preview | general-availability | update",
           "severity": "critical | high | medium | low | informational",
           "affectedServices": ["list of Azure service names affected"],
+          "affectedRegions": ["canonical Azure region names, 'global', or empty when no region is specified"],
           "affectedResourceTypes": ["list of Azure resource types, e.g. Microsoft.Cache/redis"],
           "actionRequired": "description of what action is needed, or empty string if none",
           "deadline": "YYYY-MM-DD format if a deadline is mentioned, or null",
@@ -163,6 +164,9 @@ public class LlmAnalyzerService : ILlmAnalyzer
         
         Guidelines:
         - Be precise about affected resource types (use ARM resource type format when possible)
+        - Extract explicitly affected Azure regions using canonical display names such as "West Europe"
+        - Use ["global"] only when the source explicitly says the change is global or applies to all regions
+        - Use an empty affectedRegions array when the source does not identify a region
         - Rate severity based on operational impact: retirements/breaking changes are high/critical, new features are informational/low
         - Set aiConfidence lower when the announcement is vague or ambiguous
         - For new features and previews, effortEstimate should be "low" and severity "informational"
