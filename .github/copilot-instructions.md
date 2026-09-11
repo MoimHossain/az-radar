@@ -121,3 +121,4 @@ Same applies to `moimhossain/az-radar-jobhost`.
 - Do NOT use API keys or connection string keys for any Azure service — always use UAMI
 - Do NOT use `latest` tag for Docker images — use blue/green alternating tags
 - Do NOT use `dotnet new sln` — the solution file is `AzRadar.slnx` (not `.sln`)
+- My organization will block certain NuGet/Npm packages when they are a package too new, my org does a security policy to prevent supply-chain attack, allows only use safe packages that has at least 2 weeks of backtime. There is official feed proxy form my org that can allow using them. Be mindful about it.
