@@ -1,14 +1,14 @@
-# From Radar to Response: How AzRadar Learned to Deliver Azure Service Health into Teams
+# From Radar to Response: How CloudLens Learned to Deliver Azure Service Health into Teams
 
 > _“Knowing that Azure changed is useful. Knowing that Azure is currently having a bad day — and
 > getting that information to the right people — is operationally necessary.”_
 
-In my last AzRadar article,
+In my last CloudLens article,
 [From RSS Scraper to MCP-Powered Radar](https://moimhossain.com/2026/05/20/from-rss-scraper-to-mcp-powered-radar-how-azradar-grew-up/),
 I wrote about how the project evolved from a slightly overconfident RSS scraper into a proper
 Azure lifecycle intelligence platform.
 
-MCP gave AzRadar better source data. Azure OpenAI turned that data into useful judgement. Azure
+MCP gave CloudLens better source data. Azure OpenAI turned that data into useful judgement. Azure
 Resource Graph gave us blast radius. The lifecycle calendar gave us a way to answer the immortal
 platform-engineering question:
 
@@ -18,14 +18,14 @@ At the end of that article I mentioned the next major capability: a **Smart Noti
 
 It turns out that sentence was hiding quite a lot of architecture.
 
-The new capability is now running. AzRadar can register Azure subscriptions, ingest Azure Service
+The new capability is now running. CloudLens can register Azure subscriptions, ingest Azure Service
 Health notifications through a private event pipeline, enrich and classify them, and send them as
 standalone posts to independently configured Microsoft Teams channels through a tenant-managed app
 called **CloudLens**.
 
 This is the story of how we moved from **radar** to **response**.
 
-> **Suggested hero image:** AzRadar Service Health Dispatch page beside a CloudLens notification in
+> **Suggested hero image:** CloudLens Service Health Dispatch page beside a CloudLens notification in
 > Microsoft Teams.
 
 ---
@@ -66,7 +66,7 @@ I wanted the opposite model:
 
 ## The ingestion decision: do not build another public webhook
 
-The first design question was how Azure should send Service Health data to AzRadar.
+The first design question was how Azure should send Service Health data to CloudLens.
 
 A webhook sounds easy. It also creates exactly the conversation I did not want to have in a
 regulated enterprise:
@@ -78,9 +78,9 @@ regulated enterprise:
 - How many alert rules and action groups do we need?
 - Can we replay yesterday's events?
 
-So AzRadar does not expose a new public Service Health webhook.
+So CloudLens does not expose a new public Service Health webhook.
 
-Instead, registering a subscription causes AzRadar to configure a subscription-level
+Instead, registering a subscription causes CloudLens to configure a subscription-level
 **diagnostic setting** that exports only the Activity Log's `ServiceHealth` category to a central
 **Azure Event Hub**.
 
@@ -88,19 +88,19 @@ Instead, registering a subscription causes AzRadar to configure a subscription-l
 Registered subscription
     -> Activity Log: ServiceHealth
     -> Azure Event Hubs
-    -> AzRadar ingress worker
+    -> CloudLens ingress worker
 ```
 
 This has a few useful consequences:
 
-- Azure can continue producing events while an AzRadar worker is restarting.
+- Azure can continue producing events while an CloudLens worker is restarting.
 - Event Hubs gives us a replay window.
 - The platform team can verify whether each subscription is configured correctly.
 - Workload teams do not create alert rules.
-- The AzRadar consumer reaches Event Hubs through private networking.
+- The CloudLens consumer reaches Event Hubs through private networking.
 
 Subscription onboarding still requires explicit permission. A dedicated managed identity is given
-the narrow rights needed to create and verify the AzRadar diagnostic setting. AzRadar does not
+the narrow rights needed to create and verify the CloudLens diagnostic setting. CloudLens does not
 quietly give itself tenant-wide Contributor and wander around the estate configuring things.
 
 That is less magical than “click once and monitor everything.”
@@ -136,7 +136,7 @@ An active Service Issue does not disappear because a model timed out. A security
 get downgraded because a generated summary sounded calm. Azure facts remain facts; AI output is
 additive and labelled.
 
-This follows the same principle as the rest of AzRadar:
+This follows the same principle as the rest of CloudLens:
 
 > **Use AI for judgement where judgement helps. Do not use AI to replace the controls that keep the
 > system safe.**
@@ -196,7 +196,7 @@ Operationally, that would make the notification path depend on:
 
 - A URL that behaves like a secret.
 - A workflow owned by one or more users.
-- Ownership and lifecycle rules outside AzRadar.
+- Ownership and lifecycle rules outside CloudLens.
 - A configuration page full of secret references that no product owner wants to explain.
 
 We removed that model.
@@ -205,7 +205,7 @@ CloudLens is now a tenant-managed Teams application backed by Azure Bot Service.
 channel, send the registration message, and the Bot Gateway captures the stable Team and channel
 identity.
 
-AzRadar then resolves the friendly names so the routing page can display:
+CloudLens then resolves the friendly names so the routing page can display:
 
 ```text
 Cloud Platform / Planned Maintenance
@@ -216,7 +216,7 @@ The name helps the human. The stable ID protects the system when somebody rename
 `Planned Maintenance - NEW`.
 
 The app says only that the channel has been registered. The actual event-family policy remains in
-AzRadar, where it can be reviewed and changed centrally.
+CloudLens, where it can be reviewed and changed centrally.
 
 ---
 
@@ -257,7 +257,7 @@ Another tempting shortcut was to let the ingestion worker call Teams directly.
 That works until Teams returns a 429, a channel has been removed, the bot reference is stale, or
 Microsoft has a transient outage at exactly the same time Azure is having an incident.
 
-Instead, AzRadar writes a **delivery intent** to Cosmos DB. An outbox worker publishes the intent to
+Instead, CloudLens writes a **delivery intent** to Cosmos DB. An outbox worker publishes the intent to
 Azure Service Bus. A separate Teams delivery worker claims it, renders the card, sends it, and
 records the outcome.
 
@@ -280,7 +280,7 @@ The distinction matters:
 - `dead-lettered` means the failure is terminal or retries were exhausted.
 
 One event can have multiple intents. The incident channel might succeed while the security channel
-fails because CloudLens was removed. AzRadar keeps those outcomes separate.
+fails because CloudLens was removed. CloudLens keeps those outcomes separate.
 
 That is the difference between a notification demo and a notification service.
 
@@ -355,7 +355,7 @@ event, unregisters watching, and configures CloudLens channel routing.
 
 ### Recent ingested events
 
-This shows what AzRadar actually received and understood:
+This shows what CloudLens actually received and understood:
 
 - Event family
 - Azure service and region
@@ -385,7 +385,7 @@ confusing.
 Azure subscriptions
     -> Activity Log ServiceHealth
     -> Event Hubs
-    -> AzRadar ingress + AI enrichment
+    -> CloudLens ingress + AI enrichment
     -> Cosmos DB event and delivery ledger
     -> Service Bus
     -> Teams delivery worker
@@ -408,7 +408,7 @@ A few principles survived contact with reality:
 
 ## What this capability changes
 
-The previous version of AzRadar answered:
+The previous version of CloudLens answered:
 
 > _“What is changing in Azure, and does it affect our estate?”_
 
@@ -459,4 +459,4 @@ If you are building a central Azure platform and have ever discovered a Service 
 because somebody pasted a portal screenshot into a chat, the source is on GitHub:
 [`MoimHossain/az-radar`](https://github.com/MoimHossain/az-radar).
 
-And if the last version of AzRadar grew teeth, this version learned when — and where — to bite.
+And if the last version of CloudLens grew teeth, this version learned when — and where — to bite.
