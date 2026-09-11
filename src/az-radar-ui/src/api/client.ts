@@ -242,8 +242,7 @@ export interface ServiceHealthSubscription {
 export interface ServiceHealthChannel {
   id: string;
   displayName: string;
-  type: "teams-workflow" | "teams-bot";
-  secretUri: string;
+  type: "teams-bot";
   tenantId: string;
   teamId: string;
   teamName: string;
@@ -253,7 +252,6 @@ export interface ServiceHealthChannel {
   registrationStatus: "pending" | "registered" | "uninstalled";
   lastRegisteredAt?: string;
   subscribedEventTypes: ServiceHealthEventType[];
-  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -286,6 +284,9 @@ export interface ServiceHealthDeliveryIntent {
   eventType: ServiceHealthEventType;
   status: string;
   createdAt: string;
+  attemptCount: number;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -425,15 +426,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({
         displayName: channel.displayName,
-        secretUri: channel.secretUri || null,
         subscribedEventTypes: channel.subscribedEventTypes,
-        enabled: channel.enabled,
       }),
-    }),
-
-  removeServiceHealthChannel: (id: string) =>
-    fetch(`${API_BASE}/api/service-health/channels/${id}`, { method: "DELETE" }).then((r) => {
-      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
     }),
 
   publishServiceHealthTestEvent: (
@@ -451,6 +445,22 @@ export const api = {
   getServiceHealthEvents: (limit = 50) =>
     apiFetch<ServiceHealthEvent[]>(`/api/service-health/events?limit=${limit}`),
 
+  deleteServiceHealthEvent: (id: string) =>
+    fetch(`${API_BASE}/api/service-health/events/${id}`, { method: "DELETE" }).then(async (r) => {
+      if (!r.ok && r.status !== 404) {
+        const body = await r.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error || `Delete failed: ${r.status}`);
+      }
+    }),
+
   getServiceHealthDeliveryIntents: (limit = 50) =>
     apiFetch<ServiceHealthDeliveryIntent[]>(`/api/service-health/delivery-intents?limit=${limit}`),
+
+  deleteServiceHealthDeliveryIntent: (id: string) =>
+    fetch(`${API_BASE}/api/service-health/delivery-intents/${id}`, { method: "DELETE" }).then(async (r) => {
+      if (!r.ok && r.status !== 404) {
+        const body = await r.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error || `Delete failed: ${r.status}`);
+      }
+    }),
 };

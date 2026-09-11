@@ -697,6 +697,52 @@ public class CosmosDbService : ICosmosDbService
         return results;
     }
 
+    public async Task<bool> DeleteServiceHealthEventAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        var intents = ServiceHealthDeliveryIntents.GetItemQueryIterator<ServiceHealthDeliveryIntent>(
+            new QueryDefinition("SELECT * FROM c WHERE c.eventId = @eventId")
+                .WithParameter("@eventId", id));
+        var relatedIntents = new List<ServiceHealthDeliveryIntent>();
+        while (intents.HasMoreResults)
+        {
+            var response = await intents.ReadNextAsync(cancellationToken);
+            relatedIntents.AddRange(response);
+        }
+
+        var activeIntent = relatedIntents.FirstOrDefault(intent =>
+            intent.Status is ServiceHealthDeliveryIntentStatuses.Queued
+                or ServiceHealthDeliveryIntentStatuses.Dispatching
+                or ServiceHealthDeliveryIntentStatuses.RetryScheduled);
+        if (activeIntent != null)
+        {
+            throw new InvalidOperationException(
+                $"Delivery intent '{activeIntent.Id}' is still active and must finish before the event can be deleted.");
+        }
+
+        foreach (var intent in relatedIntents)
+        {
+            await ServiceHealthDeliveryIntents.DeleteItemAsync<ServiceHealthDeliveryIntent>(
+                intent.Id,
+                new PartitionKey(intent.Id),
+                cancellationToken: cancellationToken);
+        }
+
+        try
+        {
+            await ServiceHealthEvents.DeleteItemAsync<ServiceHealthEvent>(
+                id,
+                new PartitionKey(id),
+                cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> TryCreateServiceHealthDeliveryIntentAsync(
         ServiceHealthDeliveryIntent intent,
         CancellationToken cancellationToken = default)
@@ -729,6 +775,39 @@ public class CosmosDbService : ICosmosDbService
             results.AddRange(response);
         }
         return results;
+    }
+
+    public async Task<bool> DeleteServiceHealthDeliveryIntentAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        ServiceHealthDeliveryIntent intent;
+        try
+        {
+            var response = await ServiceHealthDeliveryIntents.ReadItemAsync<ServiceHealthDeliveryIntent>(
+                id,
+                new PartitionKey(id),
+                cancellationToken: cancellationToken);
+            intent = response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        if (intent.Status is ServiceHealthDeliveryIntentStatuses.Queued
+            or ServiceHealthDeliveryIntentStatuses.Dispatching
+            or ServiceHealthDeliveryIntentStatuses.RetryScheduled)
+        {
+            throw new InvalidOperationException(
+                $"Delivery intent '{id}' is still active and cannot be deleted.");
+        }
+
+        await ServiceHealthDeliveryIntents.DeleteItemAsync<ServiceHealthDeliveryIntent>(
+            id,
+            new PartitionKey(id),
+            cancellationToken: cancellationToken);
+        return true;
     }
 
     public async Task<ServiceHealthEventCheckpoint?> GetServiceHealthCheckpointAsync(

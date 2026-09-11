@@ -100,10 +100,14 @@ public interface ICosmosDbService
         ServiceHealthEvent serviceHealthEvent, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ServiceHealthEvent>> GetServiceHealthEventsAsync(
         int limit = 50, CancellationToken cancellationToken = default);
+    Task<bool> DeleteServiceHealthEventAsync(
+        string id, CancellationToken cancellationToken = default);
     Task<bool> TryCreateServiceHealthDeliveryIntentAsync(
         ServiceHealthDeliveryIntent intent, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ServiceHealthDeliveryIntent>> GetServiceHealthDeliveryIntentsAsync(
         int limit = 50, CancellationToken cancellationToken = default);
+    Task<bool> DeleteServiceHealthDeliveryIntentAsync(
+        string id, CancellationToken cancellationToken = default);
     Task<ServiceHealthEventCheckpoint?> GetServiceHealthCheckpointAsync(
         string partitionId, CancellationToken cancellationToken = default);
     Task UpsertServiceHealthCheckpointAsync(

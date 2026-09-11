@@ -169,7 +169,6 @@ public sealed class DispatchingRepository
         {
             Id = reference.Id,
             Type = ServiceHealthChannelTypes.TeamsBot,
-            Enabled = false,
             CreatedAt = DateTimeOffset.UtcNow
         };
         channel.DisplayName = $"{reference.TeamName} / {reference.ChannelName}".Trim(' ', '/');
@@ -206,7 +205,6 @@ public sealed class DispatchingRepository
         var channel = await GetChannelAsync(referenceId, cancellationToken);
         if (channel != null)
         {
-            channel.Enabled = false;
             channel.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Uninstalled;
             channel.UpdatedAt = DateTimeOffset.UtcNow;
             await _channels.UpsertItemAsync(

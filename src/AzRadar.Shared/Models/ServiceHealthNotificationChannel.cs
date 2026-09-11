@@ -11,10 +11,7 @@ public class ServiceHealthNotificationChannel
     public string DisplayName { get; set; } = string.Empty;
 
     [JsonPropertyName("type")]
-    public string Type { get; set; } = ServiceHealthChannelTypes.TeamsWorkflow;
-
-    [JsonPropertyName("secretUri")]
-    public string SecretUri { get; set; } = string.Empty;
+    public string Type { get; set; } = ServiceHealthChannelTypes.TeamsBot;
 
     [JsonPropertyName("tenantId")]
     public string TenantId { get; set; } = string.Empty;
@@ -40,9 +37,6 @@ public class ServiceHealthNotificationChannel
     [JsonPropertyName("subscribedEventTypes")]
     public List<string> SubscribedEventTypes { get; set; } = [];
 
-    [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; } = true;
-
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
@@ -55,7 +49,6 @@ public class ServiceHealthNotificationChannel
 
 public static class ServiceHealthChannelTypes
 {
-    public const string TeamsWorkflow = "teams-workflow";
     public const string TeamsBot = "teams-bot";
 }
 

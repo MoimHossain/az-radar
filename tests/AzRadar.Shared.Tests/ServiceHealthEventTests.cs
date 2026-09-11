@@ -72,6 +72,8 @@ public class ServiceHealthEventProcessorTests
                 {
                     Id = "platform-incidents",
                     DisplayName = "Platform incidents",
+                    Type = ServiceHealthChannelTypes.TeamsBot,
+                    RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered,
                     SubscribedEventTypes = [ServiceHealthEventTypes.ServiceIssue]
                 }
             ]);

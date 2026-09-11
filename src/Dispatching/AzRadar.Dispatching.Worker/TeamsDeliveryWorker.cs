@@ -147,14 +147,14 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
                 "ChannelNotFound",
                 $"Notification channel '{envelope.ChannelId}' was not found.");
 
-            if (!channel.Enabled ||
-                channel.Type != ServiceHealthChannelTypes.TeamsBot ||
+            if (channel.Type != ServiceHealthChannelTypes.TeamsBot ||
                 channel.RegistrationStatus != ServiceHealthChannelRegistrationStatuses.Registered ||
+                channel.SubscribedEventTypes.Count == 0 ||
                 string.IsNullOrWhiteSpace(channel.ConversationReferenceId))
             {
                 throw new PermanentDispatchException(
                     "ChannelUnavailable",
-                    $"Notification channel '{channel.Id}' is not an enabled, registered Teams bot destination.");
+                    $"Notification channel '{channel.Id}' is not a registered Teams bot destination with event families.");
             }
 
             var reference = await RequireAsync(
@@ -177,11 +177,13 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
                 ContentType = AdaptiveCardContentType,
                 Content = JsonSerializer.Deserialize<JsonElement>(cardJson)
             });
-            var response = await _agent.Proactive.SendActivityAsync(
-                conversation,
-                activity,
-                args.CancellationToken);
-            var activityId = response.Id ?? string.Empty;
+            var createdConversation = await _agent.Proactive.CreateConversationAsync(
+                CreateChannelPostOptions(conversation, reference, activity),
+                continuationHandler: null!,
+                autoSignInHandlers: [],
+                continuationActivityFactory: null!,
+                cancellationToken: args.CancellationToken);
+            var activityId = createdConversation.Reference.ActivityId ?? string.Empty;
 
             attempt.CompletedAt = DateTimeOffset.UtcNow;
             attempt.Succeeded = true;
@@ -250,6 +252,7 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
         if (conversation?.Reference == null ||
             string.IsNullOrWhiteSpace(conversation.Reference.ChannelId) ||
             string.IsNullOrWhiteSpace(conversation.Reference.Conversation?.Id) ||
+            string.IsNullOrWhiteSpace(conversation.Reference.User?.Id) ||
             string.IsNullOrWhiteSpace(conversation.Reference.ServiceUrl) ||
             string.IsNullOrWhiteSpace(conversation.Identity.FindFirst("aud")?.Value))
         {
@@ -258,6 +261,21 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
 
         return conversation;
     }
+
+    internal static CreateConversationOptions CreateChannelPostOptions(
+        Conversation conversation,
+        TeamsConversationReferenceDocument reference,
+        IActivity activity) =>
+        CreateConversationOptionsBuilder
+            .Create(
+                Conversation.ClaimsFromIdentity(conversation.Identity),
+                conversation.Reference.ChannelId,
+                conversation.Reference.ServiceUrl)
+            .WithUser(conversation.Reference.User)
+            .WithTenantId(reference.TenantId)
+            .WithTeamsChannelId(reference.ChannelId)
+            .WithActivity(activity)
+            .Build();
 
     private static DispatchFailure ClassifyFailure(Exception exception)
     {

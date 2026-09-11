@@ -97,7 +97,7 @@ public sealed class AzRadarNotificationAgent : AgentApplication
         await _repository.UpsertConversationReferenceAsync(registration, cancellationToken);
         await turnContext.SendActivityAsync(
             MessageFactory.Text(
-                "This channel is registered with CloudLens and is disabled until a platform administrator selects event families and enables it."),
+                "This channel is registered with CloudLens. Select its Service Health event families in AzRadar to start notifications."),
             cancellationToken);
     }
 

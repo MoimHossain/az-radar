@@ -29,16 +29,15 @@ public sealed class DispatchContractTests
     }
 
     [Fact]
-    public void TeamsBotChannel_StartsDisabledUntilAdministratorEnablesIt()
+    public void TeamsBotChannel_StartsWithoutEventFamilySubscriptions()
     {
         var channel = new ServiceHealthNotificationChannel
         {
             Type = ServiceHealthChannelTypes.TeamsBot,
-            RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered,
-            Enabled = false
+            RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered
         };
 
-        Assert.False(channel.Enabled);
+        Assert.Empty(channel.SubscribedEventTypes);
         Assert.Equal(ServiceHealthChannelTypes.TeamsBot, channel.Type);
         Assert.Equal(ServiceHealthChannelRegistrationStatuses.Registered, channel.RegistrationStatus);
     }

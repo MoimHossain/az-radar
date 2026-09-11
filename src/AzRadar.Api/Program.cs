@@ -466,25 +466,6 @@ app.MapGet("/api/service-health/channels", async (ICosmosDbService db) =>
     return Results.Ok(channels);
 });
 
-app.MapPost("/api/service-health/channels", async (
-    UpsertServiceHealthChannelRequest request,
-    ICosmosDbService db) =>
-{
-    var validationError = ValidateServiceHealthChannel(request, requireSecretUri: true);
-    if (validationError != null) return Results.BadRequest(new { error = validationError });
-
-    var channel = new ServiceHealthNotificationChannel
-    {
-        DisplayName = request.DisplayName.Trim(),
-        Type = ServiceHealthChannelTypes.TeamsWorkflow,
-        SecretUri = request.SecretUri?.Trim() ?? string.Empty,
-        SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes),
-        Enabled = request.Enabled
-    };
-    var saved = await db.UpsertServiceHealthChannelAsync(channel);
-    return Results.Created($"/api/service-health/channels/{saved.Id}", saved);
-});
-
 app.MapPut("/api/service-health/channels/{id}", async (
     string id,
     UpsertServiceHealthChannelRequest request,
@@ -493,20 +474,16 @@ app.MapPut("/api/service-health/channels/{id}", async (
     var channels = await db.GetServiceHealthChannelsAsync();
     var channel = channels.FirstOrDefault(item => item.Id == id);
     if (channel == null) return Results.NotFound();
+    if (channel.Type != ServiceHealthChannelTypes.TeamsBot)
+        return Results.BadRequest(new { error = "Only Teams app destinations are supported." });
 
-    var validationError = ValidateServiceHealthChannel(
-        request,
-        requireSecretUri: channel.Type == ServiceHealthChannelTypes.TeamsWorkflow);
+    var validationError = ValidateServiceHealthChannel(request);
     if (validationError != null) return Results.BadRequest(new { error = validationError });
-    if (request.Enabled &&
-        channel.Type == ServiceHealthChannelTypes.TeamsBot &&
-        channel.RegistrationStatus != ServiceHealthChannelRegistrationStatuses.Registered)
-        return Results.BadRequest(new { error = "Only a registered Teams bot destination can be enabled." });
+    if (channel.RegistrationStatus != ServiceHealthChannelRegistrationStatuses.Registered)
+        return Results.BadRequest(new { error = "Only a registered Teams app destination can be configured." });
 
     channel.DisplayName = request.DisplayName.Trim();
-    channel.SecretUri = request.SecretUri?.Trim() ?? channel.SecretUri;
     channel.SubscribedEventTypes = NormalizeEventTypes(request.SubscribedEventTypes);
-    channel.Enabled = request.Enabled;
     channel.UpdatedAt = DateTimeOffset.UtcNow;
     var saved = await db.UpsertServiceHealthChannelAsync(channel);
     return Results.Ok(saved);
@@ -529,10 +506,36 @@ app.MapGet("/api/service-health/events", async (int? limit, ICosmosDbService db)
     return Results.Ok(events);
 });
 
+app.MapDelete("/api/service-health/events/{id}", async (string id, ICosmosDbService db) =>
+{
+    try
+    {
+        var deleted = await db.DeleteServiceHealthEventAsync(id);
+        return deleted ? Results.NoContent() : Results.NotFound();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { error = ex.Message });
+    }
+});
+
 app.MapGet("/api/service-health/delivery-intents", async (int? limit, ICosmosDbService db) =>
 {
     var intents = await db.GetServiceHealthDeliveryIntentsAsync(limit ?? 50);
     return Results.Ok(intents);
+});
+
+app.MapDelete("/api/service-health/delivery-intents/{id}", async (string id, ICosmosDbService db) =>
+{
+    try
+    {
+        var deleted = await db.DeleteServiceHealthDeliveryIntentAsync(id);
+        return deleted ? Results.NoContent() : Results.NotFound();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { error = ex.Message });
+    }
 });
 
 app.MapPost("/api/service-health/test-events", async (
@@ -713,9 +716,7 @@ public record UpdateConfigRequest(string Value, string? Description = null);
 public record RegisterServiceHealthSubscriptionRequest(string SubscriptionId);
 public record UpsertServiceHealthChannelRequest(
     string DisplayName,
-    string? SecretUri,
-    List<string> SubscribedEventTypes,
-    bool Enabled = true);
+    List<string> SubscribedEventTypes);
 public record PublishServiceHealthTestEventRequest(
     string SubscriptionId,
     string EventType = ServiceHealthEventTypes.ServiceIssue);
@@ -745,17 +746,12 @@ public partial class Program
     }
 
     private static string? ValidateServiceHealthChannel(
-        UpsertServiceHealthChannelRequest request,
-        bool requireSecretUri)
+        UpsertServiceHealthChannelRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.DisplayName))
             return "Display name is required.";
-        if (requireSecretUri &&
-            (!Uri.TryCreate(request.SecretUri, UriKind.Absolute, out var secretUri) ||
-             !string.Equals(secretUri.Scheme, "https", StringComparison.OrdinalIgnoreCase)))
-            return "Secret URI must be an absolute HTTPS Key Vault secret URI.";
-        if (request.SubscribedEventTypes == null || request.SubscribedEventTypes.Count == 0)
-            return "Select at least one Service Health event type.";
+        if (request.SubscribedEventTypes == null)
+            return "Subscribed event types are required.";
         var unsupported = request.SubscribedEventTypes
             .Where(type => !ServiceHealthEventTypes.Supported.Contains(type))
             .Distinct(StringComparer.OrdinalIgnoreCase)

@@ -8,7 +8,8 @@ import {
   Input,
   Option,
   Spinner,
-  Switch,
+  Tab,
+  TabList,
   Text,
   makeStyles,
   tokens,
@@ -35,6 +36,8 @@ const eventTypes: Array<{ value: ServiceHealthEventType; label: string }> = [
   { value: "HealthAdvisory", label: "Health advisories" },
   { value: "SecurityAdvisory", label: "Security advisories" },
 ];
+
+type ServiceHealthTab = "subscriptions" | "events" | "intents";
 
 const useStyles = makeStyles({
   container: {
@@ -71,6 +74,7 @@ const useStyles = makeStyles({
 
 export function ServiceHealthConfigPage() {
   const styles = useStyles();
+  const [selectedTab, setSelectedTab] = useState<ServiceHealthTab>("subscriptions");
   const [subscriptions, setSubscriptions] = useState<ServiceHealthSubscription[]>([]);
   const [channels, setChannels] = useState<ServiceHealthChannel[]>([]);
   const [events, setEvents] = useState<ServiceHealthEvent[]>([]);
@@ -80,16 +84,19 @@ export function ServiceHealthConfigPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const visibleDeliveryIntents = deliveryIntents.filter(
+    (intent) => intent.status !== "delivered" && intent.status !== "cancelled",
+  );
 
   const load = async () => {
     const [registeredSubscriptions, notificationChannels, recentEvents, recentIntents] = await Promise.all([
       api.getServiceHealthSubscriptions(),
       api.getServiceHealthChannels(),
-      api.getServiceHealthEvents(20),
-      api.getServiceHealthDeliveryIntents(20),
+      api.getServiceHealthEvents(50),
+      api.getServiceHealthDeliveryIntents(100),
     ]);
     setSubscriptions(registeredSubscriptions);
-    setChannels(notificationChannels);
+    setChannels(notificationChannels.filter((channel) => channel.type === "teams-bot"));
     setEvents(recentEvents);
     setDeliveryIntents(recentIntents);
   };
@@ -100,46 +107,24 @@ export function ServiceHealthConfigPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const registerSubscription = async () => {
+  const runAction = async (action: () => Promise<void>, successMessage?: string) => {
     setBusy(true);
     setMessage(null);
     try {
-      await api.registerServiceHealthSubscription(subscriptionId.trim());
-      setSubscriptionId("");
+      await action();
       await load();
-      setMessage({ type: "success", text: "Subscription registered and diagnostic setting verified." });
+      if (successMessage) setMessage({ type: "success", text: successMessage });
     } catch (error) {
-      await load().catch(() => {});
       setMessage({ type: "error", text: error instanceof Error ? error.message : String(error) });
     } finally {
       setBusy(false);
     }
   };
 
-  const verifySubscription = async (id: string) => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      await api.verifyServiceHealthSubscription(id);
-      await load();
-      setMessage({ type: "success", text: "Subscription configuration verified." });
-    } catch (error) {
-      await load().catch(() => {});
-      setMessage({ type: "error", text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeSubscription = async (id: string) => {
-    setBusy(true);
-    try {
-      await api.removeServiceHealthSubscription(id, false);
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
+  const registerSubscription = () => runAction(async () => {
+    await api.registerServiceHealthSubscription(subscriptionId.trim());
+    setSubscriptionId("");
+  }, "Subscription registered and diagnostic setting verified.");
 
   const publishTestEvent = async (id: string) => {
     setBusy(true);
@@ -157,20 +142,32 @@ export function ServiceHealthConfigPage() {
     }
   };
 
-  const updateChannel = async (channel: ServiceHealthChannel) => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      await api.updateServiceHealthChannel({
+  const updateChannel = (channel: ServiceHealthChannel, subscribedEventTypes: ServiceHealthEventType[]) =>
+    runAction(
+      () => api.updateServiceHealthChannel({
         ...channel,
         displayName: channel.displayName || channel.channelName || "Teams channel",
-      });
-      await load();
-    } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setBusy(false);
-    }
+        subscribedEventTypes,
+      }).then(() => undefined),
+      subscribedEventTypes.length > 0
+        ? "Teams channel routing updated."
+        : "Teams channel notifications paused because no event families are selected.",
+    );
+
+  const deleteEvent = (event: ServiceHealthEvent) => {
+    if (!window.confirm(`Permanently delete event ${event.trackingId} and its completed delivery intents?`)) return;
+    void runAction(
+      () => api.deleteServiceHealthEvent(event.id),
+      `Event ${event.trackingId} was permanently deleted.`,
+    );
+  };
+
+  const deleteIntent = (intent: ServiceHealthDeliveryIntent) => {
+    if (!window.confirm(`Permanently delete the delivery intent for ${intent.channelDisplayName}?`)) return;
+    void runAction(
+      () => api.deleteServiceHealthDeliveryIntent(intent.id),
+      "Delivery intent was permanently deleted.",
+    );
   };
 
   if (loading) {
@@ -182,7 +179,7 @@ export function ServiceHealthConfigPage() {
       <div className={styles.header}>
         <Text size={700} weight="bold" block>Service Health Dispatch</Text>
         <Text size={200} className={styles.muted}>
-          Register pilot subscriptions and configure central platform Teams channels by Service Health event type.
+          Register Azure subscriptions, review ingested events, and manage durable Teams delivery intents.
         </Text>
       </div>
 
@@ -190,227 +187,261 @@ export function ServiceHealthConfigPage() {
         <Text className={message.type === "success" ? styles.success : styles.error}>{message.text}</Text>
       )}
 
-      <Card className={styles.card}>
-        <Text weight="semibold">Register a subscription</Text>
-        <Text size={200} className={styles.muted}>
-          The dedicated provisioning identity must already have the approved diagnostic-setting role
-          on this subscription. AzRadar will configure only the ServiceHealth Activity Log category.
-        </Text>
-        <div className={styles.row}>
-          <Field label="Subscription ID" style={{ flex: 1, minWidth: "360px" }} required>
-            <Input
-              className={styles.mono}
-              value={subscriptionId}
-              onChange={(_, data) => setSubscriptionId(data.value)}
-              placeholder="00000000-0000-0000-0000-000000000000"
-            />
-          </Field>
-          <Button
-            appearance="primary"
-            icon={busy ? <Spinner size="tiny" /> : <AddRegular />}
-            disabled={busy || !subscriptionId.trim()}
-            onClick={registerSubscription}
-          >
-            Register
-          </Button>
-        </div>
-        {subscriptions.map((subscription) => (
-          <div className={styles.item} key={subscription.id}>
-            <div className={styles.itemTop}>
-              <div>
-                <Text weight="semibold">{subscription.displayName || subscription.id}</Text>
-                <Text block size={200} className={styles.mono}>{subscription.id}</Text>
-              </div>
-              <Badge
-                appearance="outline"
-                color={subscription.status === "active"
-                  ? "success"
-                  : subscription.status === "permission-required"
-                    ? "warning"
-                    : "danger"}
-              >
-                {subscription.status}
-              </Badge>
-            </div>
+      <TabList
+        selectedValue={selectedTab}
+        onTabSelect={(_, data) => setSelectedTab(data.value as ServiceHealthTab)}
+      >
+        <Tab value="subscriptions">Register subscription</Tab>
+        <Tab value="events">Recent ingested events</Tab>
+        <Tab value="intents">Pending delivery intents</Tab>
+      </TabList>
+
+      {selectedTab === "subscriptions" && (
+        <>
+          <Card className={styles.card}>
+            <Text weight="semibold">Register a subscription</Text>
             <Text size={200} className={styles.muted}>
-              Diagnostic setting: {subscription.diagnosticSettingName || "not configured"} ·
-              Event Hub: {subscription.eventHubName || "not configured"}
+              The provisioning identity must already have the approved diagnostic-setting role on this
+              subscription. AzRadar configures only the ServiceHealth Activity Log category.
             </Text>
-            {subscription.lastErrorMessage && (
-              <Text size={200} className={styles.error}>{subscription.lastErrorMessage}</Text>
-            )}
-            <div className={styles.actions}>
-              <Dropdown
-                size="small"
-                value={eventTypes.find((item) => item.value === testEventType)?.label}
-                selectedOptions={[testEventType]}
-                onOptionSelect={(_, data) => {
-                  if (data.optionValue)
-                    setTestEventType(data.optionValue as ServiceHealthEventType);
-                }}
-                aria-label="Synthetic event type"
-              >
-                {eventTypes.map((eventType) => (
-                  <Option key={eventType.value} value={eventType.value}>
-                    {eventType.label}
-                  </Option>
-                ))}
-              </Dropdown>
-              <Button
-                size="small"
-                appearance="secondary"
-                icon={<SendRegular />}
-                disabled={busy || subscription.status !== "active"}
-                onClick={() => publishTestEvent(subscription.id)}
-              >
-                Send test event
-              </Button>
-              <Button
-                size="small"
-                appearance="secondary"
-                icon={<ArrowSyncRegular />}
-                disabled={busy}
-                onClick={() => verifySubscription(subscription.id)}
-              >
-                Verify
-              </Button>
-              <Button
-                size="small"
-                appearance="subtle"
-                icon={<DeleteRegular />}
-                disabled={busy}
-                onClick={() => removeSubscription(subscription.id)}
-              >
-                Remove from AzRadar
-              </Button>
-            </div>
-          </div>
-        ))}
-      </Card>
-
-      <Card className={styles.card}>
-        <div className={styles.itemTop}>
-          <div>
-            <Text weight="semibold">Recent ingested events</Text>
-            <Text block size={200} className={styles.muted}>
-              Events have been normalized, deduplicated, enriched, and evaluated for configured routes.
-            </Text>
-          </div>
-          <Button appearance="secondary" icon={<ArrowSyncRegular />} onClick={load}>
-            Refresh
-          </Button>
-        </div>
-        {events.length === 0 && <Text className={styles.muted}>No events have been ingested yet.</Text>}
-        {events.map((event) => (
-          <div className={styles.item} key={event.id}>
-            <div className={styles.itemTop}>
-              <div>
-                <Text weight="semibold">{event.llmAnalysis?.suggestedTitle || event.title}</Text>
-                <Text block size={200} className={styles.muted}>
-                  {event.eventType} · {event.service || "Unknown service"} · {event.region || "Global"}
-                </Text>
-              </div>
-              <div className={styles.actions}>
-                {event.isSynthetic && <Badge appearance="outline" color="informative">Synthetic</Badge>}
-                <Badge
-                  appearance="outline"
-                  color={event.routingStatus === "ready-for-dispatch" ? "success" : "subtle"}
-                >
-                  {event.routingStatus}
-                </Badge>
-              </div>
-            </div>
-            <Text size={200}>{event.llmAnalysis?.briefSummary || event.summary}</Text>
-            <Text size={200} className={styles.muted}>
-              Tracking ID: {event.trackingId} · Received: {new Date(event.receivedAt).toLocaleString()}
-            </Text>
-          </div>
-        ))}
-      </Card>
-
-      <Card className={styles.card}>
-        <Text weight="semibold">Recent delivery intents</Text>
-        <Text size={200} className={styles.muted}>
-          Delivery state from the durable Service Bus and Teams bot dispatcher.
-        </Text>
-        {deliveryIntents.length === 0 && (
-          <Text className={styles.muted}>No channel-matched delivery intents yet.</Text>
-        )}
-        {deliveryIntents.map((intent) => (
-          <div className={styles.item} key={intent.id}>
-            <div className={styles.itemTop}>
-              <Text weight="semibold">{intent.channelDisplayName}</Text>
-              <Badge appearance="outline" color="warning">{intent.status}</Badge>
-            </div>
-            <Text size={200} className={styles.muted}>
-              {intent.eventType} · Event {intent.eventId}
-            </Text>
-          </div>
-        ))}
-      </Card>
-
-      <Card className={styles.card}>
-        <Text weight="semibold">Platform Teams destinations</Text>
-        <Text size={200} className={styles.muted}>
-          Add CloudLens Alerts to your team and send @CloudLens Alerts register in a standard channel.
-          The channel appears here as disabled; select event families before enabling delivery.
-        </Text>
-        {channels.length === 0 && (
-          <Text className={styles.muted}>No Teams destinations have been discovered yet.</Text>
-        )}
-
-        {channels.map((channel) => (
-          <div className={styles.item} key={channel.id}>
-            <div className={styles.itemTop}>
-              <div>
-                <Text weight="semibold">{channel.displayName || channel.channelName || "Teams channel"}</Text>
-                <Text block size={200} className={styles.muted}>
-                  {channel.type === "teams-bot"
-                    ? `${channel.registrationStatus} · ${channel.teamName || "Unknown team"}`
-                    : "Legacy Teams Workflow"}
-                </Text>
-              </div>
-              <div className={styles.actions}>
-                <Switch
-                  checked={channel.enabled}
-                  label="Enabled"
-                  disabled={busy || (!channel.enabled && channel.subscribedEventTypes.length === 0) ||
-                    (channel.type === "teams-bot" && channel.registrationStatus !== "registered")}
-                  onChange={(_, data) => updateChannel({ ...channel, enabled: data.checked })}
+            <div className={styles.row}>
+              <Field label="Subscription ID" style={{ flex: 1, minWidth: "360px" }} required>
+                <Input
+                  className={styles.mono}
+                  value={subscriptionId}
+                  onChange={(_, data) => setSubscriptionId(data.value)}
+                  placeholder="00000000-0000-0000-0000-000000000000"
                 />
-                {channel.type === "teams-workflow" && (
+              </Field>
+              <Button
+                appearance="primary"
+                icon={busy ? <Spinner size="tiny" /> : <AddRegular />}
+                disabled={busy || !subscriptionId.trim()}
+                onClick={registerSubscription}
+              >
+                Register
+              </Button>
+            </div>
+            {subscriptions.map((subscription) => (
+              <div className={styles.item} key={subscription.id}>
+                <div className={styles.itemTop}>
+                  <div>
+                    <Text weight="semibold">{subscription.displayName || subscription.id}</Text>
+                    <Text block size={200} className={styles.mono}>{subscription.id}</Text>
+                  </div>
+                  <Badge
+                    appearance="outline"
+                    color={subscription.status === "active"
+                      ? "success"
+                      : subscription.status === "permission-required"
+                        ? "warning"
+                        : "danger"}
+                  >
+                    {subscription.status}
+                  </Badge>
+                </div>
+                <Text size={200} className={styles.muted}>
+                  Diagnostic setting: {subscription.diagnosticSettingName || "not configured"} ·
+                  Event Hub: {subscription.eventHubName || "not configured"}
+                </Text>
+                {subscription.lastErrorMessage && (
+                  <Text size={200} className={styles.error}>{subscription.lastErrorMessage}</Text>
+                )}
+                <div className={styles.actions}>
+                  <Dropdown
+                    size="small"
+                    value={eventTypes.find((item) => item.value === testEventType)?.label}
+                    selectedOptions={[testEventType]}
+                    onOptionSelect={(_, data) => {
+                      if (data.optionValue) setTestEventType(data.optionValue as ServiceHealthEventType);
+                    }}
+                    aria-label="Synthetic event type"
+                  >
+                    {eventTypes.map((eventType) => (
+                      <Option key={eventType.value} value={eventType.value}>{eventType.label}</Option>
+                    ))}
+                  </Dropdown>
+                  <Button
+                    size="small"
+                    appearance="secondary"
+                    icon={<SendRegular />}
+                    disabled={busy || subscription.status !== "active"}
+                    onClick={() => publishTestEvent(subscription.id)}
+                  >
+                    Send test event
+                  </Button>
+                  <Button
+                    size="small"
+                    appearance="secondary"
+                    icon={<ArrowSyncRegular />}
+                    disabled={busy}
+                    onClick={() => void runAction(
+                      () => api.verifyServiceHealthSubscription(subscription.id).then(() => undefined),
+                      "Subscription configuration verified.",
+                    )}
+                  >
+                    Verify
+                  </Button>
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    icon={<DeleteRegular />}
+                    disabled={busy}
+                    onClick={() => void runAction(
+                      () => api.removeServiceHealthSubscription(subscription.id, false),
+                      "Subscription watching was unregistered.",
+                    )}
+                  >
+                    Unregister watching
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </Card>
+
+          <Card className={styles.card}>
+            <Text weight="semibold">Teams app channel routing</Text>
+            <Text size={200} className={styles.muted}>
+              Install CloudLens in each Teams channel and register it there. Every registered channel can
+              independently receive one event family or any combination. Selecting none pauses notifications.
+            </Text>
+            {channels.length === 0 && (
+              <Text className={styles.muted}>No Teams app channels have been registered yet.</Text>
+            )}
+            {channels.map((channel) => (
+              <div className={styles.item} key={channel.id}>
+                <div className={styles.itemTop}>
+                  <div>
+                    <Text weight="semibold">{channel.displayName || channel.channelName || "Teams channel"}</Text>
+                    <Text block size={200} className={styles.muted}>
+                      {channel.registrationStatus} · {channel.teamName || "Teams"}
+                    </Text>
+                  </div>
+                  <Badge
+                    appearance="outline"
+                    color={channel.subscribedEventTypes.length > 0 ? "success" : "subtle"}
+                  >
+                    {channel.subscribedEventTypes.length > 0 ? "routing configured" : "no event families"}
+                  </Badge>
+                </div>
+                <div className={styles.eventTypes}>
+                  {eventTypes.map((eventType) => (
+                    <Checkbox
+                      key={eventType.value}
+                      label={eventType.label}
+                      checked={channel.subscribedEventTypes.includes(eventType.value)}
+                      disabled={busy || channel.registrationStatus !== "registered"}
+                      onChange={(_, data) => {
+                        const subscribedEventTypes = data.checked === true
+                          ? [...new Set([...channel.subscribedEventTypes, eventType.value])]
+                          : channel.subscribedEventTypes.filter((value) => value !== eventType.value);
+                        void updateChannel(channel, subscribedEventTypes);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+
+      {selectedTab === "events" && (
+        <Card className={styles.card}>
+          <div className={styles.itemTop}>
+            <div>
+              <Text weight="semibold">Recent ingested events</Text>
+              <Text block size={200} className={styles.muted}>
+                Events have been normalized, deduplicated, enriched, and evaluated for configured routes.
+              </Text>
+            </div>
+            <Button appearance="secondary" icon={<ArrowSyncRegular />} disabled={busy} onClick={() => void load()}>
+              Refresh
+            </Button>
+          </div>
+          {events.length === 0 && <Text className={styles.muted}>No events have been ingested yet.</Text>}
+          {events.map((event) => (
+            <div className={styles.item} key={event.id}>
+              <div className={styles.itemTop}>
+                <div>
+                  <Text weight="semibold">{event.llmAnalysis?.suggestedTitle || event.title}</Text>
+                  <Text block size={200} className={styles.muted}>
+                    {event.eventType} · {event.service || "Unknown service"} · {event.region || "Global"}
+                  </Text>
+                </div>
+                <div className={styles.actions}>
+                  {event.isSynthetic && <Badge appearance="outline" color="informative">Synthetic</Badge>}
+                  <Badge
+                    appearance="outline"
+                    color={event.routingStatus === "ready-for-dispatch" ? "success" : "subtle"}
+                  >
+                    {event.routingStatus}
+                  </Badge>
                   <Button
                     appearance="subtle"
                     icon={<DeleteRegular />}
-                    onClick={async () => {
-                      await api.removeServiceHealthChannel(channel.id);
-                      await load();
-                    }}
-                    aria-label={`Delete ${channel.displayName}`}
+                    disabled={busy}
+                    onClick={() => deleteEvent(event)}
+                    aria-label={`Permanently delete event ${event.trackingId}`}
                   />
-                )}
+                </div>
               </div>
+              <Text size={200}>{event.llmAnalysis?.briefSummary || event.summary}</Text>
+              <Text size={200} className={styles.muted}>
+                Tracking ID: {event.trackingId} · Received: {new Date(event.receivedAt).toLocaleString()}
+              </Text>
             </div>
-            <div className={styles.eventTypes}>
-              {eventTypes.map((eventType) => (
-                <Checkbox
-                  key={eventType.value}
-                  label={eventType.label}
-                  checked={channel.subscribedEventTypes.includes(eventType.value)}
-                  disabled={busy}
-                  onChange={async (_, data) => {
-                    const subscribedEventTypes = data.checked === true
-                      ? [...new Set([...channel.subscribedEventTypes, eventType.value])]
-                      : channel.subscribedEventTypes.filter((value) => value !== eventType.value);
-                    if (subscribedEventTypes.length === 0) return;
-                    await updateChannel({ ...channel, subscribedEventTypes });
-                  }}
-                />
-              ))}
+          ))}
+        </Card>
+      )}
+
+      {selectedTab === "intents" && (
+        <Card className={styles.card}>
+          <div className={styles.itemTop}>
+            <div>
+              <Text weight="semibold">Pending delivery intents</Text>
+              <Text block size={200} className={styles.muted}>
+                Durable delivery records. Active in-flight intents cannot be deleted.
+              </Text>
             </div>
+            <Button appearance="secondary" icon={<ArrowSyncRegular />} disabled={busy} onClick={() => void load()}>
+              Refresh
+            </Button>
           </div>
-        ))}
-      </Card>
+          {visibleDeliveryIntents.length === 0 && (
+            <Text className={styles.muted}>No pending or failed delivery intents exist.</Text>
+          )}
+          {visibleDeliveryIntents.map((intent) => (
+            <div className={styles.item} key={intent.id}>
+              <div className={styles.itemTop}>
+                <div>
+                  <Text weight="semibold">{intent.channelDisplayName}</Text>
+                  <Text block size={200} className={styles.muted}>
+                    {intent.eventType} · Event {intent.eventId}
+                  </Text>
+                </div>
+                <div className={styles.actions}>
+                  <Badge appearance="outline" color={intent.status === "delivered" ? "success" : "warning"}>
+                    {intent.status}
+                  </Badge>
+                  <Button
+                    appearance="subtle"
+                    icon={<DeleteRegular />}
+                    disabled={busy || ["queued", "dispatching", "retry-scheduled"].includes(intent.status)}
+                    onClick={() => deleteIntent(intent)}
+                    aria-label={`Permanently delete delivery intent for ${intent.channelDisplayName}`}
+                  />
+                </div>
+              </div>
+              {intent.lastErrorMessage && (
+                <Text size={200} className={styles.error}>
+                  {intent.lastErrorCode}: {intent.lastErrorMessage}
+                </Text>
+              )}
+            </div>
+          ))}
+        </Card>
+      )}
     </div>
   );
 }
