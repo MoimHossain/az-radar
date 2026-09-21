@@ -37,7 +37,8 @@ const eventTypes: Array<{ value: ServiceHealthEventType; label: string }> = [
   { value: "SecurityAdvisory", label: "Security advisories" },
 ];
 
-type ServiceHealthTab = "subscriptions" | "events" | "intents";
+type ServiceHealthTab = "subscriptions" | "events" | "intents" | "targets";
+type DispatchTargetTab = "teams" | "wiki";
 
 const compactId = (value: string) =>
   value.length <= 32 ? value : `${value.slice(0, 14)}…${value.slice(-14)}`;
@@ -78,12 +79,20 @@ const useStyles = makeStyles({
 export function ServiceHealthConfigPage() {
   const styles = useStyles();
   const [selectedTab, setSelectedTab] = useState<ServiceHealthTab>("subscriptions");
+  const [selectedTargetTab, setSelectedTargetTab] = useState<DispatchTargetTab>("teams");
   const [subscriptions, setSubscriptions] = useState<ServiceHealthSubscription[]>([]);
   const [channels, setChannels] = useState<ServiceHealthChannel[]>([]);
+  const [wikiTargets, setWikiTargets] = useState<ServiceHealthChannel[]>([]);
   const [events, setEvents] = useState<ServiceHealthEvent[]>([]);
   const [deliveryIntents, setDeliveryIntents] = useState<ServiceHealthDeliveryIntent[]>([]);
   const [subscriptionId, setSubscriptionId] = useState("");
   const [testEventType, setTestEventType] = useState<ServiceHealthEventType>("ServiceIssue");
+  const [wikiDisplayName, setWikiDisplayName] = useState("CloudLens Service Health Hub");
+  const [wikiUri, setWikiUri] = useState("");
+  const [wikiAuthenticationType, setWikiAuthenticationType] =
+    useState<"pat" | "managed-identity">("pat");
+  const [wikiPat, setWikiPat] = useState("");
+  const [wikiManagedIdentityClientId, setWikiManagedIdentityClientId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -100,6 +109,7 @@ export function ServiceHealthConfigPage() {
     ]);
     setSubscriptions(registeredSubscriptions);
     setChannels(notificationChannels.filter((channel) => channel.type === "teams-bot"));
+    setWikiTargets(notificationChannels.filter((channel) => channel.type === "azure-devops-wiki"));
     setEvents(recentEvents);
     setDeliveryIntents(recentIntents);
   };
@@ -119,6 +129,7 @@ export function ServiceHealthConfigPage() {
       if (successMessage) setMessage({ type: "success", text: successMessage });
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : String(error) });
+      await load().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -157,6 +168,21 @@ export function ServiceHealthConfigPage() {
         : "Teams channel notifications paused because no event families are selected.",
     );
 
+  const registerWikiTarget = () => runAction(async () => {
+    await api.createServiceHealthWikiTarget({
+      displayName: wikiDisplayName.trim(),
+      wikiUri: wikiUri.trim(),
+      authenticationType: wikiAuthenticationType,
+      personalAccessToken: wikiAuthenticationType === "pat" ? wikiPat : undefined,
+      managedIdentityClientId:
+        wikiAuthenticationType === "managed-identity"
+          ? wikiManagedIdentityClientId.trim()
+          : undefined,
+    });
+    setWikiUri("");
+    setWikiPat("");
+  }, "Azure DevOps Wiki target registered and initial publication queued.");
+
   const deleteEvent = (event: ServiceHealthEvent) => {
     if (!window.confirm(`Permanently delete event ${event.trackingId} and its completed delivery intents?`)) return;
     void runAction(
@@ -182,7 +208,7 @@ export function ServiceHealthConfigPage() {
       <div className={styles.header}>
         <Text size={700} weight="bold" block>Service Health Dispatch</Text>
         <Text size={200} className={styles.muted}>
-          Register Azure subscriptions, review ingested events, and manage durable Teams delivery intents.
+          Register Azure subscriptions, review ingested events, and manage durable dispatching targets.
         </Text>
       </div>
 
@@ -197,6 +223,7 @@ export function ServiceHealthConfigPage() {
         <Tab value="subscriptions">Register subscription</Tab>
         <Tab value="events">Recent ingested events</Tab>
         <Tab value="intents">Pending delivery intents</Tab>
+        <Tab value="targets">Dispatching targets</Tab>
       </TabList>
 
       {selectedTab === "subscriptions" && (
@@ -302,62 +329,238 @@ export function ServiceHealthConfigPage() {
             ))}
           </Card>
 
-          <Card className={styles.card}>
-            <Text weight="semibold">Teams app channel routing</Text>
-            <Text size={200} className={styles.muted}>
-              Install CloudLens in each Teams channel and register it there. Every registered channel can
-              independently receive one event family or any combination. Selecting none pauses notifications.
-            </Text>
-            {channels.length === 0 && (
-              <Text className={styles.muted}>No Teams app channels have been registered yet.</Text>
-            )}
-            {channels.map((channel) => (
-              <div className={styles.item} key={channel.id}>
-                <div className={styles.itemTop}>
-                  <div>
-                    <Text weight="semibold">
-                      {channel.teamName && channel.channelName
-                        ? `${channel.teamName} / ${channel.channelName}`
-                        : channel.displayName || channel.channelName || "Teams channel"}
-                    </Text>
-                    <Text block size={200} className={styles.muted}>
-                      {channel.registrationStatus} · Teams app destination
-                    </Text>
-                    <Text
-                      block
-                      size={200}
-                      className={`${styles.muted} ${styles.mono}`}
-                      title={channel.channelId}
+        </>
+      )}
+
+      {selectedTab === "targets" && (
+        <>
+          <TabList
+            selectedValue={selectedTargetTab}
+            onTabSelect={(_, data) => setSelectedTargetTab(data.value as DispatchTargetTab)}
+          >
+            <Tab value="teams">Teams channels</Tab>
+            <Tab value="wiki">Azure DevOps Wiki</Tab>
+          </TabList>
+
+          {selectedTargetTab === "teams" && (
+            <Card className={styles.card}>
+              <Text weight="semibold">Teams app channel routing</Text>
+              <Text size={200} className={styles.muted}>
+                Install CloudLens in each Teams channel and register it there. Every registered channel can
+                independently receive one event family or any combination. Selecting none pauses notifications.
+              </Text>
+              {channels.length === 0 && (
+                <Text className={styles.muted}>No Teams app channels have been registered yet.</Text>
+              )}
+              {channels.map((channel) => (
+                <div className={styles.item} key={channel.id}>
+                  <div className={styles.itemTop}>
+                    <div>
+                      <Text weight="semibold">
+                        {channel.teamName && channel.channelName
+                          ? `${channel.teamName} / ${channel.channelName}`
+                          : channel.displayName || channel.channelName || "Teams channel"}
+                      </Text>
+                      <Text block size={200} className={styles.muted}>
+                        {channel.registrationStatus} · Teams app destination
+                      </Text>
+                      <Text
+                        block
+                        size={200}
+                        className={`${styles.muted} ${styles.mono}`}
+                        title={channel.channelId}
+                      >
+                        Channel ID: {compactId(channel.channelId || channel.id)}
+                      </Text>
+                    </div>
+                    <Badge
+                      appearance="outline"
+                      color={channel.subscribedEventTypes.length > 0 ? "success" : "subtle"}
                     >
-                      Channel ID: {compactId(channel.channelId || channel.id)}
-                    </Text>
+                      {channel.subscribedEventTypes.length > 0 ? "routing configured" : "no event families"}
+                    </Badge>
                   </div>
-                  <Badge
-                    appearance="outline"
-                    color={channel.subscribedEventTypes.length > 0 ? "success" : "subtle"}
+                  <div className={styles.eventTypes}>
+                    {eventTypes.map((eventType) => (
+                      <Checkbox
+                        key={eventType.value}
+                        label={eventType.label}
+                        checked={channel.subscribedEventTypes.includes(eventType.value)}
+                        disabled={busy || channel.registrationStatus !== "registered"}
+                        onChange={(_, data) => {
+                          const subscribedEventTypes = data.checked === true
+                            ? [...new Set([...channel.subscribedEventTypes, eventType.value])]
+                            : channel.subscribedEventTypes.filter((value) => value !== eventType.value);
+                          void updateChannel(channel, subscribedEventTypes);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {selectedTargetTab === "wiki" && (
+            <Card className={styles.card}>
+              <Text weight="semibold">Azure DevOps Wiki projection</Text>
+              <Text size={200} className={styles.muted}>
+                CloudLens maintains each registered wiki page with all four Service Health event families.
+                Pages are refreshed after event changes and reconciled daily.
+              </Text>
+
+              <div className={styles.row}>
+                <Field label="Display name" required style={{ flex: 1, minWidth: "280px" }}>
+                  <Input
+                    value={wikiDisplayName}
+                    onChange={(_, data) => setWikiDisplayName(data.value)}
+                  />
+                </Field>
+                <Field label="Authentication" required style={{ minWidth: "220px" }}>
+                  <Dropdown
+                    value={wikiAuthenticationType === "pat" ? "Personal Access Token" : "Managed Identity"}
+                    selectedOptions={[wikiAuthenticationType]}
+                    onOptionSelect={(_, data) => {
+                      if (data.optionValue) {
+                        setWikiAuthenticationType(data.optionValue as "pat" | "managed-identity");
+                      }
+                    }}
                   >
-                    {channel.subscribedEventTypes.length > 0 ? "routing configured" : "no event families"}
-                  </Badge>
-                </div>
-                <div className={styles.eventTypes}>
-                  {eventTypes.map((eventType) => (
-                    <Checkbox
-                      key={eventType.value}
-                      label={eventType.label}
-                      checked={channel.subscribedEventTypes.includes(eventType.value)}
-                      disabled={busy || channel.registrationStatus !== "registered"}
-                      onChange={(_, data) => {
-                        const subscribedEventTypes = data.checked === true
-                          ? [...new Set([...channel.subscribedEventTypes, eventType.value])]
-                          : channel.subscribedEventTypes.filter((value) => value !== eventType.value);
-                        void updateChannel(channel, subscribedEventTypes);
-                      }}
-                    />
-                  ))}
-                </div>
+                    <Option value="pat">Personal Access Token</Option>
+                    <Option value="managed-identity">Managed Identity</Option>
+                  </Dropdown>
+                </Field>
               </div>
-            ))}
-          </Card>
+              <Field label="Azure DevOps Wiki page URI" required>
+                <Input
+                  className={styles.mono}
+                  value={wikiUri}
+                  onChange={(_, data) => setWikiUri(data.value)}
+                  placeholder="https://dev.azure.com/organization/project/_wiki/wikis/wiki/123/page"
+                />
+              </Field>
+              {wikiAuthenticationType === "pat" ? (
+                <Field
+                  label="Personal Access Token"
+                  hint="Stored in Azure Key Vault and never returned by the API."
+                  required
+                >
+                  <Input
+                    type="password"
+                    value={wikiPat}
+                    onChange={(_, data) => setWikiPat(data.value)}
+                  />
+                </Field>
+              ) : (
+                <Field
+                  label="User-assigned managed identity client ID"
+                  hint="The identity must be attached to CloudLens and authorized in Azure DevOps."
+                  required
+                >
+                  <Input
+                    className={styles.mono}
+                    value={wikiManagedIdentityClientId}
+                    onChange={(_, data) => setWikiManagedIdentityClientId(data.value)}
+                  />
+                </Field>
+              )}
+              <div className={styles.actions}>
+                <Button
+                  appearance="primary"
+                  icon={busy ? <Spinner size="tiny" /> : <AddRegular />}
+                  disabled={
+                    busy ||
+                    !wikiDisplayName.trim() ||
+                    !wikiUri.trim() ||
+                    (wikiAuthenticationType === "pat"
+                      ? !wikiPat
+                      : !wikiManagedIdentityClientId.trim())
+                  }
+                  onClick={() => void registerWikiTarget()}
+                >
+                  Register and publish
+                </Button>
+              </div>
+
+              {wikiTargets.map((target) => (
+                <div className={styles.item} key={target.id}>
+                  <div className={styles.itemTop}>
+                    <div>
+                      <Text weight="semibold">{target.displayName}</Text>
+                      <Text block size={200} className={styles.muted}>
+                        {target.azureDevOpsOrganization} / {target.azureDevOpsProject} /{" "}
+                        {target.azureDevOpsWikiIdentifier}
+                      </Text>
+                      <Text block size={200} className={styles.mono}>
+                        {target.azureDevOpsPagePath}
+                      </Text>
+                    </div>
+                    <Badge
+                      appearance="outline"
+                      color={
+                        target.registrationStatus === "registered"
+                          ? "success"
+                          : target.registrationStatus === "pending"
+                            ? "warning"
+                            : "danger"
+                      }
+                    >
+                      {target.registrationStatus}
+                    </Badge>
+                  </div>
+                  <Text size={200} className={styles.muted}>
+                    Authentication: {target.authenticationType === "pat" ? "Personal Access Token" : "Managed Identity"}
+                    {" · "}Last success: {target.lastSucceededAt
+                      ? new Date(target.lastSucceededAt).toLocaleString()
+                      : "not published yet"}
+                  </Text>
+                  {target.lastErrorMessage && (
+                    <Text size={200} className={styles.error}>
+                      {target.lastErrorCode}: {target.lastErrorMessage}
+                    </Text>
+                  )}
+                  <div className={styles.actions}>
+                    <Button
+                      appearance="primary"
+                      icon={<SendRegular />}
+                      disabled={busy}
+                      onClick={() => void runAction(
+                        () => api.publishServiceHealthWikiTarget(target.id).then(() => undefined),
+                        "Wiki publication queued.",
+                      )}
+                    >
+                      Publish now
+                    </Button>
+                    <Button
+                      appearance="secondary"
+                      icon={<ArrowSyncRegular />}
+                      disabled={busy}
+                      onClick={() => void runAction(
+                        () => api.testServiceHealthWikiTarget(target.id).then(() => undefined),
+                        "Azure DevOps Wiki connection verified.",
+                      )}
+                    >
+                      Test connection
+                    </Button>
+                    <Button
+                      appearance="subtle"
+                      icon={<DeleteRegular />}
+                      disabled={busy}
+                      onClick={() => {
+                        if (!window.confirm(`Remove Azure DevOps Wiki target ${target.displayName}?`)) return;
+                        void runAction(
+                          () => api.deleteServiceHealthWikiTarget(target.id),
+                          "Azure DevOps Wiki target removed.",
+                        );
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
         </>
       )}
 

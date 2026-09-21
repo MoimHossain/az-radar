@@ -70,10 +70,10 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
-        TeamsDeliveryEnvelope? envelope;
+        ServiceHealthDeliveryEnvelope? envelope;
         try
         {
-            envelope = args.Message.Body.ToObjectFromJson<TeamsDeliveryEnvelope>();
+            envelope = args.Message.Body.ToObjectFromJson<ServiceHealthDeliveryEnvelope>();
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
@@ -88,7 +88,8 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
         if (envelope == null ||
             string.IsNullOrWhiteSpace(envelope.DeliveryIntentId) ||
             string.IsNullOrWhiteSpace(envelope.EventId) ||
-            string.IsNullOrWhiteSpace(envelope.ChannelId))
+            string.IsNullOrWhiteSpace(envelope.ChannelId) ||
+            envelope.TargetType != ServiceHealthChannelTypes.TeamsBot)
         {
             await args.DeadLetterMessageAsync(
                 args.Message,

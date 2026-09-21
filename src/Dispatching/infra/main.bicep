@@ -21,6 +21,12 @@ param gatewayIntegrationSubnetId string
 @description('Existing delegated subnet resource ID for the dispatch worker.')
 param workerIntegrationSubnetId string
 
+@description('Existing VNet name used for private DNS links.')
+param vnetName string = 'az-radar-vnet'
+
+@description('Principal ID of the existing CloudLens API managed identity that stores PATs.')
+param apiPrincipalId string
+
 @description('Globally unique Service Bus namespace name.')
 param serviceBusNamespaceName string = '${namePrefix}-dispatch-${uniqueString(resourceGroup().id)}'
 
@@ -51,6 +57,7 @@ param tags object = {
 
 var topicName = 'service-health-delivery'
 var teamsSubscriptionName = 'teams-realtime'
+var wikiSubscriptionName = 'azure-devops-wiki'
 var serviceBusSenderRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
@@ -60,6 +67,14 @@ var serviceBusReceiverRoleId = subscriptionResourceId(
   '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
 )
 var cosmosDataContributorRoleId = '${cosmosAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
+var keyVaultSecretsOfficerRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
+)
+var keyVaultSecretsUserRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '4633458b-17de-408a-b874-0445c86b69e6'
+)
 
 resource gatewayIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${namePrefix}-bot-gateway-uami'
@@ -111,6 +126,41 @@ resource teamsSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions
     defaultMessageTimeToLive: 'P14D'
     lockDuration: 'PT5M'
     maxDeliveryCount: 8
+  }
+}
+
+resource teamsSubscriptionRule 'Microsoft.ServiceBus/namespaces/topics/subscriptions/rules@2024-01-01' = {
+  parent: teamsSubscription
+  name: 'teams-target-filter'
+  properties: {
+    filterType: 'SqlFilter'
+    sqlFilter: {
+      sqlExpression: 'destinationType = \'teams-bot\''
+      compatibilityLevel: 20
+    }
+  }
+}
+
+resource wikiSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2024-01-01' = {
+  parent: deliveryTopic
+  name: wikiSubscriptionName
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P14D'
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 8
+  }
+}
+
+resource wikiSubscriptionRule 'Microsoft.ServiceBus/namespaces/topics/subscriptions/rules@2024-01-01' = {
+  parent: wikiSubscription
+  name: 'wiki-target-filter'
+  properties: {
+    filterType: 'SqlFilter'
+    sqlFilter: {
+      sqlExpression: 'destinationType = \'azure-devops-wiki\''
+      compatibilityLevel: 20
+    }
   }
 }
 
@@ -233,6 +283,104 @@ resource workerCosmosRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignme
     principalId: workerIdentity.properties.principalId
     roleDefinitionId: cosmosDataContributorRoleId
     scope: cosmosAccount.id
+  }
+}
+
+resource wikiKeyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: take('${namePrefix}-wiki-${uniqueString(resourceGroup().id)}', 24)
+  location: location
+  tags: tags
+  properties: {
+    tenantId: tenant().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    enablePurgeProtection: true
+    publicNetworkAccess: 'Disabled'
+    softDeleteRetentionInDays: 90
+  }
+}
+
+resource existingVnet 'Microsoft.Network/virtualNetworks@2023-11-01' existing = {
+  name: vnetName
+}
+
+resource keyVaultPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.vaultcore.azure.net'
+  location: 'global'
+  tags: tags
+}
+
+resource keyVaultDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: keyVaultPrivateDnsZone
+  name: '${wikiKeyVault.name}-link'
+  location: 'global'
+  tags: tags
+  properties: {
+    registrationEnabled: false
+    virtualNetwork: {
+      id: existingVnet.id
+    }
+  }
+}
+
+resource keyVaultPrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
+  name: 'pe-${wikiKeyVault.name}'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: privateEndpointSubnetId
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'vault'
+        properties: {
+          privateLinkServiceId: wikiKeyVault.id
+          groupIds: [
+            'vault'
+          ]
+        }
+      }
+    ]
+  }
+}
+
+resource keyVaultDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = {
+  parent: keyVaultPrivateEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'keyvault'
+        properties: {
+          privateDnsZoneId: keyVaultPrivateDnsZone.id
+        }
+      }
+    ]
+  }
+}
+
+resource apiKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(wikiKeyVault.id, apiPrincipalId, keyVaultSecretsOfficerRoleId)
+  scope: wikiKeyVault
+  properties: {
+    principalId: apiPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsOfficerRoleId
+  }
+}
+
+resource workerKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(wikiKeyVault.id, workerIdentity.id, keyVaultSecretsUserRoleId)
+  scope: wikiKeyVault
+  properties: {
+    principalId: workerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
   }
 }
 
@@ -397,7 +545,19 @@ resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
           value: teamsSubscriptionName
         }
         {
+          name: 'DispatchingServiceBus__WikiSubscriptionName'
+          value: wikiSubscriptionName
+        }
+        {
           name: 'DispatchingServiceBus__ManagedIdentityClientId'
+          value: workerIdentity.properties.clientId
+        }
+        {
+          name: 'AzureDevOpsWiki__KeyVaultUri'
+          value: wikiKeyVault.properties.vaultUri
+        }
+        {
+          name: 'AzureDevOpsWiki__ManagedIdentityClientId'
           value: workerIdentity.properties.clientId
         }
       ])
@@ -448,3 +608,6 @@ output workerAppName string = workerApp.name
 output serviceBusNamespace string = serviceBus.name
 output serviceBusTopic string = deliveryTopic.name
 output teamsSubscription string = teamsSubscription.name
+output wikiSubscription string = wikiSubscription.name
+output wikiKeyVaultName string = wikiKeyVault.name
+output wikiKeyVaultUri string = wikiKeyVault.properties.vaultUri

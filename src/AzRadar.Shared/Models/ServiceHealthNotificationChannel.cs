@@ -31,6 +31,36 @@ public class ServiceHealthNotificationChannel
     [JsonPropertyName("conversationReferenceId")]
     public string ConversationReferenceId { get; set; } = string.Empty;
 
+    [JsonPropertyName("wikiUri")]
+    public string WikiUri { get; set; } = string.Empty;
+
+    [JsonPropertyName("azureDevOpsOrganization")]
+    public string AzureDevOpsOrganization { get; set; } = string.Empty;
+
+    [JsonPropertyName("azureDevOpsProject")]
+    public string AzureDevOpsProject { get; set; } = string.Empty;
+
+    [JsonPropertyName("azureDevOpsWikiIdentifier")]
+    public string AzureDevOpsWikiIdentifier { get; set; } = string.Empty;
+
+    [JsonPropertyName("azureDevOpsPagePath")]
+    public string AzureDevOpsPagePath { get; set; } = string.Empty;
+
+    [JsonPropertyName("azureDevOpsPageId")]
+    public int? AzureDevOpsPageId { get; set; }
+
+    [JsonPropertyName("authenticationType")]
+    public string AuthenticationType { get; set; } = string.Empty;
+
+    [JsonPropertyName("credentialSecretName")]
+    public string CredentialSecretName { get; set; } = string.Empty;
+
+    [JsonPropertyName("managedIdentityClientId")]
+    public string ManagedIdentityClientId { get; set; } = string.Empty;
+
+    [JsonPropertyName("credentialExpiresAt")]
+    public DateTimeOffset? CredentialExpiresAt { get; set; }
+
     [JsonPropertyName("registrationStatus")]
     public string RegistrationStatus { get; set; } = ServiceHealthChannelRegistrationStatuses.Pending;
 
@@ -45,11 +75,30 @@ public class ServiceHealthNotificationChannel
 
     [JsonPropertyName("lastRegisteredAt")]
     public DateTimeOffset? LastRegisteredAt { get; set; }
+
+    [JsonPropertyName("lastAttemptedAt")]
+    public DateTimeOffset? LastAttemptedAt { get; set; }
+
+    [JsonPropertyName("lastSucceededAt")]
+    public DateTimeOffset? LastSucceededAt { get; set; }
+
+    [JsonPropertyName("lastRenderedContentHash")]
+    public string LastRenderedContentHash { get; set; } = string.Empty;
+
+    [JsonPropertyName("lastExternalVersion")]
+    public string LastExternalVersion { get; set; } = string.Empty;
+
+    [JsonPropertyName("lastErrorCode")]
+    public string? LastErrorCode { get; set; }
+
+    [JsonPropertyName("lastErrorMessage")]
+    public string? LastErrorMessage { get; set; }
 }
 
 public static class ServiceHealthChannelTypes
 {
     public const string TeamsBot = "teams-bot";
+    public const string AzureDevOpsWiki = "azure-devops-wiki";
 }
 
 public static class ServiceHealthChannelRegistrationStatuses
@@ -57,6 +106,19 @@ public static class ServiceHealthChannelRegistrationStatuses
     public const string Pending = "pending";
     public const string Registered = "registered";
     public const string Uninstalled = "uninstalled";
+    public const string Degraded = "degraded";
+    public const string Disabled = "disabled";
+    public const string PermissionRequired = "permission-required";
+}
+
+public static class AzureDevOpsAuthenticationTypes
+{
+    public const string PersonalAccessToken = "pat";
+    public const string ManagedIdentity = "managed-identity";
+
+    public static readonly IReadOnlySet<string> Supported = new HashSet<string>(
+        [PersonalAccessToken, ManagedIdentity],
+        StringComparer.OrdinalIgnoreCase);
 }
 
 public static class ServiceHealthEventTypes

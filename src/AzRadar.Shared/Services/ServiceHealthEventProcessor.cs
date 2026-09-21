@@ -36,11 +36,12 @@ public class ServiceHealthEventProcessor : IServiceHealthEventProcessor
             var channels = await _cosmosDb.GetServiceHealthChannelsAsync(cancellationToken);
             var matchingChannels = channels
                 .Where(channel =>
-                    channel.Type == ServiceHealthChannelTypes.TeamsBot &&
                     channel.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.Registered &&
-                    channel.SubscribedEventTypes.Contains(
-                        serviceHealthEvent.EventType,
-                        StringComparer.OrdinalIgnoreCase))
+                    (channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki ||
+                     (channel.Type == ServiceHealthChannelTypes.TeamsBot &&
+                      channel.SubscribedEventTypes.Contains(
+                          serviceHealthEvent.EventType,
+                          StringComparer.OrdinalIgnoreCase))))
                 .ToList();
 
             serviceHealthEvent.MatchingChannelIds = matchingChannels.Select(channel => channel.Id).ToList();
@@ -65,6 +66,7 @@ public class ServiceHealthEventProcessor : IServiceHealthEventProcessor
                     EventId = serviceHealthEvent.Id,
                     ChannelId = channel.Id,
                     ChannelDisplayName = channel.DisplayName,
+                    TargetType = channel.Type,
                     EventType = serviceHealthEvent.EventType
                 };
                 await _cosmosDb.TryCreateServiceHealthDeliveryIntentAsync(intent, cancellationToken);

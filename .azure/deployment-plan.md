@@ -4,6 +4,86 @@
 
 Generated: 2026-09-08
 
+## Current release: Multiple Azure DevOps Wiki targets and Always On (2026-09-21)
+
+Deploy the staged multi-target Azure DevOps Wiki changes to the existing App Services and restore
+Always On across every Web App in the target resource group.
+
+- Subscription: `MOHOSSA-M365CPI50986977`
+  (`5e22addc-6168-4683-afd0-789a121ca5d3`)
+- Resource group: `az-radar-vnet-rg`
+- Location: Central US (`centralus`)
+- Recipe: Azure CLI App Service container image update
+- No new Azure resources, SKU changes, quota consumption, identity changes, RBAC changes, or
+  networking changes
+- Quota validation: not applicable because this release updates existing container image
+  references and `siteConfig.alwaysOn` only
+
+Affected application images use the opposite blue-green tag:
+
+| App Service | Current image | Deploy image | Reason |
+|---|---|---|---|
+| `azr-api-x8c5i2` | `moimhossain/az-radar-api:green` | `moimhossain/az-radar-api:blue` | API and UI support multiple wiki targets |
+| `azr-job-x8c5i2` | `moimhossain/az-radar-jobhost:blue` | `moimhossain/az-radar-jobhost:green` | Service Health ingestion fans out to every registered wiki target |
+| `az-radar-dispatch-ay637nckh3ebc` | `moimhossain/az-radar-dispatch-worker:green` | `moimhossain/az-radar-dispatch-worker:blue` | Wiki delivery and reconciliation process multiple targets |
+
+`az-radar-bot-ay637nckh3ebc` has no application-code change and retains its current image. All four
+Web Apps currently report `alwaysOn: false`; set each to `true`.
+
+Rollback:
+
+- Restore each affected App Service to its previous blue-green tag.
+- Always On is an operational liveness correction and remains enabled during rollback.
+
+Planned validation:
+
+- [x] All validation checks pass
+  - [x] Core validation: Azure CLI authentication and application build; ARM validate/what-if are
+        not applicable because this release changes only existing App Service image references and
+        `siteConfig.alwaysOn`.
+  - [x] Docker build for API/UI, JobHost, and dispatch worker.
+  - [x] Azure Policy validation.
+  - [x] Static managed-identity role verification.
+- [x] Solution build succeeds.
+- [x] Frontend TypeScript check succeeds.
+- [x] Shared and dispatching tests pass (112 total).
+- [x] Current subscription, resource group, app inventory, image tags, and Always On values
+      discovered.
+- [x] User confirms the supplied subscription, existing Central US location, and deployment plan.
+- [x] Build and push API blue, JobHost green, and dispatch worker blue images.
+- [x] Update and restart the three affected App Services.
+- [x] Enable Always On on all four Web Apps.
+- [x] Verify image tags, Always On, app states, API health/UI, and wiki target API availability.
+
+### Deployment result
+
+- Docker Hub API blue digest:
+  `sha256:afb546f2f8e37c0e7c7a367e829cf4c0949a5b324d4375b4f1355551c9f6a56a`.
+- Docker Hub JobHost green digest:
+  `sha256:6632acce0a696a4137bd9fef4df0af82d40cb9d908a7d66584a08b4d38f6e872`.
+- Docker Hub dispatch worker blue digest:
+  `sha256:5b409d4c88eb1062d85bc5c0ee25b691316ac4be8d5c598336c055465ee29a04`.
+- `azr-api-x8c5i2` is running `moimhossain/az-radar-api:blue` with Always On enabled.
+- `azr-job-x8c5i2` is running `moimhossain/az-radar-jobhost:green` with Always On enabled.
+- `az-radar-dispatch-ay637nckh3ebc` is running
+  `moimhossain/az-radar-dispatch-worker:blue` with Always On enabled.
+- `az-radar-bot-ay637nckh3ebc` retained
+  `moimhossain/az-radar-bot-gateway:green` and now has Always On enabled.
+- `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`.
+- The deployed UI bundle `index-Biy1o_GF.js` contains the multi-wiki target experience.
+- `/api/service-health/channels` returned HTTP 200 with the existing Azure DevOps Wiki target still
+  registered.
+
+### Live role verification
+
+- API/JobHost UAMI retains Cognitive Services OpenAI User, Event Hubs Data Sender/Receiver, Key
+  Vault Secrets Officer, and Cosmos DB Built-in Data Contributor.
+- Service Health provisioning UAMI retains its diagnostic-setting and Event Hub provisioning
+  roles.
+- Dispatch worker UAMI retains Service Bus Data Sender/Receiver, Key Vault Secrets User, and Cosmos
+  DB Built-in Data Contributor.
+- No deployment-time RBAC changes or missing required data-plane assignments were detected.
+
 ## Current release: Service and region scoped watchlist (2026-09-11)
 
 Issue #7 adds optional Azure regions to Service Watchlist entries and filters Azure Updates and
@@ -36,6 +116,31 @@ Planned validation:
 - [x] Verify `/api/azure-regions`, scoped watchlist persistence, UI availability, and JobHost health
 
 ## 7. Validation Proof
+
+- 2026-09-21: `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` succeeded
+  with 0 warnings and 0 errors.
+- 2026-09-21: `npx tsc --noEmit -p src\az-radar-ui\tsconfig.json` succeeded.
+- 2026-09-21: Shared and dispatching tests passed 112/112.
+- 2026-09-21: Azure CLI authenticated as `admin@M365CPI50986977.onmicrosoft.com` against
+  `MOHOSSA-M365CPI50986977`; the user confirmed subscription
+  `5e22addc-6168-4683-afd0-789a121ca5d3`, resource group `az-radar-vnet-rg`, and existing
+  Central US location.
+- 2026-09-21: the standard multi-stage Docker build was blocked by the organization's direct
+  NuGet.org restriction (`NU1301`). Locally restored Release publishes and the previously validated
+  runtime-only `src\Dispatching\Dockerfile.prepublished` path produced:
+  - API blue: `sha256:77f441dce78c3809af92d2510030ce9c831fa6d2636732d65f6c7cec970372e9`
+  - JobHost green: `sha256:fd80234ef02cc4407adaae73d791f53c5309caa493ae1d979e4051a79bfbfd21`
+  - Dispatch worker blue:
+    `sha256:20462e0851c34a3887bab5989a2c879bc0a5df91f6c0fd639826c64b8d358f5e`
+- 2026-09-21: `npm --prefix src\az-radar-ui run build` succeeded; the existing bundle-size
+  advisory is non-blocking.
+- 2026-09-21: `az policy assignment list` found only existing Defender assignments; none constrain
+  App Service image references or Always On.
+- 2026-09-21: static Bicep review confirmed least-privilege Cosmos DB data contributor, Service Bus
+  data sender/receiver, Key Vault Secrets Officer for the API, and Key Vault Secrets User for the
+  dispatch worker. No RBAC changes are included in this release.
+- 2026-09-21: Azure MCP is authenticated to a different tenant identity and returned 403 for this
+  subscription; the correctly authenticated Azure CLI context was used for live validation.
 
 - 2026-09-11: full solution build succeeded with 0 warnings and 0 errors.
 - 2026-09-11: focused test suite passed 35/35.

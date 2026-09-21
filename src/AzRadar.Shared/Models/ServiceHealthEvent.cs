@@ -89,6 +89,9 @@ public class ServiceHealthDeliveryIntent
     [JsonPropertyName("channelId")]
     public string ChannelId { get; set; } = string.Empty;
 
+    [JsonPropertyName("targetType")]
+    public string TargetType { get; set; } = ServiceHealthChannelTypes.TeamsBot;
+
     [JsonPropertyName("channelDisplayName")]
     public string ChannelDisplayName { get; set; } = string.Empty;
 
@@ -124,6 +127,12 @@ public class ServiceHealthDeliveryIntent
 
     [JsonPropertyName("teamsActivityId")]
     public string? TeamsActivityId { get; set; }
+
+    [JsonPropertyName("externalDeliveryId")]
+    public string? ExternalDeliveryId { get; set; }
+
+    [JsonPropertyName("renderedContentHash")]
+    public string? RenderedContentHash { get; set; }
 }
 
 public static class ServiceHealthDeliveryIntentStatuses

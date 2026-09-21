@@ -67,6 +67,9 @@ param openAiEndpoint string = ''
 @description('Azure OpenAI deployment (model) name the app calls.')
 param openAiDeploymentName string = 'gpt-4o'
 
+@description('Optional Key Vault URI used for Azure DevOps Wiki PAT storage.')
+param azureDevOpsWikiKeyVaultUri string = ''
+
 @description('Globally-unique name for the VNet-protected Azure OpenAI account (only when deployOpenAi is true).')
 param openAiAccountName string = '${namePrefix}-openai-${uniqueString(resourceGroup().id)}'
 
@@ -243,6 +246,8 @@ var commonCosmosSettings = [
   { name: 'ServiceHealthEventHub__ManagedIdentityClientId', value: managedIdentityClientId }
   { name: 'ServiceHealthEventHub__EnableIngress', value: 'true' }
   { name: 'ServiceHealthEventHub__EnableTestPublisher', value: 'false' }
+  { name: 'AzureDevOpsWiki__KeyVaultUri', value: azureDevOpsWikiKeyVaultUri }
+  { name: 'AzureDevOpsWiki__ManagedIdentityClientId', value: managedIdentityClientId }
   { name: 'WEBSITES_PORT', value: '8080' }
   { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
   { name: 'WEBSITE_HTTPLOGGING_RETENTION_DAYS', value: '3' }

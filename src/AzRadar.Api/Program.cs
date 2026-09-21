@@ -3,6 +3,7 @@ using AzRadar.Shared;
 using AzRadar.Shared.Configuration;
 using AzRadar.Shared.Interfaces;
 using AzRadar.Shared.Models;
+using AzRadar.Shared.Services;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 
@@ -16,6 +17,8 @@ builder.Services.Configure<ServiceHealthProvisioningSettings>(
     builder.Configuration.GetSection(ServiceHealthProvisioningSettings.SectionName));
 builder.Services.Configure<ServiceHealthEventHubSettings>(
     builder.Configuration.GetSection(ServiceHealthEventHubSettings.SectionName));
+builder.Services.Configure<AzureDevOpsWikiSettings>(
+    builder.Configuration.GetSection(AzureDevOpsWikiSettings.SectionName));
 
 // Register shared services
 builder.Services.AddAzRadarSharedServices();
@@ -474,11 +477,11 @@ app.MapDelete("/api/service-health/subscriptions/{id}", async (
     return deleted ? Results.NoContent() : Results.NotFound();
 });
 
-// --- Service Health platform Teams channels ---
+// --- Service Health dispatching targets ---
 app.MapGet("/api/service-health/channels", async (ICosmosDbService db) =>
 {
     var channels = await db.GetServiceHealthChannelsAsync();
-    return Results.Ok(channels);
+    return Results.Ok(channels.Select(ToServiceHealthChannelResponse));
 });
 
 app.MapPut("/api/service-health/channels/{id}", async (
@@ -502,6 +505,261 @@ app.MapPut("/api/service-health/channels/{id}", async (
     channel.UpdatedAt = DateTimeOffset.UtcNow;
     var saved = await db.UpsertServiceHealthChannelAsync(channel);
     return Results.Ok(saved);
+});
+
+app.MapPost("/api/service-health/wiki-targets", async (
+    CreateAzureDevOpsWikiTargetRequest request,
+    ICosmosDbService db,
+    IAzureDevOpsWikiService wikiService) =>
+{
+    if (string.IsNullOrWhiteSpace(request.DisplayName))
+        return Results.BadRequest(new { error = "Display name is required." });
+    if (!AzureDevOpsAuthenticationTypes.Supported.Contains(request.AuthenticationType))
+        return Results.BadRequest(new { error = "Authentication type must be 'pat' or 'managed-identity'." });
+    if (!AzureDevOpsWikiUriParser.TryParse(request.WikiUri, out var address, out var uriError))
+        return Results.BadRequest(new { error = uriError });
+    if (request.AuthenticationType == AzureDevOpsAuthenticationTypes.PersonalAccessToken &&
+        string.IsNullOrWhiteSpace(request.PersonalAccessToken))
+    {
+        return Results.BadRequest(new { error = "Personal Access Token is required." });
+    }
+    if (request.AuthenticationType == AzureDevOpsAuthenticationTypes.ManagedIdentity &&
+        !Guid.TryParse(request.ManagedIdentityClientId, out _))
+    {
+        return Results.BadRequest(new { error = "Managed identity client ID must be a valid GUID." });
+    }
+
+    var existingTargets = (await db.GetServiceHealthChannelsAsync())
+        .Where(channel => channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki)
+        .ToList();
+    if (existingTargets.Any(channel =>
+            string.Equals(channel.WikiUri, address!.BrowserUri, StringComparison.OrdinalIgnoreCase)))
+    {
+        return Results.Conflict(new { error = "This Azure DevOps Wiki page is already registered." });
+    }
+
+    var target = new ServiceHealthNotificationChannel
+    {
+        Id = Guid.NewGuid().ToString(),
+        Type = ServiceHealthChannelTypes.AzureDevOpsWiki,
+        DisplayName = request.DisplayName.Trim(),
+        WikiUri = address!.BrowserUri,
+        AzureDevOpsOrganization = address.Organization,
+        AzureDevOpsProject = address.Project,
+        AzureDevOpsWikiIdentifier = address.WikiIdentifier,
+        AzureDevOpsPageId = address.PageId,
+        AzureDevOpsPagePath = address.PagePath,
+        AuthenticationType = request.AuthenticationType,
+        ManagedIdentityClientId = request.ManagedIdentityClientId?.Trim() ?? string.Empty,
+        CredentialExpiresAt = request.CredentialExpiresAt,
+        RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Pending,
+        SubscribedEventTypes = ServiceHealthEventTypes.Supported.OrderBy(value => value).ToList()
+    };
+
+    if (target.AuthenticationType == AzureDevOpsAuthenticationTypes.PersonalAccessToken)
+    {
+        target.CredentialSecretName = GetWikiSecretName(target.Id);
+        try
+        {
+            await wikiService.StorePatAsync(
+                target.CredentialSecretName,
+                request.PersonalAccessToken!,
+                CancellationToken.None);
+        }
+        catch (Azure.RequestFailedException ex)
+        {
+            return Results.Json(
+                new { error = $"Key Vault operation failed with status {ex.Status}." },
+                statusCode: 503);
+        }
+        catch (Azure.Identity.AuthenticationFailedException)
+        {
+            return Results.Json(
+                new { error = "CloudLens could not authenticate to the Azure DevOps Wiki Key Vault." },
+                statusCode: 503);
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(
+                new { error = $"Key Vault secret storage failed: {ex.Message}" },
+                statusCode: 503);
+        }
+    }
+
+    try
+    {
+        target.LastAttemptedAt = DateTimeOffset.UtcNow;
+        var snapshot = await wikiService.GetPageAsync(target);
+        target.AzureDevOpsPagePath = snapshot.PagePath;
+        target.LastExternalVersion = snapshot.ETag;
+        target.LastRegisteredAt = DateTimeOffset.UtcNow;
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        await QueueWikiRefreshAsync(saved, db, "TargetRegistered");
+        return Results.Created(
+            $"/api/service-health/wiki-targets/{saved.Id}",
+            ToServiceHealthChannelResponse(saved));
+    }
+    catch (AzureDevOpsWikiException ex)
+    {
+        target.LastErrorCode = ex.Code;
+        target.LastErrorMessage = ex.Message;
+        target.RegistrationStatus = ex.Code is "authentication-failed" or "permission-required" or
+            "identity-authentication-failed"
+            ? ServiceHealthChannelRegistrationStatuses.PermissionRequired
+            : ServiceHealthChannelRegistrationStatuses.Degraded;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        return Results.Json(
+            new { error = ex.Message, target = ToServiceHealthChannelResponse(saved) },
+            statusCode: 422);
+    }
+    catch (Azure.RequestFailedException ex)
+    {
+        return Results.Json(
+            new { error = $"Key Vault operation failed with status {ex.Status}." },
+            statusCode: 503);
+    }
+    catch (Exception ex)
+    {
+        target.LastErrorCode = ex.GetType().Name;
+        target.LastErrorMessage = ex.Message;
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Degraded;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        return Results.Json(
+            new { error = ex.Message, target = ToServiceHealthChannelResponse(saved) },
+            statusCode: 502);
+    }
+});
+
+app.MapPut("/api/service-health/wiki-targets/{id}/credential", async (
+    string id,
+    UpdateAzureDevOpsWikiCredentialRequest request,
+    ICosmosDbService db,
+    IAzureDevOpsWikiService wikiService) =>
+{
+    var target = (await db.GetServiceHealthChannelsAsync())
+        .FirstOrDefault(channel =>
+            channel.Id == id &&
+            channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki);
+    if (target == null) return Results.NotFound();
+    if (!AzureDevOpsAuthenticationTypes.Supported.Contains(request.AuthenticationType))
+        return Results.BadRequest(new { error = "Authentication type must be 'pat' or 'managed-identity'." });
+
+    if (request.AuthenticationType == AzureDevOpsAuthenticationTypes.PersonalAccessToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.PersonalAccessToken))
+            return Results.BadRequest(new { error = "Personal Access Token is required." });
+        target.CredentialSecretName = GetWikiSecretName(target.Id);
+        await wikiService.StorePatAsync(target.CredentialSecretName, request.PersonalAccessToken);
+        target.ManagedIdentityClientId = string.Empty;
+    }
+    else
+    {
+        if (!Guid.TryParse(request.ManagedIdentityClientId, out _))
+            return Results.BadRequest(new { error = "Managed identity client ID must be a valid GUID." });
+        target.ManagedIdentityClientId = request.ManagedIdentityClientId!.Trim();
+        target.CredentialSecretName = string.Empty;
+    }
+
+    target.AuthenticationType = request.AuthenticationType;
+    target.CredentialExpiresAt = request.CredentialExpiresAt;
+    target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Pending;
+    target.LastErrorCode = null;
+    target.LastErrorMessage = null;
+
+    try
+    {
+        var snapshot = await wikiService.GetPageAsync(target);
+        target.AzureDevOpsPagePath = snapshot.PagePath;
+        target.LastExternalVersion = snapshot.ETag;
+        target.LastAttemptedAt = DateTimeOffset.UtcNow;
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        await QueueWikiRefreshAsync(saved, db, "CredentialUpdated");
+        return Results.Ok(ToServiceHealthChannelResponse(saved));
+    }
+    catch (AzureDevOpsWikiException ex)
+    {
+        target.LastAttemptedAt = DateTimeOffset.UtcNow;
+        target.LastErrorCode = ex.Code;
+        target.LastErrorMessage = ex.Message;
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.PermissionRequired;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        return Results.Json(
+            new { error = ex.Message, target = ToServiceHealthChannelResponse(saved) },
+            statusCode: 422);
+    }
+});
+
+app.MapPost("/api/service-health/wiki-targets/{id}/test", async (
+    string id,
+    ICosmosDbService db,
+    IAzureDevOpsWikiService wikiService) =>
+{
+    var target = (await db.GetServiceHealthChannelsAsync())
+        .FirstOrDefault(channel =>
+            channel.Id == id &&
+            channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki);
+    if (target == null) return Results.NotFound();
+
+    try
+    {
+        var snapshot = await wikiService.GetPageAsync(target);
+        target.AzureDevOpsPagePath = snapshot.PagePath;
+        target.LastAttemptedAt = DateTimeOffset.UtcNow;
+        target.LastExternalVersion = snapshot.ETag;
+        target.LastErrorCode = null;
+        target.LastErrorMessage = null;
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        return Results.Ok(ToServiceHealthChannelResponse(saved));
+    }
+    catch (AzureDevOpsWikiException ex)
+    {
+        target.LastAttemptedAt = DateTimeOffset.UtcNow;
+        target.LastErrorCode = ex.Code;
+        target.LastErrorMessage = ex.Message;
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.PermissionRequired;
+        var saved = await db.UpsertServiceHealthChannelAsync(target);
+        return Results.Json(
+            new { error = ex.Message, target = ToServiceHealthChannelResponse(saved) },
+            statusCode: 422);
+    }
+});
+
+app.MapPost("/api/service-health/wiki-targets/{id}/publish", async (
+    string id,
+    ICosmosDbService db) =>
+{
+    var target = (await db.GetServiceHealthChannelsAsync())
+        .FirstOrDefault(channel =>
+            channel.Id == id &&
+            channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki);
+    if (target == null) return Results.NotFound();
+    if (target.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.Disabled)
+        return Results.BadRequest(new { error = "The Azure DevOps Wiki target is disabled." });
+
+    var intent = await QueueWikiRefreshAsync(target, db, "ManualPublish");
+    return Results.Accepted(
+        "/api/service-health/delivery-intents",
+        intent);
+});
+
+app.MapDelete("/api/service-health/wiki-targets/{id}", async (
+    string id,
+    ICosmosDbService db,
+    IAzureDevOpsWikiService wikiService) =>
+{
+    var target = (await db.GetServiceHealthChannelsAsync())
+        .FirstOrDefault(channel =>
+            channel.Id == id &&
+            channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki);
+    if (target == null) return Results.NotFound();
+
+    if (!string.IsNullOrWhiteSpace(target.CredentialSecretName))
+        await wikiService.DeletePatAsync(target.CredentialSecretName);
+    var deleted = await db.DeleteServiceHealthChannelAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound();
 });
 
 app.MapDelete("/api/service-health/channels/{id}", async (string id, ICosmosDbService db) =>
@@ -733,6 +991,18 @@ public record RegisterServiceHealthSubscriptionRequest(string SubscriptionId);
 public record UpsertServiceHealthChannelRequest(
     string DisplayName,
     List<string> SubscribedEventTypes);
+public record CreateAzureDevOpsWikiTargetRequest(
+    string DisplayName,
+    string WikiUri,
+    string AuthenticationType,
+    string? PersonalAccessToken = null,
+    string? ManagedIdentityClientId = null,
+    DateTimeOffset? CredentialExpiresAt = null);
+public record UpdateAzureDevOpsWikiCredentialRequest(
+    string AuthenticationType,
+    string? PersonalAccessToken = null,
+    string? ManagedIdentityClientId = null,
+    DateTimeOffset? CredentialExpiresAt = null);
 public record PublishServiceHealthTestEventRequest(
     string SubscriptionId,
     string EventType = ServiceHealthEventTypes.ServiceIssue);
@@ -784,4 +1054,64 @@ public partial class Program
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(type => type)
             .ToList();
+
+    private static object ToServiceHealthChannelResponse(ServiceHealthNotificationChannel channel) => new
+    {
+        channel.Id,
+        channel.DisplayName,
+        channel.Type,
+        channel.TenantId,
+        channel.TeamId,
+        channel.TeamName,
+        channel.ChannelId,
+        channel.ChannelName,
+        channel.ConversationReferenceId,
+        channel.WikiUri,
+        channel.AzureDevOpsOrganization,
+        channel.AzureDevOpsProject,
+        channel.AzureDevOpsWikiIdentifier,
+        channel.AzureDevOpsPagePath,
+        channel.AzureDevOpsPageId,
+        channel.AuthenticationType,
+        hasCredential = !string.IsNullOrWhiteSpace(channel.CredentialSecretName) ||
+            !string.IsNullOrWhiteSpace(channel.ManagedIdentityClientId),
+        channel.ManagedIdentityClientId,
+        channel.CredentialExpiresAt,
+        channel.RegistrationStatus,
+        channel.SubscribedEventTypes,
+        channel.CreatedAt,
+        channel.UpdatedAt,
+        channel.LastRegisteredAt,
+        channel.LastAttemptedAt,
+        channel.LastSucceededAt,
+        channel.LastRenderedContentHash,
+        channel.LastExternalVersion,
+        channel.LastErrorCode,
+        channel.LastErrorMessage
+    };
+
+    private static string GetWikiSecretName(string targetId) =>
+        $"service-health-wiki-{targetId.Replace("-", string.Empty, StringComparison.Ordinal)}";
+
+    private static async Task<ServiceHealthDeliveryIntent> QueueWikiRefreshAsync(
+        ServiceHealthNotificationChannel target,
+        ICosmosDbService db,
+        string reason)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var intent = new ServiceHealthDeliveryIntent
+        {
+            Id = ServiceHealthEventNormalizer.ComputeHash(
+                $"{target.Id}|{reason}|{now:O}|{Guid.NewGuid()}"),
+            EventId = target.Id,
+            ChannelId = target.Id,
+            ChannelDisplayName = target.DisplayName,
+            TargetType = ServiceHealthChannelTypes.AzureDevOpsWiki,
+            EventType = reason,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        await db.TryCreateServiceHealthDeliveryIntentAsync(intent);
+        return intent;
+    }
 }

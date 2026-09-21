@@ -244,15 +244,37 @@ export interface ServiceHealthSubscription {
 export interface ServiceHealthChannel {
   id: string;
   displayName: string;
-  type: "teams-bot";
+  type: "teams-bot" | "azure-devops-wiki";
   tenantId: string;
   teamId: string;
   teamName: string;
   channelId: string;
   channelName: string;
   conversationReferenceId: string;
-  registrationStatus: "pending" | "registered" | "uninstalled";
+  wikiUri: string;
+  azureDevOpsOrganization: string;
+  azureDevOpsProject: string;
+  azureDevOpsWikiIdentifier: string;
+  azureDevOpsPagePath: string;
+  azureDevOpsPageId?: number;
+  authenticationType: "pat" | "managed-identity" | "";
+  hasCredential: boolean;
+  managedIdentityClientId: string;
+  credentialExpiresAt?: string;
+  registrationStatus:
+    | "pending"
+    | "registered"
+    | "uninstalled"
+    | "degraded"
+    | "disabled"
+    | "permission-required";
   lastRegisteredAt?: string;
+  lastAttemptedAt?: string;
+  lastSucceededAt?: string;
+  lastRenderedContentHash: string;
+  lastExternalVersion: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
   subscribedEventTypes: ServiceHealthEventType[];
   createdAt: string;
   updatedAt: string;
@@ -283,7 +305,8 @@ export interface ServiceHealthDeliveryIntent {
   eventId: string;
   channelId: string;
   channelDisplayName: string;
-  eventType: ServiceHealthEventType;
+  targetType: "teams-bot" | "azure-devops-wiki";
+  eventType: string;
   status: string;
   createdAt: string;
   attemptCount: number;
@@ -432,6 +455,34 @@ export const api = {
         displayName: channel.displayName,
         subscribedEventTypes: channel.subscribedEventTypes,
       }),
+    }),
+
+  createServiceHealthWikiTarget: (request: {
+    displayName: string;
+    wikiUri: string;
+    authenticationType: "pat" | "managed-identity";
+    personalAccessToken?: string;
+    managedIdentityClientId?: string;
+    credentialExpiresAt?: string;
+  }) =>
+    apiFetch<ServiceHealthChannel>("/api/service-health/wiki-targets", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
+
+  testServiceHealthWikiTarget: (id: string) =>
+    apiFetch<ServiceHealthChannel>(`/api/service-health/wiki-targets/${id}/test`, {
+      method: "POST",
+    }),
+
+  publishServiceHealthWikiTarget: (id: string) =>
+    apiFetch<ServiceHealthDeliveryIntent>(`/api/service-health/wiki-targets/${id}/publish`, {
+      method: "POST",
+    }),
+
+  deleteServiceHealthWikiTarget: (id: string) =>
+    fetch(`${API_BASE}/api/service-health/wiki-targets/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
     }),
 
   publishServiceHealthTestEvent: (

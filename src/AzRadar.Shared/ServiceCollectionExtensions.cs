@@ -39,6 +39,10 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ServiceHealthSubscriptionProvisioner>>()));
         services.AddSingleton<IServiceHealthEventProcessor, ServiceHealthEventProcessor>();
         services.AddSingleton<IServiceHealthTestEventPublisher, ServiceHealthTestEventPublisher>();
+        services.AddSingleton<IAzureDevOpsWikiService>(sp =>
+            new AzureDevOpsWikiService(
+                new HttpClient(),
+                sp.GetRequiredService<IOptions<AzureDevOpsWikiSettings>>()));
 
         // Azure OpenAI via Managed Identity (UAMI)
         services.AddSingleton(sp =>

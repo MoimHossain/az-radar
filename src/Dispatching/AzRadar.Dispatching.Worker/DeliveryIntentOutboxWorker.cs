@@ -40,11 +40,27 @@ public sealed class DeliveryIntentOutboxWorker : BackgroundService
                     stoppingToken);
                 foreach (var intent in intents)
                 {
-                    var envelope = new TeamsDeliveryEnvelope
+                    var target = await _repository.GetChannelAsync(intent.ChannelId, stoppingToken);
+                    if (target == null)
+                    {
+                        await _repository.MarkFailedAsync(
+                            intent.Id,
+                            true,
+                            "TargetNotFound",
+                            $"Dispatch target '{intent.ChannelId}' was not found.",
+                            stoppingToken);
+                        continue;
+                    }
+
+                    var targetType = string.IsNullOrWhiteSpace(intent.TargetType)
+                        ? target.Type
+                        : intent.TargetType;
+                    var envelope = new ServiceHealthDeliveryEnvelope
                     {
                         DeliveryIntentId = intent.Id,
                         EventId = intent.EventId,
                         ChannelId = intent.ChannelId,
+                        TargetType = targetType,
                         EventType = intent.EventType,
                         CreatedAt = intent.CreatedAt
                     };
@@ -55,7 +71,7 @@ public sealed class DeliveryIntentOutboxWorker : BackgroundService
                         Subject = intent.EventType,
                         ContentType = "application/json"
                     };
-                    message.ApplicationProperties["destinationType"] = "teams";
+                    message.ApplicationProperties["destinationType"] = targetType;
 
                     // Publish before changing Cosmos state. If the state update fails,
                     // Service Bus duplicate detection suppresses the stable MessageId.

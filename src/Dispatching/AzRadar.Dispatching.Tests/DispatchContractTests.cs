@@ -16,7 +16,7 @@ public sealed class DispatchContractTests
             EventType = ServiceHealthEventTypes.ServiceIssue
         };
 
-        var envelope = new TeamsDeliveryEnvelope
+        var envelope = new ServiceHealthDeliveryEnvelope
         {
             DeliveryIntentId = intent.Id,
             EventId = intent.EventId,

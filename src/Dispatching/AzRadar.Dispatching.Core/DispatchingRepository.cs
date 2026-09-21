@@ -55,6 +55,23 @@ public sealed class DispatchingRepository
         CancellationToken cancellationToken) =>
         await ReadAsync<ServiceHealthEvent>(_events, id, cancellationToken);
 
+    public async Task<IReadOnlyList<ServiceHealthEvent>> GetEventsAsync(
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var query = _events.GetItemQueryIterator<ServiceHealthEvent>(
+            new QueryDefinition("SELECT TOP @limit * FROM c ORDER BY c.receivedAt DESC")
+                .WithParameter("@limit", Math.Clamp(limit, 1, 1000)));
+        var results = new List<ServiceHealthEvent>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+
+        return results;
+    }
+
     public async Task<ServiceHealthNotificationChannel?> GetChannelAsync(
         string id,
         CancellationToken cancellationToken) =>
@@ -117,6 +134,27 @@ public sealed class DispatchingRepository
             [
                 PatchOperation.Set("/status", ServiceHealthDeliveryIntentStatuses.Delivered),
                 PatchOperation.Set("/teamsActivityId", activityId),
+                PatchOperation.Set("/deliveredAt", DateTimeOffset.UtcNow),
+                PatchOperation.Set<string?>("/lastErrorCode", null),
+                PatchOperation.Set<string?>("/lastErrorMessage", null),
+                PatchOperation.Set("/updatedAt", DateTimeOffset.UtcNow)
+            ],
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task MarkWikiDeliveredAsync(
+        string id,
+        string externalVersion,
+        string renderedContentHash,
+        CancellationToken cancellationToken)
+    {
+        await _deliveryIntents.PatchItemAsync<ServiceHealthDeliveryIntent>(
+            id,
+            new PartitionKey(id),
+            [
+                PatchOperation.Set("/status", ServiceHealthDeliveryIntentStatuses.Delivered),
+                PatchOperation.Set("/externalDeliveryId", externalVersion),
+                PatchOperation.Set("/renderedContentHash", renderedContentHash),
                 PatchOperation.Set("/deliveredAt", DateTimeOffset.UtcNow),
                 PatchOperation.Set<string?>("/lastErrorCode", null),
                 PatchOperation.Set<string?>("/lastErrorMessage", null),
@@ -242,6 +280,96 @@ public sealed class DispatchingRepository
             attempt,
             new PartitionKey(attempt.Id),
             cancellationToken: cancellationToken);
+    }
+
+    public async Task StoreAttemptAsync(
+        WikiDeliveryAttempt attempt,
+        CancellationToken cancellationToken)
+    {
+        await _deliveryAttempts.CreateItemAsync(
+            attempt,
+            new PartitionKey(attempt.Id),
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ServiceHealthNotificationChannel>> GetWikiTargetsAsync(
+        CancellationToken cancellationToken)
+    {
+        var query = _channels.GetItemQueryIterator<ServiceHealthNotificationChannel>(
+            new QueryDefinition("SELECT * FROM c WHERE c.type = @type ORDER BY c.createdAt")
+                .WithParameter("@type", ServiceHealthChannelTypes.AzureDevOpsWiki));
+        var results = new List<ServiceHealthNotificationChannel>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+
+        return results;
+    }
+
+    public async Task UpdateWikiTargetSuccessAsync(
+        string id,
+        string pagePath,
+        string externalVersion,
+        string renderedContentHash,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await _channels.PatchItemAsync<ServiceHealthNotificationChannel>(
+            id,
+            new PartitionKey(id),
+            [
+                PatchOperation.Set("/registrationStatus", ServiceHealthChannelRegistrationStatuses.Registered),
+                PatchOperation.Set("/lastAttemptedAt", now),
+                PatchOperation.Set("/lastSucceededAt", now),
+                PatchOperation.Set("/azureDevOpsPagePath", pagePath),
+                PatchOperation.Set("/lastExternalVersion", externalVersion),
+                PatchOperation.Set("/lastRenderedContentHash", renderedContentHash),
+                PatchOperation.Set<string?>("/lastErrorCode", null),
+                PatchOperation.Set<string?>("/lastErrorMessage", null),
+                PatchOperation.Set("/updatedAt", now)
+            ],
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task UpdateWikiTargetFailureAsync(
+        string id,
+        string status,
+        string errorCode,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await _channels.PatchItemAsync<ServiceHealthNotificationChannel>(
+            id,
+            new PartitionKey(id),
+            [
+                PatchOperation.Set("/registrationStatus", status),
+                PatchOperation.Set("/lastAttemptedAt", now),
+                PatchOperation.Set("/lastErrorCode", errorCode),
+                PatchOperation.Set("/lastErrorMessage", Truncate(errorMessage, 2048)),
+                PatchOperation.Set("/updatedAt", now)
+            ],
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task<bool> TryCreateWikiRefreshIntentAsync(
+        ServiceHealthDeliveryIntent intent,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _deliveryIntents.CreateItemAsync(
+                intent,
+                new PartitionKey(intent.Id),
+                cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            return false;
+        }
     }
 
     private async Task<ServiceHealthNotificationChannel?> FindChannelAsync(

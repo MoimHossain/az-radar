@@ -21,6 +21,7 @@ public sealed class DispatchingServiceBusSettings
     public string FullyQualifiedNamespace { get; set; } = string.Empty;
     public string TopicName { get; set; } = "service-health-delivery";
     public string TeamsSubscriptionName { get; set; } = "teams-realtime";
+    public string WikiSubscriptionName { get; set; } = "azure-devops-wiki";
     public string ManagedIdentityClientId { get; set; } = string.Empty;
     public int OutboxBatchSize { get; set; } = 50;
     public int OutboxPollSeconds { get; set; } = 5;

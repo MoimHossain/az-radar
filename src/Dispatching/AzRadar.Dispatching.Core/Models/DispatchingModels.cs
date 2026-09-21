@@ -1,8 +1,9 @@
 using System.Text.Json.Serialization;
+using AzRadar.Shared.Models;
 
 namespace AzRadar.Dispatching.Core.Models;
 
-public sealed class TeamsDeliveryEnvelope
+public sealed class ServiceHealthDeliveryEnvelope
 {
     [JsonPropertyName("deliveryIntentId")]
     public string DeliveryIntentId { get; set; } = string.Empty;
@@ -12,6 +13,9 @@ public sealed class TeamsDeliveryEnvelope
 
     [JsonPropertyName("channelId")]
     public string ChannelId { get; set; } = string.Empty;
+
+    [JsonPropertyName("targetType")]
+    public string TargetType { get; set; } = ServiceHealthChannelTypes.TeamsBot;
 
     [JsonPropertyName("eventType")]
     public string EventType { get; set; } = string.Empty;
@@ -75,6 +79,42 @@ public sealed class TeamsDeliveryAttempt
 
     [JsonPropertyName("teamsActivityId")]
     public string? TeamsActivityId { get; set; }
+
+    [JsonPropertyName("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; set; }
+}
+
+public sealed class WikiDeliveryAttempt
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+
+    [JsonPropertyName("deliveryIntentId")]
+    public string DeliveryIntentId { get; set; } = string.Empty;
+
+    [JsonPropertyName("targetId")]
+    public string TargetId { get; set; } = string.Empty;
+
+    [JsonPropertyName("attemptNumber")]
+    public int AttemptNumber { get; set; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    [JsonPropertyName("succeeded")]
+    public bool Succeeded { get; set; }
+
+    [JsonPropertyName("externalVersion")]
+    public string? ExternalVersion { get; set; }
+
+    [JsonPropertyName("renderedContentHash")]
+    public string? RenderedContentHash { get; set; }
 
     [JsonPropertyName("errorCode")]
     public string? ErrorCode { get; set; }
