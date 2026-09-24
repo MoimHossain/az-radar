@@ -150,32 +150,51 @@ Edit `main.bicepparam`:
 | `openAiEndpoint` | Public Azure OpenAI endpoint (out of IaC scope) |
 | `openAiDeploymentName` | Model deployment name (e.g. `gpt-4o`) |
 | `azureDevOpsWikiKeyVaultUri` | Optional external vault override; normally leave empty so the deployment creates and wires its own private vault |
-| `apiImage` / `jobImage` | API and JobHost Docker Hub image tags (blue/green; no ACR) |
-| `botGatewayImage` / `dispatchWorkerImage` | Service Health dispatch Docker Hub image tags (blue/green; no ACR) |
+| `usePrivateContainerRegistry` | Use the private ACR images instead of bootstrap Docker Hub images |
+| `containerRegistryPublicNetworkAccess` | Keep `Disabled` except during the initial ACR Tasks image publication |
+| `apiImageTag` / `jobImageTag` | API and JobHost ACR blue/green tags |
+| `botGatewayImageTag` / `dispatchWorkerImageTag` | CloudLens bot and dispatch worker ACR blue/green tags |
+| `apiImage` / `jobImage` | Bootstrap Docker Hub images used only while ACR images are not selected |
+| `botGatewayImage` / `dispatchWorkerImage` | Bootstrap dispatch images used only while ACR images are not selected |
 | `deployTeamsDispatch` | Defaults to `false`; set to `true` to provision the Bot Gateway, Azure Bot, Teams channel/subscription, and Teams worker configuration |
 
 ## Deploy
 
 ```powershell
-./deploy.ps1 -ResourceGroup az-radar-rg -Location westeurope
+./deploy.ps1 -ResourceGroup az-radar-vnet-rg -Location centralus
 ```
 
 Or directly with the CLI:
 
 ```powershell
-az group create -n az-radar-rg -l westeurope
+az group create -n az-radar-vnet-rg -l centralus
 az deployment group create `
-  -g az-radar-rg `
+  -g az-radar-vnet-rg `
   -f infra/main.bicep `
   -p infra/main.bicepparam
 ```
+
+### Private ACR rollout
+
+The rollout script is intentionally staged so App Services are not pointed at
+images before those images exist. It deploys only the dedicated ACR template,
+not the full platform template, so unrelated live resources are not reconciled.
+
+```powershell
+./infra/deploy-private-acr.ps1
+```
+
+The script deploys `infra/acr-rollout.bicep`, grants the three runtime identities
+`AcrPull`, builds the four alternating blue/green tags, enables managed-identity
+pulls over VNet integration, and disables ACR public access. No registry
+password or access key is used.
 
 If a web app started before VNet integration / RBAC propagation completed,
 restart it once:
 
 ```powershell
-az webapp restart -g az-radar-rg -n az-radar-api
-az webapp restart -g az-radar-rg -n az-radar-jobhost
+az webapp restart -g az-radar-vnet-rg -n azr-api-x8c5i2
+az webapp restart -g az-radar-vnet-rg -n azr-job-x8c5i2
 ```
 
 The standard deployment is additive over an earlier AzRadar installation. If
@@ -202,7 +221,18 @@ containers are not provisioned.
 az cosmosdb show -g az-radar-rg -n <cosmosAccountName> --query publicNetworkAccess  # Disabled
 
 # Apps are VNet-integrated
-az webapp show -g az-radar-rg -n az-radar-api --query virtualNetworkSubnetId
+az webapp show -g az-radar-vnet-rg -n azr-api-x8c5i2 --query virtualNetworkSubnetId
+
+# ACR is private and keyless
+az acr show -g az-radar-vnet-rg -n <acrName> `
+  --query "{publicNetworkAccess:publicNetworkAccess,adminUserEnabled:adminUserEnabled,anonymousPullEnabled:anonymousPullEnabled}"
+
+# App Service pulls from ACR with managed identity over VNet integration
+az resource show `
+  -g az-radar-vnet-rg `
+  --resource-type Microsoft.Web/sites `
+  -n azr-api-x8c5i2 `
+  --query "{image:properties.siteConfig.linuxFxVersion,managedIdentityPull:properties.siteConfig.acrUseManagedIdentityCreds,vnetImagePull:properties.outboundVnetRouting.imagePullTraffic}"
 
 # Wiki PAT storage is private and RBAC-only
 az keyvault show -g az-radar-rg -n <azureDevOpsWikiKeyVaultName> `

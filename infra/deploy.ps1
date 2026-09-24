@@ -12,20 +12,20 @@
     Target resource group name.
 
 .PARAMETER Location
-    Azure region (default: westeurope).
+    Azure region (default: centralus).
 
 .PARAMETER ParameterFile
     Bicep parameter file (default: infra/main.bicepparam).
 
 .EXAMPLE
-    ./deploy.ps1 -ResourceGroup az-radar-rg -Location westeurope
+    ./deploy.ps1 -ResourceGroup az-radar-vnet-rg -Location centralus
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ResourceGroup,
 
-    [string]$Location = 'westeurope',
+    [string]$Location = 'centralus',
 
     [string]$ParameterFile = "$PSScriptRoot/main.bicepparam"
 )
@@ -42,6 +42,14 @@ az deployment group validate `
     --template-file $template `
     --parameters $ParameterFile `
     --output none
+
+Write-Host "==> Previewing changes" -ForegroundColor Cyan
+az deployment group what-if `
+    --resource-group $ResourceGroup `
+    --template-file $template `
+    --parameters $ParameterFile `
+    --no-pretty-print `
+    --output json | Out-Null
 
 $deploymentName = "az-radar-$(Get-Date -Format 'yyyyMMddHHmmss')"
 Write-Host "==> Deploying ($deploymentName)" -ForegroundColor Cyan

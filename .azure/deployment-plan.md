@@ -1,581 +1,20 @@
 # Azure Deployment Plan
 
-> **Status:** Validated
+> **Status:** Deployed
 
-Generated: 2026-09-08
-
-## Current release: Optional Teams dispatch infrastructure (2026-09-24)
-
-Make Teams channel dispatch an explicit opt-in for the primary customer deployment while preserving
-Azure DevOps Wiki dispatch as a complete, independently functional path.
-
-- Mode: modify existing Bicep infrastructure
-- Recipe: resource-group Bicep deployment through the existing Azure CLI workflow
-- Default behavior: `deployTeamsDispatch = false` on `infra\main.bicep`
-- Always provisioned for Wiki dispatch: Service Bus namespace/topic, Azure DevOps Wiki subscription,
-  dispatch worker identity/app/plan, Cosmos containers/RBAC, private Wiki Key Vault,
-  private endpoints/DNS, and Key Vault worker/API roles
-- Provisioned only when Teams is enabled: Bot Gateway identity/app/plan, Azure Bot resource,
-  Teams channel, Teams Service Bus subscription/filter, Bot Framework worker settings, and gateway
-  Cosmos RBAC
-- Compatibility: the lower-level `src\Dispatching\infra\main.bicep` keeps Teams enabled by default
-  for existing callers; the newly composed primary deployment explicitly passes its opt-in value
-- Upgrade safety: incremental deployments do not delete already existing Teams resources, but
-  existing Teams users must set `deployTeamsDispatch = true` so shared worker configuration
-  continues to include Teams delivery settings
-- Validation: compile/lint both templates and validate/what-if both `false` and `true` paths
-- Deployment: not requested
-- Approval: approved by the user on 2026-09-24
-- Status: implementation complete and ready for validation
-
-### Validation checklist
-
-- [x] All validation checks pass
-  - [x] Primary template with Teams disabled (default)
-  - [x] Primary template with Teams enabled (upgrade compatibility)
-  - [x] Lower-level dispatch template with its legacy Teams-enabled default
-  - [x] Wiki-only worker build and dispatching unit tests
-  - [x] Structured what-if confirms no resource deletion
-
-### Role assignment verification
-
-- Wiki-only mode retains the worker's Cosmos DB Built-in Data Contributor, Service Bus Data
-  Sender/Receiver, and Key Vault Secrets User assignments.
-- The API runtime retains Key Vault Secrets Officer for PAT creation and rotation.
-- Bot Gateway Cosmos RBAC is conditional with the Bot Gateway identity and is absent when Teams is
-  disabled.
-- No shared Wiki role assignment depends on the Teams opt-in flag.
-
-### Validation proof
-
-Validated on 2026-09-24 against subscription `5e22addc-6168-4683-afd0-789a121ca5d3`
-and resource group `az-radar-vnet-rg`.
-
-| Check | Result |
-|-------|--------|
-| Primary Bicep, `deployTeamsDispatch=false` | Build, lint, ARM validation, and what-if passed |
-| Primary Bicep, `deployTeamsDispatch=true` | Build, lint, ARM validation, and what-if passed |
-| Lower-level dispatch Bicep with legacy Teams-enabled default | Build, ARM validation, and what-if passed after adding the previously missing `apiPrincipalId` parameter |
-| Structured what-if, Teams disabled | `Create=1`, `Delete=0`, `Ignore=16`; existing Teams resources are retained by incremental deployment, while the sole apparent create is the already-existing module-output-based Key Vault role assignment |
-| Structured what-if, Teams enabled | `Create=1`, `Delete=0`; same unresolved existing Key Vault role assignment |
-| Structured what-if, direct dispatch template | `Create=1`, `Delete=0`; same unresolved existing Key Vault role assignment |
-| Compiled ARM inspection | Gateway identity/plan/app, Teams subscription/filter, Azure Bot, and Teams channel all carry the `deployTeamsDispatch` condition |
-| Dispatch worker runtime | `TeamsDispatch__Enabled=false` omits Teams agent and Teams delivery hosted-service registration; Wiki workers remain registered |
-| Dispatch tests | 10 passed |
-| Solution build | Passed with 0 warnings and 0 errors |
-| Frontend type-check | Passed |
-
-ARM validation found no deny-policy conflict in either mode. No Azure deployment was executed.
-
-## Current release: Self-contained Azure DevOps Wiki infrastructure upgrade (2026-09-24)
-
-Ensure the repository's primary Bicep deployment path provisions every resource required by Azure
-DevOps Wiki dispatch when upgrading an existing CloudLens environment.
-
-- Mode: modify existing Bicep infrastructure
-- Scope: Key Vault, private endpoint/DNS integration, managed-identity RBAC, app settings, and
-  dependency wiring required by Azure DevOps Wiki PAT storage
-- Security: RBAC-enabled Key Vault, no access policies, no embedded PATs or keys, private networking
-  consistent with the existing platform
-- Compatibility: additive deployment over an existing environment; no destructive resource changes
-- Validation: Bicep compile, repository tests/build where affected, resource-group ARM validation,
-  and what-if review against the existing deployment
-- Deployment: not requested; changes will be staged for the user to push and the customer to retry
-- Approval: approved by the user's instruction to implement and locally validate the Bicep fix
-- Status: primary deployment wiring implemented and validated
-
-### Design decision
-
-The documented customer deployment executes only `infra\main.bicep`, while the Wiki Key Vault and
-its least-privilege role assignments were owned by `src\Dispatching\infra\main.bicep`. The primary
-template now composes that existing dispatch template using deterministic resource names. This
-makes upgrades additive and idempotent: missing Service Bus, worker, Bot Gateway, private Wiki Key
-Vault, private DNS, private endpoint, and RBAC resources are created, while an already deployed
-dispatch stack is converged in place. The generated Key Vault URI is wired into the API and JobHost
-automatically; the existing URI parameter remains only as an optional external-vault override.
-
-### Validation checklist
-
-- [x] All validation checks pass
-  - [x] 1. Core Validation (Azure CLI authentication, Bicep build, ARM validation, and what-if)
-  - [x] 2. Bicep linting
-  - [x] 3. Azure Policy Validation
-
-### Role assignment verification
-
-- Status: Verified
-- Runtime identity: Cosmos DB Built-in Data Contributor; Event Hubs Data Receiver/Sender; Key Vault
-  Secrets Officer; Cognitive Services OpenAI User when the in-tenant account is enabled
-- Service Health provisioner: scoped custom role on the Event Hubs authorization rule
-- Dispatch worker: Cosmos DB Built-in Data Contributor; Azure Service Bus Data Sender/Receiver; Key
-  Vault Secrets User
-- Bot Gateway: Cosmos DB Built-in Data Contributor; its UAMI is also the Azure Bot identity
-- Scope: all data-plane roles are assigned at the specific Cosmos, Event Hubs, Service Bus, Key
-  Vault, or Azure OpenAI resource rather than subscription scope
-- Issues: none found
-
-### Validation proof
-
-Validated on 2026-09-24 against subscription `5e22addc-6168-4683-afd0-789a121ca5d3`
-and resource group `az-radar-vnet-rg`.
-
-| Check | Result |
-|-------|--------|
-| `az bicep build --file infra\main.bicep` | Passed |
-| `az bicep lint --file infra\main.bicep` | Passed with no Bicep diagnostics |
-| Azure validation workflow `validate-deployment.ps1` using a temporary live-aligned parameter file | `OVERALL: PASS`; CLI authenticated, template compiled, ARM resource-group validation passed, and what-if completed |
-| Structured `ResourceIdOnly` what-if | `Create=1`, `Delete=0`; the sole apparent create is the runtime identity's Key Vault Secrets Officer assignment, which already exists but cannot be resolved by what-if because its principal ID comes from a module output |
-| Live Key Vault RBAC verification | Runtime identity has Key Vault Secrets Officer; dispatch worker has Key Vault Secrets User |
-| Azure Policy validation | ARM validation found no deny-policy conflict. CLI compliance state reported only pre-existing audit findings for diagnostics and secret expiration; no planned resource was denied. The Azure Policy MCP query was also attempted but its separate credential lacked subscription Reader permission. |
-| `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` | Passed, 0 warnings and 0 errors |
-| `npx tsc --noEmit` in `src\az-radar-ui` | Passed |
-| `git diff --check` | Passed |
-
-The validation-only parameter file mirrored the existing generated app names, Event Hubs namespace,
-OpenAI deployment, and active blue/green image tags so the what-if compared the same resources
-rather than the generic sample names.
-
-## Current release: Region-scoped Azure DevOps Wiki dispatch (2026-09-23)
-
-Implement and deploy the approved region-scoped Service Health routing design to the existing
-private-network App Service environment.
-
-- Subscription: `MOHOSSA-M365CPI50986977`
-  (`5e22addc-6168-4683-afd0-789a121ca5d3`)
-- Resource group: `az-radar-vnet-rg`
-- Existing location: Central US (`centralus`)
-- Classification: existing production/pilot environment
-- Scale: multiple wiki targets with bounded region sets; existing App Service SKUs retained
-- Budget: no new resources or SKU changes
-- Recipe: Azure CLI App Service container image update
-- Quota validation: not applicable; this release creates no Azure resources and consumes no new
-  resource quota
-
-### Components and changes
-
-| Component | Existing Azure service | Planned change |
-|---|---|---|
-| API and React UI | `azr-api-x8c5i2` | Region catalog validation, wiki-target region create/edit API, synthetic-event regions, Fluent UI region selectors |
-| Service Health ingestion | `azr-job-x8c5i2` | Canonical multi-region normalization and region-aware wiki intent routing with global/unscoped fallback |
-| Dispatch worker | `az-radar-dispatch-ay637nckh3ebc` | Authoritative per-target filtering before wiki rendering and reconciliation |
-| Bot gateway | `az-radar-bot-ay637nckh3ebc` | No code or image change |
-| Cosmos DB | Existing account/containers | Additive JSON fields only; no container or partition-key change |
-| Key Vault | Existing `az-radar-wiki-ay637nckh3` | Store the supplied Azure DevOps PAT through the existing write-only credential path; never persist it in source, this plan, logs, or Cosmos DB |
-
-### Implementation
-
-- Add a shared canonical Azure region resolver with explicit display-name and ARM-location aliases.
-- Extend wiki target records with canonical `includedRegions`.
-- Extend Service Health events with canonical `affectedRegions` while retaining the singular region
-  field for compatibility.
-- Route known regional events only to intersecting wiki targets.
-- Route explicit global, missing/empty, and unknown-only regional scope to every active wiki target.
-- Keep Teams routing unchanged.
-- Filter again in the dispatch worker before rendering, including manual and daily reconciliation.
-- Preserve effective region scope across lifecycle updates that omit region information.
-- Add API/UI support to select regions during registration and edit them later.
-- Add synthetic-event region selection and pass it through the real Event Hub ingestion path.
-- Add focused unit/integration coverage for exact match, aliases, similar-name protection,
-  multi-region intersection, global/unscoped fallback, lifecycle updates, and renderer filtering.
-
-### Deployment
-
-Current image tags discovered from Azure on 2026-09-23:
-
-| App Service | Current image | Deploy image |
-|---|---|---|
-| `azr-api-x8c5i2` | `moimhossain/az-radar-api:blue` | `moimhossain/az-radar-api:green` |
-| `azr-job-x8c5i2` | `moimhossain/az-radar-jobhost:green` | `moimhossain/az-radar-jobhost:blue` |
-| `az-radar-dispatch-ay637nckh3ebc` | `moimhossain/az-radar-dispatch-worker:blue` | `moimhossain/az-radar-dispatch-worker:green` |
-
-The standard Docker build will first use the Microsoft npm proxy and configured NuGet sources. If
-Docker restore is blocked by organizational package policy, use the previously validated local
-restore/publish plus runtime-only `src\Dispatching\Dockerfile.prepublished` path without changing
-dependency manifests.
-
-All four Web Apps currently report `alwaysOn: false`. Restore Always On to `true` during deployment
-because the JobHost and dispatch worker require continuous listeners; keep it enabled during
-rollback.
-
-### Validation and end-to-end verification
-
-- [x] All validation checks pass
-  - [x] 1. Core Validation (Azure CLI authentication and application build; ARM validate/what-if
-        not applicable because this release changes only existing App Service image references and
-        Always On)
-  - [x] 2. Docker Build (API/UI, JobHost, and dispatch worker)
-  - [x] 3. Azure Policy Validation
-- [x] Build `AzRadar.slnx`.
-- [x] Run Shared and Dispatching tests, including new region-routing coverage.
-- [x] Type-check and build the React UI.
-- [x] Validate patch whitespace and ensure the supplied PAT is absent from tracked files and output.
-- [x] Build the three opposite-tag container images and run local container smoke checks where
-      practical.
-- [x] Invoke `azure-validate` and record validation proof before deployment.
-- [x] Push API green, JobHost blue, and dispatch worker green.
-- [x] Update and restart the three App Services.
-- [x] Restore and verify Always On on all four Web Apps.
-- [x] Verify API health, UI loading, target region persistence, and current image tags.
-- [x] Update the existing Azure DevOps Wiki target for
-      `https://dev.azure.com/moim/Platform/_wiki/wikis/Platform.wiki/13/Azure-Service-Health`
-      through the deployed API using the supplied PAT and approved regions.
-- [x] Publish a synthetic matching event and verify ingestion, matching intent, successful wiki
-      delivery, and rendered page content.
-- [x] Publish a synthetic non-matching known-region event and verify it is absent from the wiki.
-- [x] Publish a synthetic global or unscoped event and verify conservative all-target delivery.
-- [x] Verify Teams configuration and delivery routing are unchanged.
-- [x] Perform live RBAC and worker-liveness verification.
-
-### Rollback
-
-- Restore API to blue, JobHost to green, and dispatch worker to blue.
-- Additive Cosmos fields remain backward compatible and do not require data deletion.
-- Keep Always On enabled.
-- If target configuration causes unexpected filtering, restore the previous images before changing
-  or deleting target metadata.
-
-### Execution checklist
-
-- [x] Analyze workspace and existing Azure resources.
-- [x] Confirm the requested subscription and resource group from the portal URI and Azure CLI.
-- [x] Confirm existing Central US location.
-- [x] Confirm no new resources, quota, RBAC, networking, or SKU changes.
-- [x] Select Azure CLI blue-green App Service image update recipe.
-- [x] User approves this release plan and selects the wiki target regions.
-- [x] Implement and locally verify.
-- [x] Set status to `Ready for Validation`.
-- [x] Run `azure-validate`; only that workflow may set status to `Validated`.
-- [x] Run `azure-deploy`.
-- [x] Record deployment results and set status to `Deployed`.
-
-### Deployment result
-
-- API/UI image `moimhossain/az-radar-api:green`:
-  `sha256:a0b1c073d15ecfc027d1cd07e01d32d0b463a2b57154dd8bf4126f8eb3bf286c`.
-- JobHost image `moimhossain/az-radar-jobhost:blue`:
-  `sha256:7ac4852980f17dfa1c6da1653ee651d09dd6e8f263c666e65d4a041b52782cd9`.
-- Dispatch worker image `moimhossain/az-radar-dispatch-worker:green`:
-  `sha256:09f0fd647cc61853c9a280225c7afa28544aa0768f67cf4c177d0ab2b223e769`.
-- `azr-api-x8c5i2`, `azr-job-x8c5i2`, and `az-radar-dispatch-ay637nckh3ebc`
-  are running the planned opposite tags.
-- Always On is enabled on all four App Services.
-- `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`.
-- The deployed UI bundle contains the Azure-region registration/edit controls and synthetic
-  missing-region control.
-- Existing wiki target `bea9bb60-4456-4d6b-84ac-c34b8b57b27e` is registered for `Central US`;
-  its existing Key Vault credential passed the live connection test.
-- Synthetic routing verification:
-  - `TEST-20260923153447` (`Central US`) matched the wiki and was delivered.
-  - `TEST-20260923153639` (`Japan East`) did not match the wiki and is absent from the page.
-  - `TEST-20260923153747` (`Global`) matched the wiki and was delivered.
-  - `TEST-20260923153835` (missing region) matched the wiki and was delivered.
-- Azure DevOps page inspection confirmed the matching, global, and missing-region tracking IDs are
-  present and the non-matching Japan East tracking ID is absent.
-- Service Bus metrics reported an active connection and 56 successful requests during the
-  verification window.
-
-### Live role verification
-
-- Runtime UAMI `az-radar-uami` retains Cognitive Services OpenAI User, Event Hubs Data
-  Sender/Receiver, Key Vault Secrets Officer, and Cosmos DB Built-in Data Contributor.
-- Dispatch UAMI `az-radar-dispatch-worker-uami` retains Service Bus Data Sender/Receiver, Key Vault
-  Secrets User, and Cosmos DB Built-in Data Contributor.
-- Status: Pass.
-
-## Current release: Multiple Azure DevOps Wiki targets and Always On (2026-09-21)
-
-Deploy the staged multi-target Azure DevOps Wiki changes to the existing App Services and restore
-Always On across every Web App in the target resource group.
-
-- Subscription: `MOHOSSA-M365CPI50986977`
-  (`5e22addc-6168-4683-afd0-789a121ca5d3`)
-- Resource group: `az-radar-vnet-rg`
-- Location: Central US (`centralus`)
-- Recipe: Azure CLI App Service container image update
-- No new Azure resources, SKU changes, quota consumption, identity changes, RBAC changes, or
-  networking changes
-- Quota validation: not applicable because this release updates existing container image
-  references and `siteConfig.alwaysOn` only
-
-Affected application images use the opposite blue-green tag:
-
-| App Service | Current image | Deploy image | Reason |
-|---|---|---|---|
-| `azr-api-x8c5i2` | `moimhossain/az-radar-api:green` | `moimhossain/az-radar-api:blue` | API and UI support multiple wiki targets |
-| `azr-job-x8c5i2` | `moimhossain/az-radar-jobhost:blue` | `moimhossain/az-radar-jobhost:green` | Service Health ingestion fans out to every registered wiki target |
-| `az-radar-dispatch-ay637nckh3ebc` | `moimhossain/az-radar-dispatch-worker:green` | `moimhossain/az-radar-dispatch-worker:blue` | Wiki delivery and reconciliation process multiple targets |
-
-`az-radar-bot-ay637nckh3ebc` has no application-code change and retains its current image. All four
-Web Apps currently report `alwaysOn: false`; set each to `true`.
-
-Rollback:
-
-- Restore each affected App Service to its previous blue-green tag.
-- Always On is an operational liveness correction and remains enabled during rollback.
-
-Planned validation:
-
-- [x] All validation checks pass
-  - [x] Core validation: Azure CLI authentication and application build; ARM validate/what-if are
-        not applicable because this release changes only existing App Service image references and
-        `siteConfig.alwaysOn`.
-  - [x] Docker build for API/UI, JobHost, and dispatch worker.
-  - [x] Azure Policy validation.
-  - [x] Static managed-identity role verification.
-- [x] Solution build succeeds.
-- [x] Frontend TypeScript check succeeds.
-- [x] Shared and dispatching tests pass (112 total).
-- [x] Current subscription, resource group, app inventory, image tags, and Always On values
-      discovered.
-- [x] User confirms the supplied subscription, existing Central US location, and deployment plan.
-- [x] Build and push API blue, JobHost green, and dispatch worker blue images.
-- [x] Update and restart the three affected App Services.
-- [x] Enable Always On on all four Web Apps.
-- [x] Verify image tags, Always On, app states, API health/UI, and wiki target API availability.
-
-### Deployment result
-
-- Docker Hub API blue digest:
-  `sha256:afb546f2f8e37c0e7c7a367e829cf4c0949a5b324d4375b4f1355551c9f6a56a`.
-- Docker Hub JobHost green digest:
-  `sha256:6632acce0a696a4137bd9fef4df0af82d40cb9d908a7d66584a08b4d38f6e872`.
-- Docker Hub dispatch worker blue digest:
-  `sha256:5b409d4c88eb1062d85bc5c0ee25b691316ac4be8d5c598336c055465ee29a04`.
-- `azr-api-x8c5i2` is running `moimhossain/az-radar-api:blue` with Always On enabled.
-- `azr-job-x8c5i2` is running `moimhossain/az-radar-jobhost:green` with Always On enabled.
-- `az-radar-dispatch-ay637nckh3ebc` is running
-  `moimhossain/az-radar-dispatch-worker:blue` with Always On enabled.
-- `az-radar-bot-ay637nckh3ebc` retained
-  `moimhossain/az-radar-bot-gateway:green` and now has Always On enabled.
-- `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`.
-- The deployed UI bundle `index-Biy1o_GF.js` contains the multi-wiki target experience.
-- `/api/service-health/channels` returned HTTP 200 with the existing Azure DevOps Wiki target still
-  registered.
-
-### Live role verification
-
-- API/JobHost UAMI retains Cognitive Services OpenAI User, Event Hubs Data Sender/Receiver, Key
-  Vault Secrets Officer, and Cosmos DB Built-in Data Contributor.
-- Service Health provisioning UAMI retains its diagnostic-setting and Event Hub provisioning
-  roles.
-- Dispatch worker UAMI retains Service Bus Data Sender/Receiver, Key Vault Secrets User, and Cosmos
-  DB Built-in Data Contributor.
-- No deployment-time RBAC changes or missing required data-plane assignments were detected.
-
-## Current release: Service and region scoped watchlist (2026-09-11)
-
-Issue #7 adds optional Azure regions to Service Watchlist entries and filters Azure Updates and
-Microsoft Learn intelligence before persistence using LLM-extracted canonical services/regions
-plus deterministic alias, acronym, and region matching.
-
-This is an application-image-only release to the existing App Services:
-
-- API/UI: `azr-api-x8c5i2` in `az-radar-vnet-rg`
-- JobHost: `azr-job-x8c5i2` in `az-radar-vnet-rg`
-- Location: Central US
-- Recipe: Azure CLI App Service container image update
-- Infrastructure, identities, RBAC, networking, and app settings: unchanged
-- Rollback: switch each App Service to its previous blue/green image tag
-
-Planned validation:
-
-- [x] All validation checks pass
-  - [x] Core validation: Azure CLI/authentication and application build; ARM validate/what-if are
-        not applicable because this release changes only existing App Service image references.
-  - [x] Docker build for API/UI and JobHost
-  - [x] Azure Policy validation
-- [x] `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore`
-- [x] 35 focused Azure Updates, Microsoft Learn, and watchlist relevance tests
-- [x] `npx tsc --noEmit`
-- [x] `git diff --check`
-- [x] Confirm Azure subscription, resource group location, and current image tags
-- [x] Build and push opposite blue/green API and JobHost images
-- [x] Update and restart both App Services
-- [x] Verify `/api/azure-regions`, scoped watchlist persistence, UI availability, and JobHost health
-
-## 7. Validation Proof
-
-- 2026-09-23: `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` succeeded with
-  0 warnings and 0 errors.
-- 2026-09-23: Shared tests passed 102/102 and Dispatching tests passed 10/10, including canonical
-  region aliases, exact non-match, global/missing/unknown fallback, and lifecycle scope retention.
-- 2026-09-23: `npx tsc --noEmit -p src\az-radar-ui\tsconfig.json` and
-  `npm --prefix src\az-radar-ui run build` succeeded; the existing bundle-size advisory is
-  non-blocking.
-- 2026-09-23: Release publishes succeeded without dependency changes using the existing restored
-  dependency graph and Microsoft IT proxy-compatible workflow.
-- 2026-09-23: runtime-only Docker validation images built successfully:
-  - API: `sha256:96a7bd5886c5ebf2514ba1a0844ae55608bee3867df9b7a7d3d439ce61ba0fcb`
-  - JobHost: `sha256:19f0ed8f8c9100106a6c06492ac14256e3c75fb0e42eb6d61e472581f9a70927`
-  - Dispatch worker: `sha256:8933e2c8282e9fa4cee2c41f68d40231465862562fd485a7ae83d28ce1c56fc0`
-- 2026-09-23: API container startup reached Azure service initialization; local health probing is
-  intentionally unavailable without the deployed managed identity and private Cosmos endpoint.
-- 2026-09-23: Azure CLI authenticated to `MOHOSSA-M365CPI50986977`
-  (`5e22addc-6168-4683-afd0-789a121ca5d3`) and confirmed all target App Services are running in
-  `az-radar-vnet-rg`.
-- 2026-09-23: `az policy assignment list` returned only existing Defender assignments; none deny
-  App Service image-reference or Always On changes.
-- 2026-09-23: static RBAC review confirmed no identity or role changes are required. Existing
-  Cosmos, Event Hubs, Service Bus, Key Vault, and Azure OpenAI managed-identity assignments remain
-  the deployment contract.
-
-- 2026-09-21: `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` succeeded
-  with 0 warnings and 0 errors.
-- 2026-09-21: `npx tsc --noEmit -p src\az-radar-ui\tsconfig.json` succeeded.
-- 2026-09-21: Shared and dispatching tests passed 112/112.
-- 2026-09-21: Azure CLI authenticated as `admin@M365CPI50986977.onmicrosoft.com` against
-  `MOHOSSA-M365CPI50986977`; the user confirmed subscription
-  `5e22addc-6168-4683-afd0-789a121ca5d3`, resource group `az-radar-vnet-rg`, and existing
-  Central US location.
-- 2026-09-21: the standard multi-stage Docker build was blocked by the organization's direct
-  NuGet.org restriction (`NU1301`). Locally restored Release publishes and the previously validated
-  runtime-only `src\Dispatching\Dockerfile.prepublished` path produced:
-  - API blue: `sha256:77f441dce78c3809af92d2510030ce9c831fa6d2636732d65f6c7cec970372e9`
-  - JobHost green: `sha256:fd80234ef02cc4407adaae73d791f53c5309caa493ae1d979e4051a79bfbfd21`
-  - Dispatch worker blue:
-    `sha256:20462e0851c34a3887bab5989a2c879bc0a5df91f6c0fd639826c64b8d358f5e`
-- 2026-09-21: `npm --prefix src\az-radar-ui run build` succeeded; the existing bundle-size
-  advisory is non-blocking.
-- 2026-09-21: `az policy assignment list` found only existing Defender assignments; none constrain
-  App Service image references or Always On.
-- 2026-09-21: static Bicep review confirmed least-privilege Cosmos DB data contributor, Service Bus
-  data sender/receiver, Key Vault Secrets Officer for the API, and Key Vault Secrets User for the
-  dispatch worker. No RBAC changes are included in this release.
-- 2026-09-21: Azure MCP is authenticated to a different tenant identity and returned 403 for this
-  subscription; the correctly authenticated Azure CLI context was used for live validation.
-
-- 2026-09-11: full solution build succeeded with 0 warnings and 0 errors.
-- 2026-09-11: focused test suite passed 35/35.
-- 2026-09-11: frontend TypeScript check completed successfully.
-- 2026-09-11: patch whitespace validation completed successfully.
-- 2026-09-11: Azure CLI authentication confirmed subscription
-  `MOHOSSA-M365CPI50986977` (`5e22addc-6168-4683-afd0-789a121ca5d3`); the user confirmed
-  Central US and the existing `az-radar-vnet-rg` target.
-- 2026-09-11: existing API and JobHost user-assigned managed identities confirmed attached.
-- 2026-09-11: static Bicep review confirmed UAMI attachment in `infra/modules/web-app.bicep`,
-  Cosmos data-plane contributor assignments in `infra/modules/cosmos-rbac.bicep`, and the
-  existing Azure OpenAI user role design in `infra/modules/openai.bicep`.
-- 2026-09-11: subscription policy assignments are existing Defender policies and do not conflict
-  with an image-only update.
-- 2026-09-11: standard Docker build was blocked by Docker-to-NuGet `NU1301`; locally restored
-  Release publishes and the validated runtime-only Dockerfile produced API blue image
-  `sha256:4f4d4fd541e80db72512a27bcb5f71071576cc12de16218e2696b19db90feba6` and JobHost green
-  image `sha256:f4dfeac288ecec5380905cb7b2df26daf7b9f3b46d9931bfac440ba76996b57e`.
-
-### Deployment result
-
-- Docker Hub API blue digest:
-  `sha256:f2922fb58d7d608a9063149f9bac6c5a76904ba4c863df0d89848a0d03342fc6`.
-- Docker Hub JobHost green digest:
-  `sha256:aef2f756109af8588d40a0fdc7f2506d0e35d86b0c779406819618c7571b70af`.
-- `azr-api-x8c5i2` is running API blue with Always On enabled.
-- `azr-job-x8c5i2` is running JobHost green with Always On enabled.
-- Live API/UI smoke test returned HTTP 200, 58 Azure regions, five watchlist entries with the
-  additive `regions` field, and explicit HTTP 400 rejection for an unknown region.
-- Live runtime role verification confirmed Cosmos DB Built-in Data Contributor and Cognitive
-  Services OpenAI User for the JobHost UAMI. App Service log download remains intentionally
-  inaccessible from the public client because the SCM endpoint is IP restricted.
-
-## Current release: Teams destination activation (2026-09-10)
-
-The user authorized deployment of the pending API/UI changes and activation of
-the registered Incidents Teams channel. This supersedes the earlier demo-time
-API/UI restriction. Target: existing `azr-api-x8c5i2` in `az-radar-vnet-rg`,
-Central US, subscription `5e22addc-6168-4683-afd0-789a121ca5d3`.
-
-Deploy application code only: no infrastructure, identity, networking, or app
-setting changes. Current API image is `moimhossain/az-radar-api:green`;
-build and deploy `blue`, retaining `green` for rollback.
-
-- [x] All validation checks pass for the Teams administration release
-  - [x] Core validation: CLI/auth, targeted API/dispatch tests, frontend build;
-        ARM validate/what-if are not applicable to this image-only release.
-  - [x] Docker build for API/UI
-  - [x] Azure Policy validation
-  - [x] Existing runtime identity role verification
-- [x] Deploy API/UI blue image and confirm updated destination metadata/UI
-- [x] Enable only the registered Incidents destination for `ServiceIssue`
-- [x] Publish synthetic incident and confirm durable Teams delivery receipt
-
-### Teams administration release validation proof (2026-09-10, 16:35-16:44 CEST)
-
-- `az account show`, `az webapp config show`, `az group show`: confirmed approved
-  subscription, existing Central US target, and current green image.
-- `dotnet test tests\AzRadar.Api.Tests --no-restore --verbosity quiet`: exit 0.
-- `dotnet test src\Dispatching\AzRadar.Dispatching.Tests --no-restore --verbosity quiet`:
-  4 passed.
-- `dotnet publish src\AzRadar.Api\AzRadar.Api.csproj --no-restore -c Release -p:UseAppHost=false ...`:
-  succeeded.
-- `npm --prefix src\az-radar-ui run build`: TypeScript and Vite succeeded;
-  existing bundle-size advisory only. Restored dependencies after missing Vite.
-- Standard Docker build hit unavailable NuGet.org; the Microsoft public mirror
-  lacked ResourceGraph. Used locally restored/published output and the existing
-  `src\Dispatching\Dockerfile.prepublished` with `APP_DLL=AzRadar.Api.dll`.
-  Copied the freshly built UI into `wwwroot` before containerization.
-- Final blue image build succeeded:
-  `sha256:e1d5ec7671e3740d6842388f7eb186201fe750960ed4424db3422496ae102016`.
-- `az policy assignment list`: existing Defender assignments do not conflict
-  with this image-only update; no resource/property changes beyond the image.
-- Static existing Bicep role mapping and live role queries confirm runtime
-  Cosmos Data Contributor plus Event Hubs Data Sender/Receiver. No RBAC changes.
-- ARM/Bicep provisioning, quota changes and what-if: not applicable, since
-  this release deploys only an image to an existing App Service.
-
-Prior release evidence follows for historical context.
-
-### Worker correction discovered during end-to-end activation
-
-The first synthetic incident reached the outbox and Service Bus, but failed before
-Teams delivery because default JSON deserialization did not restore the SDK's
-camel-cased conversation routing fields. Use `ProtocolJsonSerializer.ToObject`
-to pair with the gateway's `Conversation.ToJson()`. Reject incomplete references
-as permanent failures instead of retrying eight times.
-
-Scope expands only to an image update of the existing private dispatch worker:
-`az-radar-dispatch-ay637nckh3ebc`, green to blue. No gateway, network, identity
-or infrastructure changes; retain green as rollback.
-
-- [x] Core validation: SDK round-trip regression tests, 7 dispatch tests passed
-- [x] Worker Release publish and Docker build succeeded
-- [x] Policy and static role configuration unchanged from validated deployment
-- [x] Deploy corrected worker and publish a new synthetic incident
-
-Validation proof (2026-09-10, 16:49 CEST):
-`dotnet test src\Dispatching\AzRadar.Dispatching.Tests --verbosity quiet` passed
-all 7 tests; Release publish and `Dockerfile.prepublished` build succeeded.
-Worker blue image: `sha256:f6252a372e95743c1b32e3a2417d1f9df95be6183b19e0456a04fb45bb314d14`.
-Live worker role queries confirm Service Bus Data Sender/Receiver at namespace
-scope and Cosmos Data Contributor at account scope; both UAMIs remain attached.
-The failed synthetic attempt is retained in the delivery audit, not deleted.
-
-### Teams activation deployment result (2026-09-10, 16:52 CEST)
-
-- API/UI: `azr-api-x8c5i2`, blue image, registry digest
-  `sha256:a4fff51e871729ae078d5ff664b013476c715f396037d608c03f02508b710e2e`.
-  Health endpoint returned healthy and the new `index-Dn7AtHJA.js` UI bundle is served.
-- Worker: `az-radar-dispatch-ay637nckh3ebc`, blue image, registry digest
-  `sha256:e92853ac2e82e900019e5dcd3ae0433738081b5275d3efc8d170f2f86a14f798`.
-  Private ingress and Always On retained.
-- Registered Incidents channel enabled with exactly `ServiceIssue`. Existing
-  conversation and tenant/channel identifiers were preserved.
-- Synthetic event `TEST-20260910145218` reached Teams at 16:52:33 CEST.
-  Delivery intent `5393322113d8047e6f43ad856f16211e3fe1845a52240e01a92c6d77c0af1a6e`
-  is `delivered`, attempt count 1, no errors, Teams activity ID `1789051953441`.
-- Previous green API and worker images remain available for rollback.
-- Administration UI: https://azr-api-x8c5i2.azurewebsites.net/service-health
+Generated: 2026-09-24T08:20:12+02:00
 
 ---
 
 ## 1. Project Overview
 
-**Goal:** Deploy and test centralized Azure Service Health ingestion from the
-existing Event Hub through normalized Cosmos persistence and the durable
-dispatcher boundary, including a gated synthetic-event publisher.
+**Goal:** Replace public Docker Hub image distribution with a privately networked Azure Container
+Registry, configure AzRadar App Services to pull through the VNet with managed identity, publish
+new images, deploy them, and verify the live test environment.
 
-**Path:** Add Components
+**Path:** Add Components to an existing deployment.
 
-**Deployment boundary:** The user explicitly authorized updating the API/UI and
-JobHost applications. Use the blue/green image strategy for both.
+**PRD:** `prds/private-azure-container-registry.md`
 
 ---
 
@@ -583,83 +22,103 @@ JobHost applications. Use the blue/green image strategy for both.
 
 | Attribute | Value |
 |-----------|-------|
-| Classification | Development / pilot |
-| Scale | Initial single-subscription pilot, designed for later scale-out |
-| Budget | Balanced |
-| Subscription | MOHOSSA-M365CPI50986977 (`5e22addc-6168-4683-afd0-789a121ca5d3`) |
+| Classification | Development/test |
+| Scale | Small |
+| Budget | Security-first, cost-aware |
+| Subscription | `MOHOSSA-M365CPI50986977` (`5e22addc-6168-4683-afd0-789a121ca5d3`) |
 | Resource group | `az-radar-vnet-rg` |
 | Location | Central US (`centralus`) |
-| Deployment scope | Service Health infrastructure, API/UI, and JobHost App Services |
 
-The user subsequently instructed: "go deploy the changes in app. and test it
-out if it works".
+The subscription, resource group, and location were confirmed from the user-provided Azure portal
+URI and the authorized Azure CLI context.
 
 ---
 
-## 3. Components Detected
+## 3. Current State and Components Detected
 
-| Component | Type | Technology | Path |
-|-----------|------|------------|------|
-| AzRadar API/UI | Existing app | .NET 8 + React on App Service | `src/AzRadar.Api`, `src/az-radar-ui` |
-| AzRadar JobHost | Existing worker | .NET 8 on App Service | `src/AzRadar.JobHost` |
-| Shared services | Existing library | .NET 8 | `src/AzRadar.Shared` |
-| Infrastructure | Existing IaC | Bicep | `infra` |
-| Service Health design | Product requirements | Markdown | `prds/service-health-dispatch.md` |
+The live resource group contains four running Linux container App Services:
+
+| Component | Technology | Live App Service | Current image |
+|-----------|------------|------------------|---------------|
+| API + React UI | .NET 8 + React | `azr-api-x8c5i2` | `moimhossain/az-radar-api:green` |
+| Crawl JobHost | .NET 8 worker | `azr-job-x8c5i2` | `moimhossain/az-radar-jobhost:blue` |
+| CloudLens bot gateway | .NET 8 | `az-radar-bot-ay637nckh3ebc` | `moimhossain/az-radar-bot-gateway:green` |
+| Service Health dispatch worker | .NET 8 worker | `az-radar-dispatch-ay637nckh3ebc` | `moimhossain/az-radar-dispatch-worker:green` |
+
+Repository analysis confirms that:
+
+- `infra/main.bicep` and `infra/main.bicepparam` default to Docker Hub images.
+- `infra/modules/web-app.bicep` explicitly configures public unauthenticated image pulls.
+- `src/Dispatching/infra/main.bicep` also points its App Services at Docker Hub images.
+- No ACR resource, ACR private endpoint, `privatelink.azurecr.io` zone, or `AcrPull`
+  role assignment exists in the repository.
+- No ACR exists in `az-radar-vnet-rg`.
+- The target VNet already has a `/24` private-endpoint subnet and delegated API/worker App Service
+  integration subnets.
 
 ---
 
 ## 4. Recipe Selection
 
-**Selected:** Azure CLI + scoped Bicep
+**Selected:** Standalone Bicep with Azure CLI.
 
-**Rationale:** The repository already uses Bicep, but the normal
-`infra/main.bicep` owns the API/UI App Service and is too broad for the
-confirmed deployment boundary. A dedicated additive entry point will target
-only Service Health resources and existing Cosmos/VNet dependencies.
-
-The API/UI deployment uses the repository's Docker Hub blue/green process.
-The current API image is `blue`, so this release will deploy `green`. The
-current JobHost image is `green`, so this release will deploy `blue`.
+**Rationale:** The repository already uses modular resource-group-scope Bicep and an Azure CLI
+deployment script. The feature is an additive infrastructure change and does not require an AZD
+conversion.
 
 ---
 
 ## 5. Architecture
 
-| Component | Azure Service | SKU / Configuration |
-|-----------|---------------|---------------------|
-| Ingestion namespace | Azure Event Hubs | Standard, 1 throughput unit, single region |
-| Event stream | Event Hub | `service-health`, 4 partitions, 7-day retention |
-| Consumers | Event Hub consumer groups | `azradar-live`, `azradar-replay` |
-| Provisioning identity | User-assigned managed identity | Dedicated to subscription onboarding |
-| Runtime access | Azure RBAC | Existing AzRadar UAMI gets Data Receiver |
-| Azure Monitor publishing | Event Hubs authorization rule | Dedicated rule referenced by diagnostic settings |
-| Network ingress | Private Endpoint | Existing `snet-private-endpoints` |
-| Name resolution | Private DNS | `privatelink.servicebus.windows.net` linked to existing VNet |
-| Registry persistence | Cosmos DB containers | `service-health-subscriptions`, `service-health-channels`, partition key `/id` |
-| Pilot source | Subscription Activity Log diagnostic setting | Only `ServiceHealth` category |
+**Stack:** Linux containers on Azure App Service with a private Premium ACR.
 
-No public AzRadar webhook or inbound endpoint is introduced. Trusted Azure
-services may publish to Event Hubs; AzRadar consumption uses managed identity
-through the private endpoint.
+### Service Mapping
+
+| Component | Azure Service | SKU |
+|-----------|---------------|-----|
+| Private container registry | Azure Container Registry | Premium |
+| Registry network access | Azure Private Endpoint | Existing endpoint subnet |
+| Registry DNS | Azure Private DNS | `privatelink.azurecr.io` |
+| Runtime image access | Azure RBAC | `AcrPull` |
+| API/UI runtime | Azure App Service | Existing B1 Linux plan |
+| JobHost runtime | Azure App Service | Existing B1 Linux plan |
+| Bot gateway runtime | Azure App Service | Existing B1 Linux plan |
+| Dispatch worker runtime | Azure App Service | Existing B1 Linux plan |
+
+### Security and Network Design
+
+- ACR administrator credentials and anonymous pull remain disabled.
+- ACR public network access is disabled in the final state.
+- The ACR private endpoint is created in `snet-private-endpoints`.
+- `privatelink.azurecr.io` is linked to `az-radar-vnet`.
+- Runtime identities receive only `AcrPull`, scoped to ACR.
+- App Services use user-assigned managed identity registry authentication.
+- App Service image pull over VNet is explicitly enabled.
+- Build and push use the authorized Azure CLI identity; no registry password is stored.
+
+### Rollout Sequence
+
+1. Provision ACR, private networking, DNS, and RBAC while retaining Docker Hub image references.
+2. Build and publish uniquely tagged images to ACR.
+3. Verify repository manifests and `AcrPull` propagation.
+4. Switch App Services to ACR image references and managed-identity pulls.
+5. Verify all public endpoints and continuous workers.
 
 ---
 
 ## 6. Provisioning Limit Checklist
 
-The Microsoft.Quota CLI returned no Event Hubs quota records for Central US, so
-documented Azure limits and live resource counts are used for unsupported
-resource types.
+The Microsoft.Quota API returned `BadRequest` for `Microsoft.ContainerRegistry`, so unsupported
+resource types use live Azure CLI counts plus Microsoft Learn service-limit documentation.
 
 | Resource Type | Number to Deploy | Total After Deployment | Limit/Quota | Notes |
 |---------------|------------------|------------------------|-------------|-------|
-| `Microsoft.EventHub/namespaces` | 1 | 1 | 1,000 per subscription per region | Live count in Central US: 0; Premium creation was rejected in Central US, so the pilot uses Standard |
-| `Microsoft.ManagedIdentity/userAssignedIdentities` | 1 | 8 | 200 per subscription | Live subscription count: 7; official Azure limits |
-| `Microsoft.Network/privateEndpoints` | 1 | 10 | 1,000 per VNet | Live subscription count: 9; target `/24` subnet currently has 3 allocated endpoint IP configurations |
-| `Microsoft.Network/privateDnsZones` | 1 | 10 | 1,000 per subscription | Live subscription count: 9; official Azure limits |
-| Cosmos DB serverless containers | 2 | 11 | 100 per account | Live target database count: 9; official Cosmos DB serverless limits |
-| Event Hub consumer groups | 2 | 2 | 100 per event hub in Premium | New Event Hub; official Event Hubs limits |
+| `Microsoft.ContainerRegistry/registries` | 1 | 2 in subscription | 100 registries per subscription | Live count: 1; quota API unsupported; official Azure limits |
+| `Microsoft.Network/privateEndpoints` | 1 | 8 in subscription/target estate | 1,000 per VNet | Live subscription count: 7; official Azure limits |
+| `Microsoft.Network/privateDnsZones` | 1 | 7 in subscription | 1,000 per subscription | Live subscription count: 6; official Azure limits |
+| `Microsoft.Authorization/roleAssignments` | 3 | 63 in subscription | 4,000 per subscription | Live count: 60; one assignment per unique runtime pull identity |
 
-**Status:** All planned resources are comfortably within documented limits.
+**Status:** All planned resources are within documented limits.
 
 ---
 
@@ -667,337 +126,145 @@ resource types.
 
 ### Phase 1: Planning
 
-- [x] Analyze workspace and existing Azure environment
-- [x] Gather requirements and deployment boundary
-- [x] Confirm subscription and Central US location with user
-- [x] Inventory live resources and existing VNet/Cosmos dependencies
-- [x] Invoke Azure quota workflow and validate capacity
-- [x] Select scoped Bicep deployment recipe
-- [x] User approved additive-infrastructure-only deployment
+- [x] Analyze workspace
+- [x] Gather requirements
+- [x] Confirm subscription, resource group, and location
+- [x] Inspect the live deployment
+- [x] Verify the current image sources
+- [x] Confirm no ACR exists in the target resource group
+- [x] Prepare and validate the resource inventory
+- [x] Scan the codebase
+- [x] Select the Bicep recipe
+- [x] Plan architecture, rollout, and rollback
+- [x] Create the PRD
+- [x] User approved this plan
 
 ### Phase 2: Execution
 
-- [x] Create scoped Service Health Bicep entry point
-- [x] Complete local .NET, TypeScript, and Bicep validation
-- [x] Run Azure deployment validation and what-if
-- [x] Set plan status to `Ready for Validation`
+- [x] Research exact Bicep resource schemas and App Service ACR properties
+- [x] Add the ACR/private endpoint/private DNS/RBAC module
+- [x] Add an isolated live-environment ACR rollout template
+- [x] Wire ACR through `infra/main.bicep`
+- [x] Configure API and JobHost managed-identity pulls over VNet
+- [x] Configure dispatch worker and optional bot gateway pulls over VNet
+- [x] Update Bicep parameters, deployment scripts, and infrastructure documentation
+- [x] Build and run the smallest local verification suites
+- [x] Confirm the isolated Azure what-if contains no deletions
+- [x] Update plan status to `Ready for Validation`
 
 ### Phase 3: Validation
 
 - [x] Invoke `azure-validate`
-- [x] All validation checks pass for the ingestion release
-  - [x] 1. Core Validation (CLI, auth, build, validate, what-if)
-  - [x] 2. Docker Build (API and JobHost)
-  - [x] 3. Azure Policy Validation
-- [x] Record validation proof for the ingestion release
-- [x] Set status to `Validated`
+- [x] All validation checks pass
+  - [x] Core validation (Azure CLI, authentication, Bicep build, ARM validation, and what-if)
+  - [x] Bicep linting
+  - [x] Azure Policy validation
+  - [x] Isolated rollout contains no deletions
+  - [x] .NET solution build
+  - [x] Shared unit tests
+  - [x] Frontend TypeScript type-check
+- [x] Build all Bicep templates
+- [x] Run Bicep deployment validation against `az-radar-vnet-rg`
+- [x] Validate .NET solution/tests and frontend type-check
+- [x] Confirm the deployment change set is additive and expected
+- [x] Update plan status to `Validated`
+- [x] Record validation proof below
 
 ### Phase 4: Deployment
 
 - [x] Invoke `azure-deploy`
-- [x] Deploy additive infrastructure
-- [x] Verify Event Hubs, UAMI, private networking, Cosmos containers, and RBAC
-- [x] Configure the pilot subscription diagnostic setting for `ServiceHealth`
-- [x] Confirm the protected API/UI App Service image and configuration are unchanged
-- [x] Set status to `Deployed`
-
-### Phase 5: API/UI deployment
-
-- [x] Build and validate `moimhossain/az-radar-api:blue`
-- [x] Push the blue image to Docker Hub
-- [x] Attach the provisioning UAMI while retaining `az-radar-uami`
-- [x] Configure Service Health app settings
-- [x] Switch only `azr-api-x8c5i2` to the blue image
-- [x] Verify API/UI health
-- [x] Register subscription `5e22addc-6168-4683-afd0-789a121ca5d3` through the deployed API
-- [x] Verify the subscription is persisted as `active`
-- [x] Verify the Service Health UI route renders
-- [x] Set status to `Deployed`
+- [x] Provision ACR/private networking/RBAC
+- [x] Build and push/import all required images
+- [x] Verify image manifests
+- [x] Deploy ACR image references
+- [x] Verify managed-identity `AcrPull` role assignments
+- [x] Verify private DNS and disabled public registry access
+- [x] Verify live API/UI endpoint
+- [x] Verify JobHost and dispatch worker liveness
+- [x] Verify bot gateway when deployed
+- [x] Update plan status to `Deployed`
 
 ---
 
 ## 8. Validation Proof
 
-> To be populated only by the `azure-validate` skill.
-
 | Check | Command Run | Result | Timestamp |
 |-------|-------------|--------|-----------|
-| Scoped Bicep preflight | `validate-deployment.ps1 -Scope group -ResourceGroup az-radar-vnet-rg -Template .\infra\service-health.bicep -Parameters .\infra\service-health.bicepparam -Subscription 5e22addc-6168-4683-afd0-789a121ca5d3` | Pass after switching the pilot from Premium to Standard because Central US rejected new Premium namespace creation | 2026-09-10T11:15:57+02:00 |
-| Detailed what-if | `az deployment group what-if ... --result-format ResourceIdOnly --no-pretty-print` | Pass: 11 creates, 3 idempotent deploys, 0 modifications, 0 deletions, 3 deferred RBAC evaluations | 2026-09-10T11:15:57+02:00 |
-| Private networking retry | ARM validation plus detailed what-if after setting Event Hubs public network access to `Disabled` | Pass: private-endpoint-only namespace; 2 creates, 14 idempotent deploys, 0 deletes, 3 deferred RBAC evaluations | 2026-09-10T11:15:57+02:00 |
-| .NET build | `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore --verbosity quiet` | Pass: 0 warnings, 0 errors | 2026-09-10T11:15:57+02:00 |
-| React type check | `npx tsc -p src\az-radar-ui\tsconfig.json --noEmit` | Pass | 2026-09-10T11:15:57+02:00 |
-| Azure Policy review | `az policy assignment list --subscription 5e22addc-6168-4683-afd0-789a121ca5d3 --disable-scope-strict-match` | Pass: assigned Defender policies do not conflict with planned resource types, SKU, tags, or network configuration | 2026-09-10T11:15:57+02:00 |
-| Static RBAC review | Review of `infra/service-health.bicep`, `infra/modules/event-hubs.bicep`, and `infra/modules/service-health-subscription.bicep` | Pass: runtime UAMI receives Event Hubs Data Receiver at namespace scope; provisioning UAMI receives diagnostic-setting permissions at subscription scope and Event Hub authorization-rule permissions at resource scope | 2026-09-10T11:15:57+02:00 |
-| API release build | `dotnet build src\AzRadar.Api\AzRadar.Api.csproj --no-restore -c Release --verbosity quiet` | Pass | 2026-09-10T11:45:05+02:00 |
-| API tests | `dotnet test tests\AzRadar.Api.Tests --no-restore --verbosity quiet` | Pass | 2026-09-10T11:45:05+02:00 |
-| UI type check | `npx tsc -p src\az-radar-ui\tsconfig.json --noEmit` | Pass | 2026-09-10T11:45:05+02:00 |
-| Blue production image | `docker build --no-cache ... -f Dockerfile.api -t moimhossain/az-radar-api:blue .` | Pass: `sha256:83b77cd45debc6f6c72255526d159e0591d43b755ef8cf3dcbf37fa869291997` | 2026-09-10T11:45:05+02:00 |
+| Canonical Bicep validation | `validate-deployment.ps1 -Scope group -ResourceGroup az-radar-vnet-rg -Template .\infra\acr-rollout.bicep -Subscription 5e22addc-6168-4683-afd0-789a121ca5d3` | Pass; CLI/auth/build/ARM validation/what-if, Create 6, Modify 0, Delete 0 | 2026-09-24T08:56:49+02:00 |
+| Bicep lint | `az bicep lint --file` for rollout, platform, and dispatch templates | Pass | 2026-09-24T08:56:49+02:00 |
+| Azure Policy | `policy_assignment_list` at the target resource-group scope | Pass; assignments reviewed | 2026-09-24T08:56:49+02:00 |
+| Static RBAC | Review `AcrPull` assignments in `container-registry.bicep` and `acr-rollout.bicep` | Pass; least-privilege ACR scope for three runtime identities | 2026-09-24T08:56:49+02:00 |
+| Solution build | `dotnet build AzRadar.slnx -p:Platform="Any CPU"` | Pass; 0 warnings, 0 errors | 2026-09-24T08:56:49+02:00 |
+| Unit tests | `dotnet test tests/AzRadar.Shared.Tests --no-build` | Pass; 102/102 | 2026-09-24T08:56:49+02:00 |
+| Frontend type-check | `cd src\az-radar-ui; npx tsc --noEmit` | Pass | 2026-09-24T08:56:49+02:00 |
+| PowerShell parsing | Parse deployment scripts with `System.Management.Automation.Language.Parser` | Pass | 2026-09-24T08:56:49+02:00 |
 
 **Validated by:** azure-validate skill
-**Validation timestamp:** 2026-09-10T11:15:57+02:00
 
-### Ingestion release validation
-
-| Check | Command Run | Result |
-|-------|-------------|--------|
-| Final .NET build | `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore --verbosity quiet` | Pass: 0 warnings, 0 errors |
-| Service Health tests | `dotnet test tests\AzRadar.Shared.Tests --no-restore --filter "FullyQualifiedName~ServiceHealth" --verbosity quiet` | Pass: 3 tests |
-| API tests | `dotnet test tests\AzRadar.Api.Tests --no-restore --verbosity quiet` | Pass |
-| API image | `docker build --no-cache ... -f Dockerfile.api -t moimhossain/az-radar-api:green .` | Pass: `sha256:133a0ea92e552b7e34d0506b6c30ac69fd23595c9ad64a120afd7fe13abbde9c` |
-| JobHost image | `docker build --no-cache ... -f Dockerfile.jobhost -t moimhossain/az-radar-jobhost:blue .` | Pass: `sha256:90f04e08c9ad4a646614b4cc4d3746908324b5ab867fc73a644326bdaa73dec1` |
-| Scoped Bicep preflight | `validate-deployment.ps1` plus full-payload what-if | Pass: 4 Cosmos container creates, no deletes |
-| Bicep lint | `az bicep lint --file infra\service-health.bicep` | Pass |
-| Azure Policy review | `az policy assignment list ...` | Pass: assigned Defender policies do not conflict with this release |
-
-## Role Assignment Verification
-
-- Status: Verified
-- Identities checked: existing AzRadar runtime UAMI and dedicated Service Health provisioning UAMI
-- Roles confirmed: Event Hubs Data Receiver and Data Sender for the runtime UAMI; Cosmos DB Built-in Data Contributor remains assigned by the existing infrastructure; diagnostic-setting and authorization-rule management roles remain assigned to the provisioning UAMI
-- Scope: Event Hubs roles are namespace-scoped, Cosmos data access is account-scoped, and provisioning permissions are limited to the required subscription/resource operations
-- Issues: None
+**Validation timestamp:** 2026-09-24T08:56:49+02:00
 
 ---
 
-## 9. Files
+## 9. Role Assignment Verification
+
+- **Status:** Verified
+- **Identities checked:** `az-radar-uami`, `az-radar-dispatch-worker-uami`,
+  `az-radar-bot-gateway-uami`
+- **Role confirmed:** Azure Container Registry `AcrPull`
+  (`7f951dda-4ed3-4680-a7ca-43fe172d538d`)
+- **Scope:** The new ACR resource only
+- **Operations covered:** Runtime manifest and layer pulls for API, JobHost, dispatch worker, and
+  bot gateway
+- **Write access:** Not granted to runtime identities; image publication uses the authenticated
+  Azure CLI operator through ACR Tasks
+- **Issues:** None
+
+---
+
+## 10. Files to Generate or Modify
 
 | File | Purpose | Status |
 |------|---------|--------|
+| `prds/private-azure-container-registry.md` | Product and technical requirements | Complete |
 | `.azure/deployment-plan.md` | Deployment source of truth | Complete |
-| `infra/service-health.bicep` | Additive deployment entry point | Complete |
-| `infra/modules/event-hubs.bicep` | Event Hubs, private endpoint, DNS, and central RBAC | Complete |
-| `infra/modules/service-health-subscription.bicep` | Pilot subscription role and diagnostic setting | Complete |
-| `infra/modules/cosmos-service-health-containers.bicep` | Add two containers to existing Cosmos DB | Complete |
+| `infra/modules/container-registry.bicep` | ACR, private endpoint, DNS, and RBAC | Complete |
+| `infra/acr-rollout.bicep` | Isolated existing-environment ACR rollout | Complete |
+| `infra/modules/web-app.bicep` | Managed-identity ACR pull over VNet | Complete |
+| `infra/main.bicep` | Registry and image wiring | Complete |
+| `infra/main.bicepparam` | ACR-based image parameters | Complete |
+| `src/Dispatching/infra/main.bicep` | Dispatch App Service ACR pull configuration | Complete |
+| `infra/deploy-private-acr.ps1` | Staged private ACR deployment workflow | Complete |
+| `infra/publish-acr-images.ps1` | Credential-free ACR Tasks image publication | Complete |
+| `infra/deploy.ps1` | Full-platform validation and deployment workflow | Complete |
+| `infra/README.md` | Deployment and verification documentation | Complete |
 
 ---
 
-## 10. Rollback
+## 11. Deployment Results
 
-The deployment is additive. If validation or testing fails, stop before
-deleting resources. Any cleanup that deletes the diagnostic setting, Event
-Hubs namespace, identity, private endpoint, DNS zone, role assignments, or
-Cosmos containers requires separate explicit user approval.
+- **Completed:** 2026-09-24T11:24:58+02:00
+- **Registry:** `azrxon32oitl5v66.azurecr.io`
+- **SKU:** Premium
+- **Public network access:** Disabled
+- **Administrator account:** Disabled
+- **Anonymous pull:** Disabled
+- **Private endpoint:** `pe-azrxon32oitl5v66`, approved in `snet-private-endpoints`
+- **Private DNS:** `privatelink.azurecr.io` linked to `az-radar-vnet`
+- **Images:**
+  - `az-radar-api:blue` → `sha256:6d5f1cfaeaa2c2bdb605665697938e7c69ba3baba9a46e2fd228f8f68aeeb356`
+  - `az-radar-jobhost:green` → `sha256:6887f28e54a057e08d8669281288316a0f32af9f41bd779d21251897b27e2550`
+  - `az-radar-bot-gateway:blue` → `sha256:89867f64cefdb71396c0fd4779adb05861144a910e1a21d878bae85e09ec2cc9`
+  - `az-radar-dispatch-worker:blue` → `sha256:aaea633d6df65548c1bd1527d78db781cb9b729a47521741e295fb4785111abc`
+- **App Services:** All four are running from ACR with managed-identity credentials,
+  `imagePullTraffic=true`, `allTraffic=true`, and Always On enabled.
+- **API health:** `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`.
+- **UI:** `https://azr-api-x8c5i2.azurewebsites.net/` returned HTTP 200.
+- **Bot endpoint:** `https://az-radar-bot-ay637nckh3ebc.azurewebsites.net/api/messages`
+  returned HTTP 405 for GET, confirming the POST-only endpoint is reachable.
+- **Workers:** JobHost and dispatch worker each report one active App Service instance.
+- **Live RBAC:** All three expected identities have `AcrPull` scoped to the ACR.
+- **Resolved deployment issue:** The initial bootstrap attempt failed because ACR does not allow
+  export policy to be disabled while public access is temporarily enabled. The template now
+  enables export only during bootstrap and disables it in the final private state.
 
----
-
-## 11. Deployment Verification
-
-- Deployment: `service-health-pilot-20260910`
-- State: Succeeded
-- Event Hubs namespace:
-  `az-radar-service-health-qrdtyepf7wbja.servicebus.windows.net`
-- Event Hub: `service-health`
-- SKU: Standard. Central US rejected creation of a new Premium namespace.
-- Public network access: Disabled
-- Private endpoint: Approved and provisioned in `snet-private-endpoints`
-- Trusted Microsoft services: Enabled for Azure Monitor publishing
-- Diagnostic setting: `az-radar-service-health`
-- Exported Activity Log category: `ServiceHealth` only
-- Runtime identity: `az-radar-uami` has Azure Event Hubs Data Receiver on the
-  namespace
-- Provisioning identity client ID:
-  `a3bff8ed-6aa9-4306-a557-b02298edb876`
-- Provisioning identity has the custom diagnostic-setting role at subscription
-  scope and the Event Hub authorization-rule role at resource scope
-- Cosmos containers created with `/id` partition keys:
-  `service-health-subscriptions`, `service-health-channels`
-- Protected API/UI App Service remains running on
-  `DOCKER|moimhossain/az-radar-api:green`
-- Event Hubs currently reports zero incoming messages. No Service Health event
-  was published in the subscription during the verification window, and Azure
-  Monitor does not replay historical Activity Log entries when a diagnostic
-  setting is created.
-
-## 12. Next Step
-
-The Service Health configuration UI is live at
-`https://azr-api-x8c5i2.azurewebsites.net/service-health`. The pilot
-subscription is registered and verified as `active`.
-
-## 13. API/UI Deployment Verification
-
-- Image: `moimhossain/az-radar-api:blue`
-
----
-
-## 14. CloudLens Teams Dispatch Phase
-
-**Goal:** Deploy the isolated CloudLens Teams dispatch boundary through Azure
-Bot Service, a public minimal Bot Gateway, private Service Bus, and a private
-dispatch worker. Generate the tenant-uploadable Teams app package and stop for
-the user's Teams admin installation step.
-
-**Deployment boundary:** This phase creates only new dispatch resources and
-images. It does not modify, restart, or switch the existing production API/UI
-App Service. The related API/UI administration changes remain code-only until
-a separately authorized release.
-
-### Architecture
-
-| Component | Azure service | Configuration |
-|-----------|---------------|---------------|
-| Bot registration | Azure Bot Service | F0, Teams channel, UAMI-backed, CloudLens display identity |
-| Bot callback | Linux App Service | Dedicated B1 plan, public HTTPS `/api/messages`, Bot JWT validation |
-| Durable delivery | Service Bus | Premium namespace, private endpoint, duplicate detection |
-| Dispatch consumer | Linux App Service | Dedicated B1 plan, VNet integrated, Always On |
-| Runtime identities | User-assigned managed identities | Separate gateway and worker identities; bot UAMI also attached to worker for proactive sends |
-| Conversation state | Existing Cosmos account | Two `/id` containers for conversation references and delivery attempts |
-| Teams package | Repository artifact | Manifest and generated PNG icons branded CloudLens |
-
-### Provisioning Limit Checklist
-
-Quota CLI returned no provider-specific records for Microsoft.Web,
-Microsoft.ServiceBus, or Microsoft.Network in Central US. Azure Resource Graph
-counts and documented fixed limits are used for these unsupported quota
-surfaces.
-
-| Resource Type | Number to Deploy | Total After Deployment | Limit/Quota | Notes |
-|---------------|------------------|------------------------|-------------|-------|
-| `Microsoft.Web/serverfarms` | 2 | 4 | 100 per resource group in the documented App Service limit surface | Current Central US count: 2 |
-| `Microsoft.Web/sites` | 2 | 4 | App Service subscription limits remain well above the pilot count | Current Central US count: 2 |
-| `Microsoft.ServiceBus/namespaces` | 1 | 1 | 100 namespaces per subscription | Current Central US count: 0 |
-| `Microsoft.ManagedIdentity/userAssignedIdentities` | 2 | 8 | 200 per subscription | Current Central US count: 6 |
-| `Microsoft.BotService/botServices` | 1 | 1 | Pilot remains below documented subscription limits | Current count: 0 |
-| `Microsoft.Network/privateEndpoints` | 1 | 4 | 1,000 per VNet | Current Central US count: 3 |
-| Cosmos DB serverless containers | 2 | 17 | 25 per serverless account | Current target account count: 15 |
-
-**Status:** All planned dispatch resources are within the applicable limits.
-
-### Execution Checklist
-
-- [x] Implement dispatch contracts and Cosmos repository
-- [x] Implement transactional outbox publisher
-- [x] Implement Service Bus Teams delivery consumer
-- [x] Implement proactive Teams messaging and delivery audit
-- [x] Implement authenticated Bot Gateway and channel registration
-- [x] Add CloudLens Teams manifest and packaging script
-- [x] Add standalone Bicep and dispatch Dockerfiles
-- [x] Add administration API/UI support for discovered bot destinations
-- [x] Build solution, type-check UI, run dispatch tests, compile Bicep
-- [x] Confirm Central US subscription context from the approved pilot plan
-- [x] Check dispatch resource provisioning limits
-- [x] Mark dispatch phase Ready for Validation
-- [x] Invoke `azure-validate`
-  - [x] 1. Core Validation (CLI, authentication, Bicep build, ARM validation, and what-if)
-  - [x] 2. Docker Build (Bot Gateway and dispatch worker)
-  - [x] 3. Azure Policy Validation
-- [x] Build and push initial dispatch images
-- [x] Invoke `azure-deploy`
-- [x] Deploy and verify new dispatch resources
-- [x] Generate CloudLens Teams app package using the deployed Bot client ID
-- [x] Hand the package to the user for Teams admin portal upload and installation
-
-### Dispatch Role Assignment Verification
-
-- Status: Verified
-- Identities checked: `az-radar-bot-gateway-uami`,
-  `az-radar-dispatch-worker-uami`
-- Roles confirmed: gateway UAMI receives Cosmos DB Built-in Data Contributor;
-  worker UAMI receives Cosmos DB Built-in Data Contributor, Azure Service Bus
-  Data Sender, and Azure Service Bus Data Receiver at resource scope
-- Bot Connector authentication uses the gateway UAMI client ID through Azure
-  Bot Service and the Agents SDK; no credential or Azure data-plane role is
-  used for that OAuth flow
-- Issues: None
-
-### Dispatch Validation Proof
-
-| Check | Command Run | Result | Timestamp |
-|-------|-------------|--------|-----------|
-| Azure preflight | `validate-deployment.ps1 -Scope group -ResourceGroup az-radar-vnet-rg -Template .\src\Dispatching\infra\main.bicep -Parameters .\src\Dispatching\infra\main.bicepparam -Subscription 5e22addc-6168-4683-afd0-789a121ca5d3` | Pass: authenticated, Bicep compiled, ARM validation passed, what-if reported 20 creates, 0 modifies, 0 deletes | 2026-09-10T15:51:19+02:00 |
-| Solution build | `dotnet build AzRadar.slnx -p:Platform="Any CPU"` | Pass: 0 warnings, 0 errors | 2026-09-10T15:51:19+02:00 |
-| Dispatch tests | `dotnet test src\Dispatching\AzRadar.Dispatching.Tests\AzRadar.Dispatching.Tests.csproj --no-restore` | Pass: 4 tests | 2026-09-10T15:51:19+02:00 |
-| UI type check | `npx tsc --noEmit` from `src\az-radar-ui` | Pass | 2026-09-10T15:51:19+02:00 |
-| Bot Gateway image | Local Release publish plus `Dockerfile.prepublished` | Pass: `sha256:0c2e21282b7185aa7905e910a22ac66f0f53e820ac893d23ab178ad38c906562` | 2026-09-10T15:51:19+02:00 |
-| Dispatch worker image | Local Release publish plus `Dockerfile.prepublished` | Pass: `sha256:e334d87a44bbde737c87a98f7019678599aa2a7ccc222c1a6e95379eee2f2544` | 2026-09-10T15:51:19+02:00 |
-| Teams package | `package.ps1 -BotClientId 11111111-1111-1111-1111-111111111111` | Pass: manifest, color icon, and outline icon packaged | 2026-09-10T15:51:19+02:00 |
-| Azure policy review | `az policy assignment list --subscription 5e22addc-6168-4683-afd0-789a121ca5d3 --disable-scope-strict-match` | Pass: assigned Defender initiatives do not deny planned resource types | 2026-09-10T15:51:19+02:00 |
-
-### Dispatch Deployment Verification
-
-- Deployment: `cloudlens-teams-dispatch-20260910`
-- State: Succeeded
-- CloudLens Bot client ID: `8df1e881-4682-4919-88f0-9a5035a572d1`
-- Bot Gateway: `https://az-radar-bot-ay637nckh3ebc.azurewebsites.net`
-- Bot Gateway health: running
-- Azure Bot Teams channel: enabled and provisioned
-- Service Bus namespace: `az-radar-dispatch-ay637nckh3ebc`
-- Topic/subscription: `service-health-delivery` / `teams-realtime`
-- Dispatch worker image: `moimhossain/az-radar-dispatch-worker:green`
-- Dispatch worker ingress: disabled
-- Worker liveness: Service Bus reported active connections, opened connections,
-  successful requests, and incoming requests after the green deployment
-- Cosmos containers: `teams-conversation-references`,
-  `teams-delivery-attempts`, both partitioned by `/id`
-- Live RBAC: worker has Azure Service Bus Data Sender and Data Receiver;
-  gateway and worker have Cosmos DB Built-in Data Contributor
-- Teams package:
-  `src\Dispatching\TeamsApp\artifacts\CloudLens-Teams-App.zip`
-- Existing production API/UI App Service: unchanged
-- Docker digest:
-  `sha256:cab4d6e0008127a53c0ba9b941c6f5948ff1c41621eeb107956d96f3920591a3`
-- Existing runtime UAMI retained
-- Dedicated provisioning UAMI attached
-- Service Health API returned the registered subscription with status `active`
-- Verify endpoint successfully re-read and validated the subscription
-  diagnostic setting
-- Azure diagnostic setting remains enabled for `ServiceHealth` only
-- `/service-health` returned HTTP 200
-- Deployed JavaScript contains the subscription registration and platform
-  Teams channel configuration views
-
-## 14. Event Ingestion to Dispatcher Boundary
-
-The user approved implementation through the dispatcher handoff:
-
-- Consume `azradar-live` from the private Event Hub using the runtime UAMI.
-- Start from the earliest retained event when no partition checkpoint exists.
-- Normalize and deduplicate Service Health Activity Log records.
-- Persist raw payloads, normalized facts, AI enrichment, and Cosmos checkpoints.
-- Match enabled platform channel rules and create immutable pending delivery
-  intents, but do not send to Teams yet.
-- Quarantine malformed or oversized payloads without blocking a partition.
-- Add a configuration-gated UI/API test publisher that sends synthetic
-  Service Health records directly to Event Hubs using managed identity.
-- Display recent ingested events and pending delivery intents in the UI.
-
-Deployment additions:
-
-- Four Cosmos containers: events, delivery intents, checkpoints, quarantine.
-- Azure Event Hubs Data Sender for the runtime UAMI.
-- API image: current `blue`, deploy `green`.
-- JobHost image: current `green`, deploy `blue`.
-- Enable ingress only on JobHost.
-- Enable synthetic publishing only on the pilot API.
-
-Validation and deployment:
-
-- [x] Build solution
-- [x] Type-check UI
-- [x] Run targeted Service Health tests
-- [x] Validate updated scoped Bicep and what-if
-- [x] Deploy containers and sender RBAC
-- [x] Build and push API `green`
-- [x] Build and push JobHost `blue`
-- [x] Configure and deploy both applications
-- [x] Publish a synthetic event through the API
-- [x] Verify Event Hub consumption, Cosmos checkpoint, normalized event, and routing state
-- [x] Set status to `Deployed`
-
-### Ingestion deployment results
-
-- Infrastructure deployment `service-health-ingestion-20260910` succeeded.
-- API/UI runs `moimhossain/az-radar-api:green`.
-- JobHost runs `moimhossain/az-radar-jobhost:blue` with `Always On` enabled.
-- Runtime UAMI has Event Hubs Data Receiver, Event Hubs Data Sender, and Cosmos DB Built-in Data Contributor.
-- Synthetic event `TEST-20260910122732` was normalized and AI-enriched with routing status `ready-for-dispatch`.
-- Pending delivery intent `d9fa50ddc6e8081e73dcf4a29fb19f6c53b60918171f802657096693000e4849` was created for the pilot incident channel.
-- Event Hubs reported active consumer connections, outgoing messages, and no user errors.
-- External Teams delivery remains intentionally unimplemented.
-
-### Live Role Verification
-
-- Existing runtime UAMI principal `1d009d7d-59a6-489e-929d-2b1a6fe6f97b` has Azure Event Hubs Data Receiver and Azure Event Hubs Data Sender on the Service Health namespace.
-- The same principal has Cosmos DB Built-in Data Contributor on the AzRadar Cosmos account.
-- Status: Pass.
+Current phase: Deployed and verified.

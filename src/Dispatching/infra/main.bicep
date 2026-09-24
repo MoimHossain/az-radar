@@ -45,6 +45,12 @@ param gatewayImage string = 'moimhossain/az-radar-bot-gateway:blue'
 @description('Docker image for the dispatch worker.')
 param workerImage string = 'moimhossain/az-radar-dispatch-worker:blue'
 
+@description('Existing ACR name used by the dispatch App Services.')
+param containerRegistryName string = ''
+
+@description('Use managed-identity ACR pulls over VNet integration.')
+param usePrivateContainerRegistry bool = false
+
 @description('Provision Microsoft Teams channel dispatch resources. Keep true for existing direct deployments; the primary platform deployment opts in explicitly.')
 param deployTeamsDispatch bool = true
 
@@ -78,6 +84,10 @@ var keyVaultSecretsUserRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '4633458b-17de-408a-b874-0445c86b69e6'
 )
+var acrPullRoleDefinitionId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+)
 
 resource gatewayIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployTeamsDispatch) {
   name: '${namePrefix}-bot-gateway-uami'
@@ -89,6 +99,30 @@ resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-0
   name: '${namePrefix}-dispatch-worker-uami'
   location: location
   tags: tags
+}
+
+resource containerRegistry 'Microsoft.ContainerRegistry/registries@2025-04-01' existing = if (!empty(containerRegistryName)) {
+  name: containerRegistryName
+}
+
+resource gatewayAcrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployTeamsDispatch && !empty(containerRegistryName)) {
+  name: guid(containerRegistry!.id, gatewayIdentity!.id, acrPullRoleDefinitionId)
+  scope: containerRegistry
+  properties: {
+    principalId: gatewayIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRoleDefinitionId
+  }
+}
+
+resource workerAcrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(containerRegistryName)) {
+  name: guid(containerRegistry!.id, workerIdentity.id, acrPullRoleDefinitionId)
+  scope: containerRegistry
+  properties: {
+    principalId: workerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRoleDefinitionId
+  }
 }
 
 resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
@@ -463,7 +497,7 @@ var teamsWorkerSettings = deployTeamsDispatch ? concat([
 ]
 var cosmosEndpoint = cosmosAccount.properties.documentEndpoint
 
-resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = if (deployTeamsDispatch) {
+resource gatewayApp 'Microsoft.Web/sites@2024-11-01' = if (deployTeamsDispatch) {
   name: gatewayAppName
   location: location
   tags: tags
@@ -477,12 +511,15 @@ resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = if (deployTeamsDispatch) 
     httpsOnly: true
     publicNetworkAccess: 'Enabled'
     virtualNetworkSubnetId: gatewayIntegrationSubnetId
-    siteConfig: {
+    outboundVnetRouting: {
+      allTraffic: true
+      imagePullTraffic: usePrivateContainerRegistry
+    }
+    siteConfig: union({
       alwaysOn: true
       ftpsState: 'Disabled'
       linuxFxVersion: 'DOCKER|${gatewayImage}'
       minTlsVersion: '1.2'
-      vnetRouteAllEnabled: true
       appSettings: concat(commonContainerSettings, botConnectionSettings, [
         {
           name: 'TokenValidation__Audiences__0'
@@ -505,11 +542,14 @@ resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = if (deployTeamsDispatch) 
           value: gatewayIdentity!.properties.clientId
         }
       ])
-    }
+    }, usePrivateContainerRegistry ? {
+      acrUseManagedIdentityCreds: true
+      acrUserManagedIdentityID: gatewayIdentity!.properties.clientId
+    } : {})
   }
 }
 
-resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
+resource workerApp 'Microsoft.Web/sites@2024-11-01' = {
   name: workerAppName
   location: location
   tags: tags
@@ -523,12 +563,15 @@ resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
     httpsOnly: true
     publicNetworkAccess: 'Disabled'
     virtualNetworkSubnetId: workerIntegrationSubnetId
-    siteConfig: {
+    outboundVnetRouting: {
+      allTraffic: true
+      imagePullTraffic: usePrivateContainerRegistry
+    }
+    siteConfig: union({
       alwaysOn: true
       ftpsState: 'Disabled'
       linuxFxVersion: 'DOCKER|${workerImage}'
       minTlsVersion: '1.2'
-      vnetRouteAllEnabled: true
       appSettings: concat(commonContainerSettings, teamsWorkerSettings, [
         {
           name: 'DispatchingCosmos__Endpoint'
@@ -567,7 +610,10 @@ resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
           value: workerIdentity.properties.clientId
         }
       ])
-    }
+    }, usePrivateContainerRegistry ? {
+      acrUseManagedIdentityCreds: true
+      acrUserManagedIdentityID: workerIdentity.properties.clientId
+    } : {})
   }
 }
 
@@ -611,6 +657,7 @@ output teamsDispatchProvisioned bool = deployTeamsDispatch
 output botClientId string = deployTeamsDispatch ? gatewayIdentity!.properties.clientId : ''
 output botResourceName string = deployTeamsDispatch ? azureBot!.name : ''
 output botGatewayHostName string = deployTeamsDispatch ? gatewayApp!.properties.defaultHostName : ''
+output botGatewayAppName string = deployTeamsDispatch ? gatewayApp!.name : ''
 output workerAppName string = workerApp.name
 output serviceBusNamespace string = serviceBus.name
 output serviceBusTopic string = deliveryTopic.name

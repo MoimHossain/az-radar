@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Web App (Linux container) module
 // Deploys a containerized App Service that:
-//   * pulls its image from Docker Hub (public, no registry credentials),
+//   * pulls its image from ACR with a user-assigned managed identity,
 //   * is assigned one or more user-assigned managed identities,
 //   * is integrated into a delegated subnet with all outbound traffic routed
 //     through the VNet (so it reaches Cosmos DB via the private endpoint).
@@ -16,8 +16,11 @@ param name string
 @description('Resource id of the App Service Plan.')
 param planId string
 
-@description('Docker image reference, e.g. moimhossain/az-radar-api:blue')
+@description('Container image reference.')
 param dockerImage string
+
+@description('Client ID of the user-assigned identity used for ACR pulls. Empty keeps public-registry behavior.')
+param containerRegistryManagedIdentityClientId string = ''
 
 @description('Resource id of the delegated subnet used for VNet integration.')
 param vnetIntegrationSubnetId string
@@ -40,7 +43,7 @@ var identityObject = {
   )
 }
 
-resource site 'Microsoft.Web/sites@2023-12-01' = {
+resource site 'Microsoft.Web/sites@2024-11-01' = {
   name: name
   location: location
   tags: tags
@@ -51,16 +54,21 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
     httpsOnly: true
     // Regional VNet integration.
     virtualNetworkSubnetId: vnetIntegrationSubnetId
-    siteConfig: {
+    outboundVnetRouting: {
+      allTraffic: true
+      // Private ACR image pulls must traverse regional VNet integration.
+      imagePullTraffic: !empty(containerRegistryManagedIdentityClientId)
+    }
+    siteConfig: union({
       linuxFxVersion: 'DOCKER|${dockerImage}'
-      // Route ALL outbound app traffic through the VNet so private-endpoint
-      // DNS for Cosmos resolves and is reachable.
-      vnetRouteAllEnabled: true
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       appSettings: appSettings
-    }
+    }, empty(containerRegistryManagedIdentityClientId) ? {} : {
+      acrUseManagedIdentityCreds: true
+      acrUserManagedIdentityID: containerRegistryManagedIdentityClientId
+    })
   }
 }
 

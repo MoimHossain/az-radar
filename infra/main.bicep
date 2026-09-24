@@ -36,17 +36,39 @@ param apiAppName string = '${namePrefix}-api'
 @description('Globally-unique name for the JobHost web app (azurewebsites.net host).')
 param jobAppName string = '${namePrefix}-jobhost'
 
-@description('Docker Hub image for the API (SPA + REST).')
-param apiImage string = 'moimhossain/az-radar-api:blue'
+@description('Fallback public image for the API while bootstrapping ACR.')
+param apiImage string = 'moimhossain/az-radar-api:green'
 
-@description('Docker Hub image for the JobHost worker.')
-param jobImage string = 'moimhossain/az-radar-jobhost:green'
+@description('Fallback public image for the JobHost while bootstrapping ACR.')
+param jobImage string = 'moimhossain/az-radar-jobhost:blue'
 
-@description('Docker Hub image for the Teams Bot Gateway.')
-param botGatewayImage string = 'moimhossain/az-radar-bot-gateway:blue'
+@description('Fallback public image for the Teams Bot Gateway while bootstrapping ACR.')
+param botGatewayImage string = 'moimhossain/az-radar-bot-gateway:green'
 
-@description('Docker Hub image for the Service Health dispatch worker.')
-param dispatchWorkerImage string = 'moimhossain/az-radar-dispatch-worker:blue'
+@description('Fallback public image for the Service Health dispatch worker while bootstrapping ACR.')
+param dispatchWorkerImage string = 'moimhossain/az-radar-dispatch-worker:green'
+
+@description('Use the private ACR images instead of the public bootstrap images.')
+param usePrivateContainerRegistry bool = true
+
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+@description('ACR public network access. Enable only during the initial image publication.')
+param containerRegistryPublicNetworkAccess string = 'Disabled'
+
+@description('ACR tag for the API image.')
+param apiImageTag string = 'blue'
+
+@description('ACR tag for the JobHost image.')
+param jobImageTag string = 'green'
+
+@description('ACR tag for the Teams Bot Gateway image.')
+param botGatewayImageTag string = 'blue'
+
+@description('ACR tag for the Service Health dispatch worker image.')
+param dispatchWorkerImageTag string = 'blue'
 
 @description('Provision Microsoft Teams Bot Gateway, Azure Bot, channel, and Teams delivery resources. Azure DevOps Wiki dispatch remains enabled when false.')
 param deployTeamsDispatch bool = false
@@ -144,6 +166,38 @@ var appIdentityResourceIds = union(
 var cosmosDataPrincipalIds = union([identity.outputs.principalId], additionalCosmosDataPrincipalIds)
 var managedIdentityClientId = identity.outputs.clientId
 
+// ----------------------------- Container registry ------------------------
+
+module containerRegistry 'modules/container-registry.bicep' = {
+  name: 'container-registry'
+  params: {
+    location: location
+    namePrefix: namePrefix
+    vnetId: network.outputs.vnetId
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    publicNetworkAccess: containerRegistryPublicNetworkAccess
+    pullPrincipalIds: [
+      identity.outputs.principalId
+    ]
+    tags: union(tags, {
+      component: 'container-registry'
+    })
+  }
+}
+
+var effectiveApiImage = usePrivateContainerRegistry
+  ? '${containerRegistry.outputs.loginServer}/az-radar-api:${apiImageTag}'
+  : apiImage
+var effectiveJobImage = usePrivateContainerRegistry
+  ? '${containerRegistry.outputs.loginServer}/az-radar-jobhost:${jobImageTag}'
+  : jobImage
+var effectiveBotGatewayImage = usePrivateContainerRegistry
+  ? '${containerRegistry.outputs.loginServer}/az-radar-bot-gateway:${botGatewayImageTag}'
+  : botGatewayImage
+var effectiveDispatchWorkerImage = usePrivateContainerRegistry
+  ? '${containerRegistry.outputs.loginServer}/az-radar-dispatch-worker:${dispatchWorkerImageTag}'
+  : dispatchWorkerImage
+
 // ----------------------------- Cosmos DB ----------------------------------
 
 module cosmos 'modules/cosmos.bicep' = {
@@ -201,8 +255,10 @@ module dispatching '../src/Dispatching/infra/main.bicep' = {
     workerIntegrationSubnetId: network.outputs.jobSubnetId
     vnetName: network.outputs.vnetName
     apiPrincipalId: identity.outputs.principalId
-    gatewayImage: botGatewayImage
-    workerImage: dispatchWorkerImage
+    gatewayImage: effectiveBotGatewayImage
+    workerImage: effectiveDispatchWorkerImage
+    containerRegistryName: containerRegistry.outputs.name
+    usePrivateContainerRegistry: usePrivateContainerRegistry
     deployTeamsDispatch: deployTeamsDispatch
     appServicePlanSku: appServicePlanSku
     tags: union(tags, {
@@ -304,7 +360,8 @@ module apiApp 'modules/web-app.bicep' = {
     location: location
     name: apiAppName
     planId: apiPlan.outputs.planId
-    dockerImage: apiImage
+    dockerImage: effectiveApiImage
+    containerRegistryManagedIdentityClientId: usePrivateContainerRegistry ? managedIdentityClientId : ''
     vnetIntegrationSubnetId: network.outputs.apiSubnetId
     userAssignedIdentityIds: appIdentityResourceIds
     appSettings: commonCosmosSettings
@@ -318,7 +375,8 @@ module jobApp 'modules/web-app.bicep' = {
     location: location
     name: jobAppName
     planId: jobPlan.outputs.planId
-    dockerImage: jobImage
+    dockerImage: effectiveJobImage
+    containerRegistryManagedIdentityClientId: usePrivateContainerRegistry ? managedIdentityClientId : ''
     vnetIntegrationSubnetId: network.outputs.jobSubnetId
     userAssignedIdentityIds: appIdentityResourceIds
     appSettings: commonCosmosSettings
@@ -333,6 +391,10 @@ output cosmosEndpoint string = cosmos.outputs.endpoint
 output apiHostName string = apiApp.outputs.defaultHostName
 output jobHostName string = jobApp.outputs.defaultHostName
 output vnetId string = network.outputs.vnetId
+output containerRegistryName string = containerRegistry.outputs.name
+output containerRegistryLoginServer string = containerRegistry.outputs.loginServer
+output apiAppName string = apiApp.outputs.siteName
+output jobAppName string = jobApp.outputs.siteName
 
 // UAMI details — use these to MANUALLY grant the identity access to the Azure
 // OpenAI / AI Foundry resource (Cognitive Services OpenAI User role). That
@@ -352,6 +414,7 @@ output dispatchServiceBusTopic string = dispatching.outputs.serviceBusTopic
 output dispatchWorkerAppName string = dispatching.outputs.workerAppName
 output teamsDispatchProvisioned bool = dispatching.outputs.teamsDispatchProvisioned
 output botGatewayHostName string = dispatching.outputs.botGatewayHostName
+output botGatewayAppName string = dispatching.outputs.botGatewayAppName
 output azureDevOpsWikiKeyVaultName string = dispatching.outputs.wikiKeyVaultName
 output azureDevOpsWikiKeyVaultUri string = effectiveAzureDevOpsWikiKeyVaultUri
 
