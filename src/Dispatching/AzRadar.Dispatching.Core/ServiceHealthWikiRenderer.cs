@@ -398,12 +398,16 @@ _This page is automatically generated and maintained by CloudLens Service Health
         Escape(Value(item.Service, item.LlmAnalysis?.AffectedServices.FirstOrDefault(), "Not specified by Microsoft"));
 
     private static string Regions(ServiceHealthEvent item) =>
-        Escape(Value(
-            item.Region,
-            item.LlmAnalysis?.AffectedRegions.Count > 0
-                ? string.Join(", ", item.LlmAnalysis.AffectedRegions)
-                : null,
-            "Global or not specified by Microsoft"));
+        item.AffectedRegions.Count > 0
+            ? Escape(string.Join(", ", item.AffectedRegions))
+            : item.RegionScope == ServiceHealthRegionScopes.Global
+                ? "Global"
+                : Escape(Value(
+                    item.Region,
+                    item.LlmAnalysis?.AffectedRegions.Count > 0
+                        ? string.Join(", ", item.LlmAnalysis.AffectedRegions)
+                        : null,
+                    "Global or not specified by Microsoft"));
 
     private static string Severity(ServiceHealthEvent item) =>
         Escape(Value(item.LlmAnalysis?.Severity, item.Level, "Not specified by Microsoft"));

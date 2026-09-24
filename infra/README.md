@@ -17,6 +17,12 @@ Infrastructure-as-Code for the **VNet-protected** AzRadar platform.
 | Web apps (`*-api`, `*-jobhost`) | Containerized (Docker Hub), VNet-integrated, UAMI-assigned |
 | User-assigned managed identity (`*-uami`) | Created by this template; used for Cosmos + LLM auth |
 | Cosmos data-plane role assignments | Built-in **Cosmos DB Data Contributor** for the created identity |
+| Service Bus + dispatch topic/subscriptions | Durable Service Health delivery for Teams and Azure DevOps Wiki targets |
+| Dispatch worker | Always provisioned for Azure DevOps Wiki delivery; also handles Teams delivery when enabled |
+| Bot Gateway + Azure Bot | Optional Teams registration and Bot Framework resources (`deployTeamsDispatch=true`) |
+| Azure DevOps Wiki Key Vault (`*-wiki-*`) | Private, RBAC-only PAT storage with purge protection |
+| Private DNS zone `privatelink.vaultcore.azure.net` | Resolves the Wiki Key Vault to its private endpoint |
+| Key Vault role assignments | API identity is **Key Vault Secrets Officer**; dispatch worker is **Key Vault Secrets User** |
 | **Azure OpenAI (`*-openai-*`)** _(optional)_ | **VNet-protected**, **public access disabled**, AAD-only, private endpoint only, with a `gpt-4o` deployment. Enabled with `deployOpenAi=true`. |
 | Private DNS zone `privatelink.openai.azure.com` _(optional)_ | Resolves the OpenAI account to its private IP |
 | OpenAI role assignment _(optional)_ | Built-in **Cognitive Services OpenAI User** for the created identity |
@@ -90,6 +96,9 @@ curl https://<api-host>/api/health/llm   # 200 = reachable, 503 = unreachable
 ## Authentication — no keys
 
 * Cosmos DB has `disableLocalAuth = true` (account keys disabled).
+* Service Bus has local authentication disabled.
+* The Azure DevOps Wiki Key Vault uses Azure RBAC, disables public access, and
+  grants least-privilege secret access to the API and dispatch worker identities.
 * Apps authenticate to **Cosmos DB** and **Azure OpenAI** with a
   **user-assigned managed identity** via `DefaultAzureCredential`.
 * This template **creates the identity** and grants it the **Cosmos DB Built-in
@@ -140,7 +149,10 @@ Edit `main.bicepparam`:
 | `additionalCosmosDataPrincipalIds` | Optional extra principals to grant Cosmos access |
 | `openAiEndpoint` | Public Azure OpenAI endpoint (out of IaC scope) |
 | `openAiDeploymentName` | Model deployment name (e.g. `gpt-4o`) |
-| `apiImage` / `jobImage` | Docker Hub image tags (blue/green; no ACR) |
+| `azureDevOpsWikiKeyVaultUri` | Optional external vault override; normally leave empty so the deployment creates and wires its own private vault |
+| `apiImage` / `jobImage` | API and JobHost Docker Hub image tags (blue/green; no ACR) |
+| `botGatewayImage` / `dispatchWorkerImage` | Service Health dispatch Docker Hub image tags (blue/green; no ACR) |
+| `deployTeamsDispatch` | Defaults to `false`; set to `true` to provision the Bot Gateway, Azure Bot, Teams channel/subscription, and Teams worker configuration |
 
 ## Deploy
 
@@ -166,6 +178,23 @@ az webapp restart -g az-radar-rg -n az-radar-api
 az webapp restart -g az-radar-rg -n az-radar-jobhost
 ```
 
+The standard deployment is additive over an earlier AzRadar installation. If
+the dispatch stack or Wiki Key Vault is absent, rerunning this command creates
+and wires those resources without requiring a PAT or vault URI in the parameter
+file. Existing Wiki secrets remain in Key Vault across subsequent deployments.
+
+Teams dispatch is opt-in for the primary deployment:
+
+```bicep
+param deployTeamsDispatch = true
+```
+
+Keep this value `true` when upgrading an environment that already uses Teams channel dispatch.
+When it is `false`, the deployment still provisions the complete Azure DevOps Wiki path: Service
+Bus, Wiki subscription, dispatch worker, Cosmos persistence, private Key Vault, private networking,
+and managed-identity RBAC. Teams-only identities, compute, bot, channel, subscription, and Cosmos
+containers are not provisioned.
+
 ## Validate
 
 ```powershell
@@ -174,6 +203,10 @@ az cosmosdb show -g az-radar-rg -n <cosmosAccountName> --query publicNetworkAcce
 
 # Apps are VNet-integrated
 az webapp show -g az-radar-rg -n az-radar-api --query virtualNetworkSubnetId
+
+# Wiki PAT storage is private and RBAC-only
+az keyvault show -g az-radar-rg -n <azureDevOpsWikiKeyVaultName> `
+  --query "{publicNetworkAccess:properties.publicNetworkAccess,rbac:properties.enableRbacAuthorization}"
 
 # End-to-end: API reaches Cosmos through the private endpoint
 curl https://az-radar-api.azurewebsites.net/api/health

@@ -53,6 +53,18 @@ public static class ServiceHealthEventNormalizer
             ReadString(record, "correlationId"),
             eventDataId);
         var eventType = ClassifyEventType(incidentType, operationName, properties);
+        var sourceRegions = ReadRegionValues(properties);
+        var affectedRegions = AzureRegionResolver.NormalizeRegions(
+            sourceRegions,
+            out var unresolvedRegions,
+            out var isGlobal);
+        var regionScope = isGlobal
+            ? ServiceHealthRegionScopes.Global
+            : affectedRegions.Count > 0
+                ? ServiceHealthRegionScopes.Regional
+                : unresolvedRegions.Count > 0
+                    ? ServiceHealthRegionScopes.Unknown
+                    : ServiceHealthRegionScopes.Unscoped;
 
         return new ServiceHealthEvent
         {
@@ -74,9 +86,14 @@ public static class ServiceHealthEventNormalizer
                 ReadString(properties, "description"),
                 ReadString(properties, "communication")),
             Service = ReadString(properties, "service"),
-            Region = FirstNonEmpty(
-                ReadString(properties, "region"),
-                ReadString(properties, "impactedRegion")),
+            Region = affectedRegions.Count > 0
+                ? string.Join(", ", affectedRegions)
+                : isGlobal
+                    ? "Global"
+                    : FirstNonEmpty(sourceRegions.ToArray()),
+            AffectedRegions = [.. affectedRegions],
+            UnresolvedRegionValues = [.. unresolvedRegions],
+            RegionScope = regionScope,
             OperationName = operationName,
             EventTimestamp = ReadDateTime(record, "eventTimestamp") ??
                              ReadDateTime(record, "time") ??
@@ -121,6 +138,49 @@ public static class ServiceHealthEventNormalizer
             signal.Contains("serviceissue", StringComparison.OrdinalIgnoreCase))
             return ServiceHealthEventTypes.ServiceIssue;
         return ServiceHealthEventTypes.HealthAdvisory;
+    }
+
+    private static IReadOnlyList<string> ReadRegionValues(JsonElement properties)
+    {
+        foreach (var propertyName in new[] { "regions", "affectedRegions", "region", "impactedRegion" })
+        {
+            if (properties.ValueKind != JsonValueKind.Object ||
+                !properties.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            var regions = ReadStringValues(value);
+            if (regions.Count > 0)
+                return regions;
+        }
+
+        return [];
+    }
+
+    private static IReadOnlyList<string> ReadStringValues(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            return value.EnumerateArray()
+                .Select(item => item.ValueKind == JsonValueKind.String
+                    ? item.GetString()
+                    : item.ToString())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!.Trim())
+                .ToList();
+        }
+
+        var scalar = value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : value.ToString();
+        if (string.IsNullOrWhiteSpace(scalar))
+            return [];
+
+        return scalar.Split(
+                [',', ';', '|'],
+                StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
     }
 
     private static string ReadString(JsonElement element, string propertyName)

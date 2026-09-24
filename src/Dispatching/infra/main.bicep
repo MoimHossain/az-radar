@@ -45,6 +45,9 @@ param gatewayImage string = 'moimhossain/az-radar-bot-gateway:blue'
 @description('Docker image for the dispatch worker.')
 param workerImage string = 'moimhossain/az-radar-dispatch-worker:blue'
 
+@description('Provision Microsoft Teams channel dispatch resources. Keep true for existing direct deployments; the primary platform deployment opts in explicitly.')
+param deployTeamsDispatch bool = true
+
 @description('Linux App Service plan SKU.')
 param appServicePlanSku string = 'B1'
 
@@ -76,7 +79,7 @@ var keyVaultSecretsUserRoleId = subscriptionResourceId(
   '4633458b-17de-408a-b874-0445c86b69e6'
 )
 
-resource gatewayIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource gatewayIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployTeamsDispatch) {
   name: '${namePrefix}-bot-gateway-uami'
   location: location
   tags: tags
@@ -118,7 +121,7 @@ resource deliveryTopic 'Microsoft.ServiceBus/namespaces/topics@2024-01-01' = {
   }
 }
 
-resource teamsSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2024-01-01' = {
+resource teamsSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2024-01-01' = if (deployTeamsDispatch) {
   parent: deliveryTopic
   name: teamsSubscriptionName
   properties: {
@@ -129,7 +132,7 @@ resource teamsSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions
   }
 }
 
-resource teamsSubscriptionRule 'Microsoft.ServiceBus/namespaces/topics/subscriptions/rules@2024-01-01' = {
+resource teamsSubscriptionRule 'Microsoft.ServiceBus/namespaces/topics/subscriptions/rules@2024-01-01' = if (deployTeamsDispatch) {
   parent: teamsSubscription
   name: 'teams-target-filter'
   properties: {
@@ -234,7 +237,7 @@ resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024
   name: cosmosDatabaseName
 }
 
-resource conversationReferences 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
+resource conversationReferences 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = if (deployTeamsDispatch) {
   parent: cosmosDatabase
   name: 'teams-conversation-references'
   properties: {
@@ -250,7 +253,7 @@ resource conversationReferences 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
   }
 }
 
-resource deliveryAttempts 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
+resource deliveryAttempts 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = if (deployTeamsDispatch) {
   parent: cosmosDatabase
   name: 'teams-delivery-attempts'
   properties: {
@@ -266,11 +269,11 @@ resource deliveryAttempts 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/co
   }
 }
 
-resource gatewayCosmosRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
+resource gatewayCosmosRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = if (deployTeamsDispatch) {
   parent: cosmosAccount
-  name: guid(cosmosAccount.id, gatewayIdentity.id, cosmosDataContributorRoleId)
+  name: guid(cosmosAccount.id, gatewayIdentity!.id, cosmosDataContributorRoleId)
   properties: {
-    principalId: gatewayIdentity.properties.principalId
+    principalId: gatewayIdentity!.properties.principalId
     roleDefinitionId: cosmosDataContributorRoleId
     scope: cosmosAccount.id
   }
@@ -384,7 +387,7 @@ resource workerKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01'
   }
 }
 
-resource gatewayPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+resource gatewayPlan 'Microsoft.Web/serverfarms@2023-12-01' = if (deployTeamsDispatch) {
   name: '${namePrefix}-bot-plan'
   location: location
   tags: tags
@@ -410,11 +413,13 @@ resource workerPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
-var gatewayIdentityMap = {
-  '${gatewayIdentity.id}': {}
-}
-var workerIdentityMap = {
-  '${gatewayIdentity.id}': {}
+var gatewayIdentityMap = deployTeamsDispatch ? {
+  '${gatewayIdentity!.id}': {}
+} : {}
+var workerIdentityMap = deployTeamsDispatch ? {
+  '${gatewayIdentity!.id}': {}
+  '${workerIdentity.id}': {}
+} : {
   '${workerIdentity.id}': {}
 }
 var commonContainerSettings = [
@@ -427,9 +432,38 @@ var commonContainerSettings = [
     value: 'false'
   }
 ]
+var botConnectionSettings = [
+  {
+    name: 'Connections__ServiceConnection__Settings__AuthType'
+    value: 'UserManagedIdentity'
+  }
+  {
+    name: 'Connections__ServiceConnection__Settings__ClientId'
+    value: gatewayIdentity!.properties.clientId
+  }
+  {
+    name: 'Connections__ServiceConnection__Settings__Scopes__0'
+    value: 'https://api.botframework.com/.default'
+  }
+]
+var teamsWorkerSettings = deployTeamsDispatch ? concat([
+  {
+    name: 'TeamsDispatch__Enabled'
+    value: 'true'
+  }
+  {
+    name: 'DispatchingServiceBus__TeamsSubscriptionName'
+    value: teamsSubscriptionName
+  }
+], botConnectionSettings) : [
+  {
+    name: 'TeamsDispatch__Enabled'
+    value: 'false'
+  }
+]
 var cosmosEndpoint = cosmosAccount.properties.documentEndpoint
 
-resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = {
+resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = if (deployTeamsDispatch) {
   name: gatewayAppName
   location: location
   tags: tags
@@ -439,7 +473,7 @@ resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = {
     userAssignedIdentities: gatewayIdentityMap
   }
   properties: {
-    serverFarmId: gatewayPlan.id
+    serverFarmId: gatewayPlan!.id
     httpsOnly: true
     publicNetworkAccess: 'Enabled'
     virtualNetworkSubnetId: gatewayIntegrationSubnetId
@@ -449,22 +483,10 @@ resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = {
       linuxFxVersion: 'DOCKER|${gatewayImage}'
       minTlsVersion: '1.2'
       vnetRouteAllEnabled: true
-      appSettings: concat(commonContainerSettings, [
-        {
-          name: 'Connections__ServiceConnection__Settings__AuthType'
-          value: 'UserManagedIdentity'
-        }
-        {
-          name: 'Connections__ServiceConnection__Settings__ClientId'
-          value: gatewayIdentity.properties.clientId
-        }
-        {
-          name: 'Connections__ServiceConnection__Settings__Scopes__0'
-          value: 'https://api.botframework.com/.default'
-        }
+      appSettings: concat(commonContainerSettings, botConnectionSettings, [
         {
           name: 'TokenValidation__Audiences__0'
-          value: gatewayIdentity.properties.clientId
+          value: gatewayIdentity!.properties.clientId
         }
         {
           name: 'TokenValidation__TenantId'
@@ -480,7 +502,7 @@ resource gatewayApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'DispatchingCosmos__ManagedIdentityClientId'
-          value: gatewayIdentity.properties.clientId
+          value: gatewayIdentity!.properties.clientId
         }
       ])
     }
@@ -507,19 +529,7 @@ resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
       linuxFxVersion: 'DOCKER|${workerImage}'
       minTlsVersion: '1.2'
       vnetRouteAllEnabled: true
-      appSettings: concat(commonContainerSettings, [
-        {
-          name: 'Connections__ServiceConnection__Settings__AuthType'
-          value: 'UserManagedIdentity'
-        }
-        {
-          name: 'Connections__ServiceConnection__Settings__ClientId'
-          value: gatewayIdentity.properties.clientId
-        }
-        {
-          name: 'Connections__ServiceConnection__Settings__Scopes__0'
-          value: 'https://api.botframework.com/.default'
-        }
+      appSettings: concat(commonContainerSettings, teamsWorkerSettings, [
         {
           name: 'DispatchingCosmos__Endpoint'
           value: cosmosEndpoint
@@ -539,10 +549,6 @@ resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'DispatchingServiceBus__TopicName'
           value: topicName
-        }
-        {
-          name: 'DispatchingServiceBus__TeamsSubscriptionName'
-          value: teamsSubscriptionName
         }
         {
           name: 'DispatchingServiceBus__WikiSubscriptionName'
@@ -565,7 +571,7 @@ resource workerApp 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
-resource azureBot 'Microsoft.BotService/botServices@2023-09-15-preview' = {
+resource azureBot 'Microsoft.BotService/botServices@2023-09-15-preview' = if (deployTeamsDispatch) {
   name: botResourceName
   location: 'global'
   tags: tags
@@ -576,9 +582,9 @@ resource azureBot 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   properties: {
     displayName: 'CloudLens Service Health Alerts'
     disableLocalAuth: true
-    endpoint: 'https://${gatewayApp.properties.defaultHostName}/api/messages'
-    msaAppId: gatewayIdentity.properties.clientId
-    msaAppMSIResourceId: gatewayIdentity.id
+    endpoint: 'https://${gatewayApp!.properties.defaultHostName}/api/messages'
+    msaAppId: gatewayIdentity!.properties.clientId
+    msaAppMSIResourceId: gatewayIdentity!.id
     msaAppTenantId: tenant().tenantId
     msaAppType: 'UserAssignedMSI'
     publicNetworkAccess: 'Enabled'
@@ -586,7 +592,7 @@ resource azureBot 'Microsoft.BotService/botServices@2023-09-15-preview' = {
   }
 }
 
-resource teamsChannel 'Microsoft.BotService/botServices/channels@2023-09-15-preview' = {
+resource teamsChannel 'Microsoft.BotService/botServices/channels@2023-09-15-preview' = if (deployTeamsDispatch) {
   parent: azureBot
   name: 'MsTeamsChannel'
   location: 'global'
@@ -601,13 +607,14 @@ resource teamsChannel 'Microsoft.BotService/botServices/channels@2023-09-15-prev
   }
 }
 
-output botClientId string = gatewayIdentity.properties.clientId
-output botResourceName string = azureBot.name
-output botGatewayHostName string = gatewayApp.properties.defaultHostName
+output teamsDispatchProvisioned bool = deployTeamsDispatch
+output botClientId string = deployTeamsDispatch ? gatewayIdentity!.properties.clientId : ''
+output botResourceName string = deployTeamsDispatch ? azureBot!.name : ''
+output botGatewayHostName string = deployTeamsDispatch ? gatewayApp!.properties.defaultHostName : ''
 output workerAppName string = workerApp.name
 output serviceBusNamespace string = serviceBus.name
 output serviceBusTopic string = deliveryTopic.name
-output teamsSubscription string = teamsSubscription.name
+output teamsSubscription string = deployTeamsDispatch ? teamsSubscription!.name : ''
 output wikiSubscription string = wikiSubscription.name
 output wikiKeyVaultName string = wikiKeyVault.name
 output wikiKeyVaultUri string = wikiKeyVault.properties.vaultUri

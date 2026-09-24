@@ -72,6 +72,22 @@ public sealed class DispatchingRepository
         return results;
     }
 
+    public async Task<IReadOnlyList<ServiceHealthEvent>> GetProjectionEventsAsync(
+        CancellationToken cancellationToken)
+    {
+        var query = _events.GetItemQueryIterator<ServiceHealthEvent>(
+            new QueryDefinition("SELECT * FROM c ORDER BY c.receivedAt DESC"),
+            requestOptions: new QueryRequestOptions { MaxItemCount = 500 });
+        var results = new List<ServiceHealthEvent>();
+        while (query.HasMoreResults)
+        {
+            var response = await query.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+
+        return results;
+    }
+
     public async Task<ServiceHealthNotificationChannel?> GetChannelAsync(
         string id,
         CancellationToken cancellationToken) =>

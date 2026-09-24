@@ -528,6 +528,8 @@ app.MapPost("/api/service-health/wiki-targets", async (
     {
         return Results.BadRequest(new { error = "Managed identity client ID must be a valid GUID." });
     }
+    if (!TryNormalizeRegions(request.IncludedRegions, 1, 100, out var includedRegions, out var regionError))
+        return Results.BadRequest(new { error = regionError });
 
     var existingTargets = (await db.GetServiceHealthChannelsAsync())
         .Where(channel => channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki)
@@ -553,7 +555,8 @@ app.MapPost("/api/service-health/wiki-targets", async (
         ManagedIdentityClientId = request.ManagedIdentityClientId?.Trim() ?? string.Empty,
         CredentialExpiresAt = request.CredentialExpiresAt,
         RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Pending,
-        SubscribedEventTypes = ServiceHealthEventTypes.Supported.OrderBy(value => value).ToList()
+        SubscribedEventTypes = ServiceHealthEventTypes.Supported.OrderBy(value => value).ToList(),
+        IncludedRegions = includedRegions
     };
 
     if (target.AuthenticationType == AzureDevOpsAuthenticationTypes.PersonalAccessToken)
@@ -631,6 +634,31 @@ app.MapPost("/api/service-health/wiki-targets", async (
     }
 });
 
+app.MapPut("/api/service-health/wiki-targets/{id}", async (
+    string id,
+    UpdateAzureDevOpsWikiTargetRequest request,
+    ICosmosDbService db) =>
+{
+    var target = (await db.GetServiceHealthChannelsAsync())
+        .FirstOrDefault(channel =>
+            channel.Id == id &&
+            channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki);
+    if (target == null) return Results.NotFound();
+    if (string.IsNullOrWhiteSpace(request.DisplayName))
+        return Results.BadRequest(new { error = "Display name is required." });
+    if (!TryNormalizeRegions(request.IncludedRegions, 1, 100, out var includedRegions, out var regionError))
+        return Results.BadRequest(new { error = regionError });
+
+    target.DisplayName = request.DisplayName.Trim();
+    target.IncludedRegions = includedRegions;
+    target.UpdatedAt = DateTimeOffset.UtcNow;
+    if (target.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.ConfigurationRequired)
+        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered;
+    var saved = await db.UpsertServiceHealthChannelAsync(target);
+    await QueueWikiRefreshAsync(saved, db, "TargetRegionsUpdated");
+    return Results.Ok(ToServiceHealthChannelResponse(saved));
+});
+
 app.MapPut("/api/service-health/wiki-targets/{id}/credential", async (
     string id,
     UpdateAzureDevOpsWikiCredentialRequest request,
@@ -673,9 +701,12 @@ app.MapPut("/api/service-health/wiki-targets/{id}/credential", async (
         target.AzureDevOpsPagePath = snapshot.PagePath;
         target.LastExternalVersion = snapshot.ETag;
         target.LastAttemptedAt = DateTimeOffset.UtcNow;
-        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered;
+        target.RegistrationStatus = target.IncludedRegions.Count > 0
+            ? ServiceHealthChannelRegistrationStatuses.Registered
+            : ServiceHealthChannelRegistrationStatuses.ConfigurationRequired;
         var saved = await db.UpsertServiceHealthChannelAsync(target);
-        await QueueWikiRefreshAsync(saved, db, "CredentialUpdated");
+        if (saved.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.Registered)
+            await QueueWikiRefreshAsync(saved, db, "CredentialUpdated");
         return Results.Ok(ToServiceHealthChannelResponse(saved));
     }
     catch (AzureDevOpsWikiException ex)
@@ -710,7 +741,9 @@ app.MapPost("/api/service-health/wiki-targets/{id}/test", async (
         target.LastExternalVersion = snapshot.ETag;
         target.LastErrorCode = null;
         target.LastErrorMessage = null;
-        target.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered;
+        target.RegistrationStatus = target.IncludedRegions.Count > 0
+            ? ServiceHealthChannelRegistrationStatuses.Registered
+            : ServiceHealthChannelRegistrationStatuses.ConfigurationRequired;
         var saved = await db.UpsertServiceHealthChannelAsync(target);
         return Results.Ok(ToServiceHealthChannelResponse(saved));
     }
@@ -736,8 +769,12 @@ app.MapPost("/api/service-health/wiki-targets/{id}/publish", async (
             channel.Id == id &&
             channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki);
     if (target == null) return Results.NotFound();
-    if (target.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.Disabled)
-        return Results.BadRequest(new { error = "The Azure DevOps Wiki target is disabled." });
+    if (target.RegistrationStatus is ServiceHealthChannelRegistrationStatuses.Disabled or
+        ServiceHealthChannelRegistrationStatuses.ConfigurationRequired ||
+        target.IncludedRegions.Count == 0)
+    {
+        return Results.BadRequest(new { error = "The Azure DevOps Wiki target requires at least one Azure region." });
+    }
 
     var intent = await QueueWikiRefreshAsync(target, db, "ManualPublish");
     return Results.Accepted(
@@ -823,6 +860,8 @@ app.MapPost("/api/service-health/test-events", async (
         return Results.BadRequest(new { error = "Subscription ID must be a valid GUID." });
     if (!ServiceHealthEventTypes.Supported.Contains(request.EventType))
         return Results.BadRequest(new { error = $"Unsupported Service Health event type '{request.EventType}'." });
+    if (!TryNormalizeSyntheticRegions(request.Regions, out var regions, out var regionError))
+        return Results.BadRequest(new { error = regionError });
 
     var subscriptionId = subscriptionGuid.ToString();
     var subscription = await db.GetServiceHealthSubscriptionAsync(subscriptionId);
@@ -831,7 +870,7 @@ app.MapPost("/api/service-health/test-events", async (
 
     var eventType = ServiceHealthEventTypes.Supported.First(
         supported => string.Equals(supported, request.EventType, StringComparison.OrdinalIgnoreCase));
-    var result = await publisher.PublishAsync(subscriptionId, eventType);
+    var result = await publisher.PublishAsync(subscriptionId, eventType, regions);
     return Results.Accepted("/api/service-health/events", result);
 });
 
@@ -995,9 +1034,13 @@ public record CreateAzureDevOpsWikiTargetRequest(
     string DisplayName,
     string WikiUri,
     string AuthenticationType,
+    List<string> IncludedRegions,
     string? PersonalAccessToken = null,
     string? ManagedIdentityClientId = null,
     DateTimeOffset? CredentialExpiresAt = null);
+public record UpdateAzureDevOpsWikiTargetRequest(
+    string DisplayName,
+    List<string> IncludedRegions);
 public record UpdateAzureDevOpsWikiCredentialRequest(
     string AuthenticationType,
     string? PersonalAccessToken = null,
@@ -1005,7 +1048,8 @@ public record UpdateAzureDevOpsWikiCredentialRequest(
     DateTimeOffset? CredentialExpiresAt = null);
 public record PublishServiceHealthTestEventRequest(
     string SubscriptionId,
-    string EventType = ServiceHealthEventTypes.ServiceIssue);
+    string EventType = ServiceHealthEventTypes.ServiceIssue,
+    List<string>? Regions = null);
 
 public partial class Program
 {
@@ -1079,6 +1123,7 @@ public partial class Program
         channel.CredentialExpiresAt,
         channel.RegistrationStatus,
         channel.SubscribedEventTypes,
+        channel.IncludedRegions,
         channel.CreatedAt,
         channel.UpdatedAt,
         channel.LastRegisteredAt,
@@ -1113,5 +1158,72 @@ public partial class Program
         };
         await db.TryCreateServiceHealthDeliveryIntentAsync(intent);
         return intent;
+    }
+
+    private static bool TryNormalizeRegions(
+        IEnumerable<string>? sourceRegions,
+        int minimum,
+        int maximum,
+        out List<string> regions,
+        out string? error)
+    {
+        regions = [];
+        error = null;
+        var values = sourceRegions?.ToList() ?? [];
+        if (values.Count < minimum || values.Count > maximum)
+        {
+            error = $"Select between {minimum} and {maximum} Azure regions.";
+            return false;
+        }
+
+        foreach (var value in values)
+        {
+            if (!AzureRegionResolver.TryResolve(value, out var canonicalRegion))
+            {
+                error = $"Unknown Azure region '{value}'.";
+                return false;
+            }
+            if (!regions.Contains(canonicalRegion, StringComparer.OrdinalIgnoreCase))
+                regions.Add(canonicalRegion);
+        }
+        regions.Sort(StringComparer.OrdinalIgnoreCase);
+        if (regions.Count < minimum)
+        {
+            error = $"Select at least {minimum} Azure region.";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool TryNormalizeSyntheticRegions(
+        IEnumerable<string>? sourceRegions,
+        out List<string> regions,
+        out string? error)
+    {
+        regions = [];
+        error = null;
+        var values = sourceRegions?.ToList() ?? [];
+        if (values.Count > 20)
+        {
+            error = "Synthetic events support at most 20 regions.";
+            return false;
+        }
+        foreach (var value in values)
+        {
+            if (AzureRegionResolver.IsGlobal(value))
+            {
+                if (!regions.Contains("Global", StringComparer.OrdinalIgnoreCase))
+                    regions.Add("Global");
+                continue;
+            }
+            if (!AzureRegionResolver.TryResolve(value, out var canonicalRegion))
+            {
+                error = $"Unknown Azure region '{value}'.";
+                return false;
+            }
+            if (!regions.Contains(canonicalRegion, StringComparer.OrdinalIgnoreCase))
+                regions.Add(canonicalRegion);
+        }
+        return true;
     }
 }

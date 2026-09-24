@@ -2,7 +2,7 @@
 
 > **Status:** Proposed
 > **Author:** @MoimHossain (drafted with Copilot)
-> **Date:** 2026-09-18
+> **Date:** 2026-09-23
 > **Feature area:** Service Health dispatching targets
 > **Product name:** CloudLens
 > **Related:** `prds/service-health-dispatch.md`,
@@ -16,7 +16,7 @@ Extend CloudLens Service Health dispatching with an Azure DevOps Wiki target whi
 existing Microsoft Teams channel experience.
 
 A CloudLens platform administrator will be able to register multiple designated Azure DevOps Wiki
-pages.
+pages and assign each page the Azure regions in which that audience operates.
 CloudLens will continuously maintain each page as a Service Health hub containing:
 
 - Current status across all four supported Service Health event families.
@@ -45,6 +45,13 @@ The wiki is a **state projection**, not an append-only message destination. Each
 change causes CloudLens to rebuild the complete Markdown document from the latest persisted Service
 Health state and update the same wiki page URI. A daily reconciliation also rebuilds the page so a
 temporary delivery failure cannot leave it permanently stale.
+
+Each wiki projection is region-scoped. An event with one or more canonically normalized affected
+Azure regions is eligible only when at least one region exactly intersects the target's configured
+regions. CloudLens uses a conservative fallback for unscoped events: explicit global scope, missing
+or empty region data, and values from which no canonical region can be resolved are dispatched to
+every active wiki target. It is safer to show an event whose regional scope is uncertain than to
+silently discard potentially relevant Service Health information.
 
 ---
 
@@ -109,6 +116,10 @@ manually.
     concurrency, and rendering failures.
 11. Keep secrets out of Cosmos DB, application logs, API responses, delivery intents, and Service
     Bus messages.
+12. Require every Azure DevOps Wiki target to define one or more Azure regions and include only
+    events whose normalized affected-region set intersects that target configuration.
+13. Reuse one canonical Azure-region resolver across target validation, Service Health
+    normalization, event-driven routing, reconciliation, rendering, and synthetic tests.
 
 ### 4.2 Non-Goals for the Initial Release
 
@@ -121,6 +132,8 @@ manually.
 - Allowing custom Markdown templates in the initial release.
 - Selecting a subset of event families for the wiki in the initial release. The wiki always
   represents all four supported families.
+- Fuzzy, geographic-proximity, paired-region, geography, or country inference. Region routing is
+  based only on canonical Azure-region identity.
 - Using the PAT outside the specific configured Azure DevOps organization and wiki operation.
 - Automatically attaching an arbitrary user-assigned managed identity to the CloudLens App Service.
 - Automatically creating Azure DevOps organization membership, licenses, or wiki permissions for a
@@ -161,6 +174,12 @@ manually.
 9. *As an administrator,* I can rotate the PAT without deleting and recreating the target.
 10. *As a platform administrator,* I can select managed identity, enter a client ID, and receive
     actionable prerequisites if that identity is not attached or authorized.
+11. *As a platform administrator,* I can select the Azure regions where my estate is deployed when
+    I register a wiki target and edit that selection later.
+12. *As an operator,* my wiki contains an event only when the event directly names at least one
+    region configured for that wiki.
+13. *As an operator,* I can publish synthetic matching and non-matching regional events through the
+    normal ingestion pipeline to prove the routing behavior.
 
 ---
 
@@ -215,12 +234,25 @@ The registration form contains:
 | Authentication method | Yes | `Personal Access Token` or `Managed Identity`; both are pilot options. |
 | Personal Access Token | For PAT | Password input, write-only, never redisplayed. |
 | Managed identity client ID | For managed identity | User-assigned managed identity client ID. |
+| Azure regions | Yes | Searchable multi-select populated from the canonical Azure region catalog; at least one region is required. |
+
+The Azure-region control must:
+
+- Use Fluent UI v9 multi-select behavior with type-ahead search, selected-region tags, keyboard
+  support, and a clear selected count.
+- Display canonical Azure region names such as `West Europe` and `Japan East`.
+- Submit canonical values from `/api/azure-regions`; free-form values are not accepted.
+- Deduplicate selections case-insensitively and impose a configurable upper bound, initially 100,
+  to protect request and document size.
+- Explain that events naming known Azure regions must match a selected region, while global or
+  unscoped events are shown because their impact cannot be safely narrowed.
 
 After registration, show:
 
 - Display name.
 - Organization, project, wiki, and page path parsed from the URI.
 - Authentication type.
+- Selected Azure regions and selected-region count.
 - Credential state, such as `configured`, `expiring`, `invalid`, or `rotation required`.
 - Target state: `draft`, `validating`, `active`, `degraded`, `disabled`, or `permission-required`.
 - Last successful update.
@@ -229,12 +261,15 @@ After registration, show:
 - Last error with a safe, actionable message.
 - **Test connection**, **Publish now**, **Replace credential**, **Disable/Enable**, and **Remove**
   actions.
+- **Edit regions**, which validates and saves the complete replacement region set and queues a
+  full projection refresh.
 
 The raw PAT, Key Vault secret URI, access token, and authorization header must never be displayed.
 
 ### 6.5 Registration flow
 
-1. Administrator enters target details and a PAT.
+1. Administrator enters target details, selects one or more Azure regions, and provides a PAT or
+   managed identity client ID.
 2. API validates the URI and accepts the PAT over HTTPS.
 3. API stores the PAT in Key Vault and persists only the resulting secret reference.
 4. API parses and resolves the organization, project, wiki identifier, and page path.
@@ -243,6 +278,8 @@ The raw PAT, Key Vault secret URI, access token, and authorization header must n
    it publishes the CloudLens page content, not arbitrary test text.
 7. Target becomes active only after authentication, permission, read, and write checks pass.
 8. The page URI remains the configured browser URI.
+9. Changing the region selection queues a target refresh. Events removed from scope disappear from
+   the next successful projection; newly in-scope events appear without requiring re-ingestion.
 
 If validation fails, the target is retained in a non-active actionable state when safe to do so.
 The UI must distinguish invalid URI, authentication failure, missing wiki permission, page not
@@ -278,9 +315,112 @@ The page includes the four normalized Service Health event families already supp
 | `SecurityAdvisory` | Security Advisories |
 
 All events from subscriptions currently registered in the CloudLens deployment are eligible for the
-wiki. Tenant-isolation requirements from the existing Service Health design continue to apply.
+wiki only after applying the target's region filter. Tenant-isolation requirements from the
+existing Service Health design continue to apply.
 
-### 7.3 Update triggers
+### 7.3 Region-scoped event eligibility
+
+Every Azure DevOps Wiki target stores an explicit, non-empty set of canonical Azure region names.
+For a target `T` and canonical event `E`:
+
+```text
+eligible(E, T) =
+  E.scopeClassification is global-or-unscoped
+  OR intersection(E.affectedRegions, T.includedRegions) is not empty
+```
+
+The rule applies equally to Service Issues, Planned Maintenance, Health Advisories, and Security
+Advisories. Event family does not bypass regional eligibility.
+
+Matching requirements:
+
+- Compare canonical region identities using ordinal case-insensitive equality.
+- Do not use substring, token overlap, edit distance, LLM classification, or geographic inference.
+  For example, `Central US` must not match `North Central US`, and `East US` must not match
+  `East US 2`.
+- An event that names multiple regions is eligible when any canonical event region intersects the
+  target's configured regions.
+- Missing or empty event region data is classified as unscoped and matches every active wiki
+  target.
+- `Global`, `Worldwide`, `All regions`, and equivalent approved markers are classified as global
+  and match every active wiki target.
+- If no canonical Azure region can be resolved from one or more non-empty source values, the event
+  is classified as unscoped/unknown and matches every active wiki target.
+- If at least one canonical Azure region resolves, normal intersection matching applies. Additional
+  unresolved values do not turn an otherwise known, non-matching regional event into a global
+  match.
+- Synthetic events follow exactly the same normalization and matching path as production events.
+- Teams routing remains unchanged and does not inherit wiki region filtering.
+
+Region identity must be implemented through a shared `AzureRegionResolver`, evolved from the
+existing Azure region catalog and the normalization approach used by `WatchlistRelevanceMatcher`.
+The resolver owns:
+
+- Canonical display names used by API and UI.
+- Stable normalized keys created by removing non-alphanumeric characters and applying invariant
+  lowercase.
+- Explicit aliases for known Azure forms, including display names and ARM/location identifiers
+  such as `West Europe`/`westeurope` and `East US 2`/`eastus2`.
+- Collision detection at startup or test time so two canonical regions cannot share a normalized
+  key or alias.
+- `TryResolve` and collection-normalization operations that return canonical names plus rejected
+  values for diagnostics.
+
+The alias map is explicit and version-controlled. Unknown text is never guessed into a region.
+Target input containing an unknown value is rejected with `invalid-region`; event input containing
+unknown values is retained for audit and counted in telemetry. An unknown-only event uses the
+conservative all-target fallback; an event with at least one resolved canonical region uses normal
+intersection matching.
+
+The Service Health normalizer must produce `affectedRegions` as a deduplicated collection rather
+than relying only on the current singular `region` string. It must accept the known source shapes:
+scalar strings, arrays, and delimited region lists from approved Service Health fields. Delimiter
+splitting is allowed only before exact alias resolution; it must not create fuzzy matches. The
+legacy singular `region` field may remain temporarily for API compatibility and display, but
+routing and projection must use `affectedRegions`.
+
+Service Health updates can omit region data after the initial notification, especially during
+resolution. Before filtering, the canonical event-lifecycle resolver groups versions by tenant,
+subscription, and tracking ID and uses the newest non-empty normalized affected-region set. A later
+explicit non-empty region set replaces the earlier set; an empty update does not erase previously
+known scope. This prevents a resolution update with no region field from leaving an old active
+event stranded on a target page.
+
+Region filtering is enforced at two boundaries:
+
+1. **Ingestion routing:** create/coalesce a wiki refresh intent only for active wiki targets whose
+   configured regions intersect the event's effective affected regions.
+2. **Projection:** immediately before rendering, the wiki worker resolves current event lifecycle
+   state and filters the full canonical event set for that target again.
+
+The second check is authoritative. It protects daily reconciliation, manual publish, retries,
+target-region edits, and replay from rendering out-of-scope events. Filtering must occur before
+page counts, status recommendations, rendered hashes, and page-size calculations.
+
+At scale, ingestion must not issue one database query per target or repeatedly scan all targets for
+every event. The dispatcher maintains a tenant-scoped immutable routing index:
+
+```text
+canonical region key -> active wiki target IDs
+```
+
+The index is built from safe target metadata, updated after target writes or by Cosmos DB change
+feed, and atomically replaced so readers never observe a partially updated index. A cache miss or
+stale-index detection may fall back to one bounded target-list read for the tenant, not one read per
+target. Intent creation remains idempotent, so index refresh races may create duplicate refresh
+requests but cannot create duplicate wiki writes.
+
+Projection must not depend on a fixed maximum such as the latest 1,000 stored events. The worker
+uses paginated, tenant-scoped queries for active and recently resolved lifecycle candidates, then
+collapses versions and applies the target region filter. Query windows and continuation tokens must
+ensure every event eligible for the configured wiki history window can be considered.
+
+Existing wiki targets created before this field exists must not silently retain all-region
+behavior. Migration sets them to `configuration-required`, stops automatic and manual publication,
+and prompts an administrator to select at least one region. Saving valid regions restores the prior
+enabled state and queues a full refresh.
+
+### 7.4 Update triggers
 
 Create or coalesce a wiki refresh request when:
 
@@ -290,13 +430,18 @@ Create or coalesce a wiki refresh request when:
 - An event becomes resolved, closed, or completed.
 - A previously resolved event becomes active again.
 - An administrator activates or changes the wiki target.
+- An administrator changes the target's selected regions.
 - An administrator selects **Publish now**.
 - The daily reconciliation schedule runs.
 
 The target is a complete projection. A refresh request does not contain the final page body; the
 worker reads the latest canonical event state immediately before rendering.
 
-### 7.4 Update frequency
+A known regional event whose canonical regions do not intersect a target does not create an intent
+for that target. Global and unscoped fallback events create intents for every active wiki target.
+This is an optimization only; projection-time filtering remains mandatory.
+
+### 7.5 Update frequency
 
 - Event-driven target: publish within five minutes of a material event update under normal
   conditions.
@@ -311,7 +456,7 @@ when the rendered content hash is unchanged, except when a product decision expl
 visible `Last Updated` timestamp to advance. For the initial release, `Last Updated` represents the
 latest successful material projection update, avoiding empty daily commits.
 
-### 7.5 Ordering and consistency
+### 7.6 Ordering and consistency
 
 All work for one wiki target must be serialized using a Service Bus session or an equivalent
 target-scoped lock. The implementation must:
@@ -327,7 +472,7 @@ CloudLens owns the full designated page in the initial release. The UI must warn
 to the page are overwritten on the next successful projection. Future template customization may
 introduce protected or marker-delimited regions, but that is not part of this release.
 
-### 7.6 Event lifecycle and retention in the page
+### 7.7 Event lifecycle and retention in the page
 
 The renderer classifies canonical events as follows:
 
@@ -343,7 +488,7 @@ The initial recently resolved history window is 30 days and configurable.
 Where Azure payloads omit a normalized field, the renderer uses an explicit neutral value such as
 `Not specified by Microsoft`; it must not invent source facts.
 
-### 7.7 Empty states
+### 7.8 Empty states
 
 Each dynamic section remains present even when empty. Examples:
 
@@ -911,6 +1056,8 @@ ServiceHealthDispatchTarget
   displayName
   tenantId
   status
+  includedRegions
+  regionFilterVersion
   createdAt
   updatedAt
   configuration
@@ -942,6 +1089,7 @@ A wiki intent represents a request to reconcile one target to the latest canonic
 | `renderedContentHash` | Hash produced by the successful attempt. |
 | `externalVersion` | Latest Azure DevOps page ETag after success. |
 | `lastErrorCode` | Safe classified error. |
+| `targetConfigurationVersion` | Target version that the worker must reload before projection. |
 
 Multiple event changes can map to one target refresh. The latest successful full projection
 supersedes older pending refreshes for that target.
@@ -952,15 +1100,19 @@ The Azure DevOps Wiki worker:
 
 1. Claims serialized work for the target.
 2. Loads and validates the active target.
-3. Loads current canonical active and recently resolved events.
-4. Renders deterministic Markdown.
-5. Computes the rendered content hash.
-6. Skips the write if the hash matches the last successful projection.
-7. Retrieves PAT or managed identity token through the credential provider.
-8. Reads the page and current ETag.
-9. Updates the page with `If-Match`.
-10. Persists success, new ETag, content hash, timestamp, and delivery audit.
-11. Classifies failures for retry, operator action, or dead-letter.
+3. Rejects processing if the target has no valid canonical regions or requires configuration.
+4. Loads current canonical active and recently resolved event versions.
+5. Resolves event lifecycle state and effective affected regions.
+6. Filters events by intersection with the target's canonical included regions.
+7. Renders deterministic Markdown from only the filtered event set.
+8. Computes the rendered content hash.
+9. Skips the write if the hash matches the last successful projection.
+10. Retrieves PAT or managed identity token through the credential provider.
+11. Reads the page and current ETag.
+12. Updates the page with `If-Match`.
+13. Persists success, new ETag, content hash, timestamp, matched event/region counts, and delivery
+    audit.
+14. Classifies failures for retry, operator action, or dead-letter.
 
 ---
 
@@ -982,6 +1134,11 @@ The Azure DevOps Wiki worker:
   "authenticationType": "pat",
   "credentialSecretReference": "<key-vault-secret-reference>",
   "managedIdentityClientId": null,
+  "includedRegions": [
+    "North Europe",
+    "West Europe"
+  ],
+  "regionFilterVersion": 1,
   "credentialExpiresAt": "...",
   "status": "active",
   "lastValidatedAt": "...",
@@ -1002,8 +1159,39 @@ Rules:
 - `managedIdentityClientId` is populated only for managed identity authentication.
 - API responses return a boolean/masked credential state, not the secret reference.
 - The model supports multiple future targets even while the pilot enforces one active target.
+- `includedRegions` is required, contains 1-100 unique canonical Azure region names, and is stored
+  in deterministic canonical-name order.
+- `regionFilterVersion` increments whenever the region selection changes and participates in
+  refresh coalescing and audit.
+- Missing `includedRegions` on a legacy record maps to `configuration-required`, never to all
+  regions.
 
-### 13.2 Delivery audit
+### 13.2 Canonical Service Health region scope
+
+The canonical event model adds:
+
+```json
+{
+  "affectedRegions": [
+    "North Europe",
+    "West Europe"
+  ],
+  "unresolvedRegionValues": [],
+  "regionResolutionVersion": 1
+}
+```
+
+Rules:
+
+- `affectedRegions` contains unique canonical region names in deterministic order.
+- `unresolvedRegionValues` is bounded, sanitized diagnostic metadata. It drives the conservative
+  all-target fallback only when no canonical region resolves; otherwise it does not override normal
+  intersection matching.
+- `regionResolutionVersion` enables safe reprocessing if the explicit alias catalog evolves.
+- The current singular `region` value may remain during compatibility migration but is not an
+  authoritative routing field.
+
+### 13.3 Delivery audit
 
 Each attempt records:
 
@@ -1015,6 +1203,10 @@ Each attempt records:
 - Previous and resulting ETag where safe.
 - Rendered content hash.
 - Active and resolved event counts.
+- Target region-filter version, configured-region count, matched-event count, and matched canonical
+  regions.
+- Count of events included by direct region match, global fallback, missing-region fallback, and
+  unknown-only fallback, plus events excluded for non-intersecting known regions.
 - Retry-after value when provided.
 - Redacted error.
 - Correlation ID.
@@ -1043,6 +1235,33 @@ Recommended endpoints:
 Existing Teams channel endpoints remain supported. A later cleanup may expose Teams through the
 generic dispatch-target route, but that is not required to deliver this feature.
 
+Wiki create and update requests include `includedRegions`. The server validates every value through
+the shared region resolver, rejects the entire request if any value is unknown, canonicalizes and
+deduplicates the set, and returns the canonical stored values. Updates use the existing target ETag
+or an explicit configuration version to prevent two administrators from silently overwriting each
+other's region selection. A successful region update increments `regionFilterVersion` and queues a
+full refresh.
+
+`GET /api/azure-regions` remains the UI catalog endpoint and returns canonical display names. It may
+later return structured metadata, but target requests must depend only on stable canonical names.
+
+The synthetic-event request is extended with required `regions`:
+
+```json
+{
+  "subscriptionId": "<subscription-id>",
+  "eventType": "PlannedMaintenance",
+  "regions": [
+    "Japan East"
+  ]
+}
+```
+
+Synthetic regions use the same validation and canonicalization as target configuration. At least
+one and at most 20 regions are required. The publisher emits realistic Service Health source
+shapes, and the event must still traverse Event Hub, normalization, matching, persistence, intent
+creation, dispatch, and projection; the API must not directly inject a delivery intent.
+
 Validation responses use safe product error codes, including:
 
 - `invalid-wiki-uri`
@@ -1057,6 +1276,9 @@ Validation responses use safe product error codes, including:
 - `rate-limited`
 - `azure-devops-unavailable`
 - `rendered-page-too-large`
+- `invalid-region`
+- `region-selection-required`
+- `target-configuration-conflict`
 
 ---
 
@@ -1070,11 +1292,14 @@ Validation responses use safe product error codes, including:
 
 ### FR-2 Wiki registration
 
-- Accept a display name, Azure DevOps Wiki page URI, authentication type, and credential input.
+- Accept a display name, Azure DevOps Wiki page URI, authentication type, credential input, and one
+  or more canonical Azure regions.
 - Parse canonical Azure DevOps identifiers from the browser URI.
 - Require the page to exist.
 - Validate read and write permission before activation.
 - Support multiple active wiki targets and reject duplicate page registrations.
+- Support editing regions after registration with optimistic concurrency and a full refresh.
+- Put legacy targets with no configured regions into `configuration-required`.
 
 ### FR-3 Secret handling
 
@@ -1088,6 +1313,8 @@ Validation responses use safe product error codes, including:
 
 - Render all four event families.
 - Rebuild the complete page from canonical state.
+- Resolve event lifecycle state and filter by the target's included regions before computing counts,
+  recommendations, page size, or content hash.
 - Preserve the customer-provided page structure and intent.
 - Include deterministic status counts and overall recommendation.
 - Include active and recently resolved sections.
@@ -1125,6 +1352,7 @@ Validation responses use safe product error codes, including:
 
 - Test connection.
 - Publish now.
+- View and edit the selected Azure regions.
 - Enable/disable.
 - Rotate credential.
 - Remove target.
@@ -1139,6 +1367,25 @@ Validation responses use safe product error codes, including:
 - Document attachment and Azure DevOps permission prerequisites in the UI.
 - Allow a target to use managed identity from initial registration or migrate from PAT without
   changing its page URI or target ID.
+
+### FR-10 Region matching and synthetic validation
+
+- Maintain one shared canonical region resolver for API validation, event normalization, routing,
+  projection, and tests.
+- Store target and event regions as canonical names; use exact normalized-key or explicit-alias
+  identity only.
+- Match when any canonical event region intersects any target region.
+- Match every active wiki target when the event is explicitly global, has missing/empty region
+  data, or has non-empty region values from which no canonical region can be resolved.
+- Exclude only events with one or more resolved canonical regions and no intersection with the
+  target.
+- Preserve the newest non-empty effective region scope across event lifecycle updates that omit
+  region data.
+- Keep Teams routing behavior unchanged.
+- Let administrators select 1-20 canonical regions when publishing a synthetic event.
+- Exercise both matching and non-matching synthetic events through the real Event Hub ingestion and
+  wiki projection path.
+- Record safe routing diagnostics without placing full raw event payloads in delivery intents.
 
 ---
 
@@ -1160,6 +1407,8 @@ Validation responses use safe product error codes, including:
 | Manual Publish now to worker start, p95 | <= 30 seconds |
 | Daily reconciliation coverage | Every active target within 24 hours |
 | Duplicate identical wiki writes | 0 |
+| Region-matching evaluation per event/target | In-memory set intersection; no per-target database query |
+| Supported selected regions per wiki target | 1-100 |
 
 ### Security
 
@@ -1171,6 +1420,8 @@ Validation responses use safe product error codes, including:
 - No secret-shaped values in structured logs.
 - API authorization restricted to CloudLens platform administrators.
 - Security Advisory rendering follows the existing data-classification and AI restrictions.
+- Region configuration changes use optimistic concurrency and are included in the administrative
+  audit trail.
 
 ### Observability
 
@@ -1179,6 +1430,12 @@ Metrics:
 - Wiki refresh requested, coalesced, started, skipped, succeeded, retried, and dead-lettered.
 - Render duration and page size.
 - Active event counts by family.
+- Routing candidate targets, region-matched targets, and region-filtered targets by event family.
+- Unknown/unresolved source region values by normalized hash or bounded safe label, never raw
+  payload.
+- Projection events included/excluded by reason: `direct-match`, `global-fallback`,
+  `missing-region-fallback`, `unknown-region-fallback`, or `no-intersection`.
+- Region-filter configuration changes and legacy targets awaiting configuration.
 - Azure DevOps response class.
 - Credential expiry warning count.
 - Time since last successful projection.
@@ -1192,6 +1449,9 @@ Alerts:
 - Repeated HTTP 429/5xx.
 - Dead-lettered wiki intent.
 - Page exceeds supported size.
+- A registered wiki target has missing or invalid region configuration.
+- Unknown Service Health region values exceed a configurable rate, indicating source-schema or
+  catalog drift.
 
 ---
 
@@ -1211,6 +1471,11 @@ Alerts:
 | Worker outage | Pending intents remain durable; daily reconciliation repairs state after recovery. |
 | Manual page edit | ETag detects conflict; CloudLens retries only according to ownership policy and surfaces repeated conflict. |
 | Managed identity client ID not attached | Mark `identity-not-attached`, explain the App Service attachment prerequisite, and keep the target disabled. |
+| Target has no valid selected regions | Mark `configuration-required`; do not queue or publish until corrected. |
+| Target update contains an unknown region | Reject the complete update with `invalid-region`; retain the prior valid configuration. |
+| Event has no region, only unknown/unparseable region values, or a global marker | Persist for audit, route to every active wiki target, include it in every projection, and emit the applicable fallback telemetry reason. |
+| Region alias catalog changes | Version the resolver, add collision tests, and reprocess canonical region fields before enabling routing under the new version. |
+| Concurrent region edits | Reject stale configuration version/ETag with `target-configuration-conflict`; never merge silently. |
 
 ---
 
@@ -1221,10 +1486,13 @@ Alerts:
 - Add Dispatching targets top-level tab.
 - Move existing Teams routing UI unchanged.
 - Add Azure DevOps Wiki registration and health UI.
+- Add required region multi-select and edit-regions workflow.
 - Add generic target and wiki target models.
+- Add shared Azure region resolver and canonical region API contract.
 - Add safe API contracts and URI parser.
 
-**Exit:** an administrator can save a disabled wiki target without exposing the PAT.
+**Exit:** an administrator can save a disabled wiki target with a validated non-empty canonical
+region set without exposing the PAT.
 
 ### Phase 2 - Wiki projection and both authentication providers
 
@@ -1238,10 +1506,12 @@ Alerts:
 - Target-scoped refresh intents and Service Bus subscription.
 - Wiki worker, ETag handling, retries, and audit.
 - Event-driven, manual, and daily refresh.
+- Region-aware ingestion routing and authoritative projection-time filtering.
+- Synthetic event region selection through the real ingestion path.
 
 **Exit:** all four event families update the same designated page through either PAT or managed
 identity authentication, subject to each environment's tenant and Azure DevOps authorization
-prerequisites.
+prerequisites, and only when their effective affected regions intersect the target configuration.
 
 ### Phase 3 - Operational hardening
 
@@ -1255,10 +1525,52 @@ prerequisites.
   organization.
 - Managed identity automated integration coverage and same-tenant end-to-end validation in a
   suitable customer or dedicated test environment.
+- Region resolver alias/collision coverage, lifecycle-scope regression tests, and high-target-count
+  routing/load tests.
 
 **Exit:** both authentication options meet pilot functional acceptance, with PAT proven in the
 project owner's deployed test path and managed identity proven in a same-tenant authorized
 environment.
+
+### 18.1 Region-filter validation strategy
+
+Automated unit and integration coverage must include:
+
+| Scenario | Target regions | Event regions | Expected wiki result |
+|---|---|---|---|
+| Exact canonical match | `West Europe` | `West Europe` | Included |
+| ARM alias match | `West Europe` | `westeurope` | Included as `West Europe` |
+| Case/punctuation normalization | `West Europe` | `WEST-EUROPE` through an approved alias | Included |
+| Similar-name protection | `Central US` | `North Central US` | Excluded |
+| Generation protection | `East US` | `East US 2` | Excluded |
+| Multi-region intersection | `North Europe` | `Japan East`, `North Europe` | Included |
+| No intersection | `West Europe` | `Japan East` | Excluded |
+| Missing event region | `West Europe` | empty | Included by missing-region fallback |
+| Unknown-only event region | `West Europe` | `Moon Base 1` | Included by unknown-region fallback and observed |
+| Known non-match plus unknown value | `West Europe` | `Japan East`, `Moon Base 1` | Excluded because a canonical region resolved and did not intersect |
+| Global marker | `West Europe` | `Global` | Included by global fallback |
+| Resolution omits region | `West Europe` | active=`West Europe`, resolved=empty | Resolution remains in scope and removes the active event |
+| Scope changes | `West Europe` | old=`West Europe`, new=`Japan East` | Removed on next projection |
+| Region edit adds scope | old target=`West Europe`, new target adds=`Japan East` | `Japan East` | Appears after target refresh without re-ingestion |
+| Region edit removes scope | old target includes=`Japan East`, new target removes it | `Japan East` | Disappears after target refresh |
+| Teams independence | wiki=`West Europe`; Teams subscribed | `Japan East` | Wiki excluded; Teams unchanged |
+
+The Service Health UI's synthetic-event controls add a searchable canonical region multi-select.
+For manual end-to-end validation, an administrator can:
+
+1. Configure a wiki target for `West Europe`.
+2. Publish one synthetic event for `West Europe` and verify that a wiki refresh intent is created
+   and the event appears.
+3. Publish the same event family for `Japan East` and verify that no wiki intent is created for
+   that target and the page remains unchanged.
+4. Publish a multi-region event containing `Japan East` and `West Europe` and verify that it
+   appears once.
+5. Repeat for all four event families.
+6. Resolve a matching synthetic event with a payload that omits region and verify that lifecycle
+   scope retention removes it from the active section correctly.
+
+Tests must assert persisted `matchingChannelIds`, delivery intents, worker filtering, rendered page
+content, rendered hash behavior, and routing telemetry. Direct renderer-only tests are insufficient.
 
 ---
 
@@ -1268,7 +1580,8 @@ environment.
 2. Dispatching targets contains **Teams channels** and **Azure DevOps Wiki** secondary tabs.
 3. The Teams channels view retains the current discovered-channel and four-checkbox behavior.
 4. An administrator can register one existing Azure DevOps Wiki page using its browser URI and
-   either a PAT or user-assigned managed identity client ID.
+   either a PAT or user-assigned managed identity client ID, and must select at least one canonical
+   Azure region.
 5. The PAT route works against the project owner's deployed cross-tenant Azure DevOps test
    organization.
 6. The PAT is stored in Key Vault and is absent from Cosmos DB, Service Bus, logs, traces, API
@@ -1299,6 +1612,27 @@ environment.
 22. The rendered page never includes secrets, raw payloads, or unapproved internal identifiers.
 23. A target can migrate between PAT and managed identity without a renderer, target ID, event
     history, or page-URI migration.
+24. An administrator can edit a target's Azure regions later; the update uses optimistic
+    concurrency and queues a full refresh.
+25. Events from all four supported families with resolved canonical regions are included only when
+    at least one affected region intersects the target's configured region set.
+26. Missing or empty region data, explicit global scope, and unknown/unparseable-only region data
+    use a conservative fallback that creates refresh intents for and includes the event on every
+    active wiki target.
+27. Similar names such as `Central US`/`North Central US` and `East US`/`East US 2` never
+    cross-match.
+28. A multi-region event is included once when any event region matches.
+29. A lifecycle update that omits region retains the newest previously known non-empty region scope,
+    allowing resolved/completed events to leave the active wiki section correctly.
+30. Event-driven routing and projection-time rendering both enforce the same shared canonical
+    matcher.
+31. Existing Teams routing remains unchanged by wiki region filters.
+32. Existing wiki targets without region configuration become `configuration-required` and cannot
+    publish until an administrator selects valid regions.
+33. Synthetic matching and non-matching events can be published with selected regions through the
+    normal Event Hub path, with observable intents and projection results.
+34. Projection considers every active and recently resolved event in the configured history window
+    through pagination; it is not capped to a fixed latest-event count.
 
 ---
 
@@ -1312,6 +1646,9 @@ environment.
 | Duplicate identical page updates | 0 |
 | PAT exposure in logs/storage outside Key Vault | 0 |
 | Teams delivery regression attributable to wiki feature | 0 |
+| False-positive wiki inclusion from non-matching region | 0 |
+| False-negative wiki exclusion for canonical/approved alias match | 0 |
+| Active wiki targets with empty or invalid region configuration | 0 |
 | Platform administrator rating of setup experience | >= 4/5 |
 
 ---
@@ -1331,6 +1668,14 @@ environment.
 | Concurrent human edit conflicts with CloudLens | Use ETag/`If-Match`, bounded reread/retry, and operator-visible degraded state. |
 | Wiki dispatch failure blocks urgent Teams notifications | Separate Service Bus subscription/worker and destination-specific retry circuit. |
 | AI-generated business impact is mistaken for Microsoft guidance | Respect the customer-provided template, label CloudLens analysis, preserve Microsoft facts, validate structured output, and use deterministic status rules and fallback. |
+| Fuzzy matching routes an event to the wrong geography | Use exact canonical identities and explicit aliases only; prohibit substring and LLM-based region inference. |
+| Service Health uses a new or unexpected region value | Exclude it from wiki routing, retain bounded diagnostics, alert on catalog drift, and update the explicit resolver through a reviewed change. |
+| Resolution updates omit their original region | Resolve lifecycle versions before filtering and carry forward the newest prior non-empty canonical region set. |
+| Event-driven matching and daily projection diverge | Use the same shared resolver/matcher, with projection-time filtering as the authoritative safety boundary. |
+| Conservative fallback creates noise for an unscoped event | Prefer visibility over silent loss, label the event region as global/not specified, and emit fallback telemetry so source quality can be improved. |
+| Large target counts make per-event routing expensive | Maintain a tenant-scoped immutable region-to-target index and use idempotent intent creation. |
+| Fixed event query limits omit older active incidents | Use paginated tenant/time/status queries covering the complete active and recent-history windows. |
+| Legacy targets continue receiving all regions silently | Migrate them to `configuration-required` and block publication until regions are selected. |
 
 ---
 

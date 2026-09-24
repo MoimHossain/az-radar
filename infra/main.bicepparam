@@ -19,6 +19,9 @@ param openAiDeploymentName = 'gpt-4o'
 // Docker Hub images (blue/green tags — no ACR).
 param apiImage = 'moimhossain/az-radar-api:blue'
 param jobImage = 'moimhossain/az-radar-jobhost:green'
+param botGatewayImage = 'moimhossain/az-radar-bot-gateway:blue'
+param dispatchWorkerImage = 'moimhossain/az-radar-dispatch-worker:blue'
+param deployTeamsDispatch = false
 
 // Optional: attach extra identities to both apps (e.g. a subscription-reader
 // UAMI used by the JobHost). Leave empty unless required.

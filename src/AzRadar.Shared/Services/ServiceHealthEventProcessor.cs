@@ -27,17 +27,20 @@ public class ServiceHealthEventProcessor : IServiceHealthEventProcessor
     {
         var events = ServiceHealthEventNormalizer.Normalize(body, enqueuedTime);
         var processed = 0;
+        var channels = await _cosmosDb.GetServiceHealthChannelsAsync(cancellationToken);
 
         foreach (var serviceHealthEvent in events)
         {
             serviceHealthEvent.LlmAnalysis = await _llmAnalyzer.AnalyzeServiceHealthEventAsync(
                 serviceHealthEvent, cancellationToken);
 
-            var channels = await _cosmosDb.GetServiceHealthChannelsAsync(cancellationToken);
             var matchingChannels = channels
                 .Where(channel =>
                     channel.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.Registered &&
-                    (channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki ||
+                    ((channel.Type == ServiceHealthChannelTypes.AzureDevOpsWiki &&
+                      ServiceHealthRegionMatcher.MatchesTarget(
+                          serviceHealthEvent,
+                          channel.IncludedRegions)) ||
                      (channel.Type == ServiceHealthChannelTypes.TeamsBot &&
                       channel.SubscribedEventTypes.Contains(
                           serviceHealthEvent.EventType,

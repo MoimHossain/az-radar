@@ -6,6 +6,8 @@
 //   * Cosmos DB (serverless, AAD-only) reachable ONLY via a private endpoint
 //   * Two B1 Linux App Service plans + two containerized web apps (API, JobHost)
 //     with regional VNet integration so they reach Cosmos privately
+//   * Service Health dispatch infrastructure (Service Bus, Bot Gateway, worker)
+//   * Azure DevOps Wiki Key Vault with private networking and managed-identity RBAC
 //   * Cosmos data-plane RBAC for the supplied managed identities
 //
 // OUT OF SCOPE (owned by another team): the Azure OpenAI / AI Foundry resource.
@@ -40,6 +42,15 @@ param apiImage string = 'moimhossain/az-radar-api:blue'
 @description('Docker Hub image for the JobHost worker.')
 param jobImage string = 'moimhossain/az-radar-jobhost:green'
 
+@description('Docker Hub image for the Teams Bot Gateway.')
+param botGatewayImage string = 'moimhossain/az-radar-bot-gateway:blue'
+
+@description('Docker Hub image for the Service Health dispatch worker.')
+param dispatchWorkerImage string = 'moimhossain/az-radar-dispatch-worker:blue'
+
+@description('Provision Microsoft Teams Bot Gateway, Azure Bot, channel, and Teams delivery resources. Azure DevOps Wiki dispatch remains enabled when false.')
+param deployTeamsDispatch bool = false
+
 @description('App Service Plan SKU. Basic (B1) or higher required for VNet integration.')
 param appServicePlanSku string = 'B1'
 
@@ -67,7 +78,7 @@ param openAiEndpoint string = ''
 @description('Azure OpenAI deployment (model) name the app calls.')
 param openAiDeploymentName string = 'gpt-4o'
 
-@description('Optional Key Vault URI used for Azure DevOps Wiki PAT storage.')
+@description('Optional external Key Vault URI override for Azure DevOps Wiki PAT storage. Leave empty to use the Key Vault provisioned by this deployment.')
 param azureDevOpsWikiKeyVaultUri string = ''
 
 @description('Globally-unique name for the VNet-protected Azure OpenAI account (only when deployOpenAi is true).')
@@ -176,6 +187,35 @@ module serviceHealthEventHubs 'modules/event-hubs.bicep' = {
   }
 }
 
+// ----------------------------- Service Health dispatch -------------------
+
+module dispatching '../src/Dispatching/infra/main.bicep' = {
+  name: 'service-health-dispatching'
+  params: {
+    location: location
+    namePrefix: namePrefix
+    cosmosAccountName: cosmos.outputs.accountName
+    cosmosDatabaseName: databaseName
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    gatewayIntegrationSubnetId: network.outputs.apiSubnetId
+    workerIntegrationSubnetId: network.outputs.jobSubnetId
+    vnetName: network.outputs.vnetName
+    apiPrincipalId: identity.outputs.principalId
+    gatewayImage: botGatewayImage
+    workerImage: dispatchWorkerImage
+    deployTeamsDispatch: deployTeamsDispatch
+    appServicePlanSku: appServicePlanSku
+    tags: union(tags, {
+      component: 'dispatching'
+    })
+  }
+  // The dispatch template reuses the private Service Bus DNS zone created by
+  // the Event Hubs module, so make that otherwise implicit dependency explicit.
+  dependsOn: [
+    serviceHealthEventHubs
+  ]
+}
+
 // ----------------------------- Azure OpenAI (optional) --------------------
 
 module openai 'modules/openai.bicep' = if (deployOpenAi) {
@@ -196,8 +236,11 @@ module openai 'modules/openai.bicep' = if (deployOpenAi) {
 }
 
 // Use the in-tenant private endpoint when deployed, otherwise the external one.
-var effectiveOpenAiEndpoint = deployOpenAi ? openai.outputs.endpoint : openAiEndpoint
-var effectiveOpenAiDeployment = deployOpenAi ? openai.outputs.deploymentName : openAiDeploymentName
+var effectiveOpenAiEndpoint = deployOpenAi ? openai!.outputs.endpoint : openAiEndpoint
+var effectiveOpenAiDeployment = deployOpenAi ? openai!.outputs.deploymentName : openAiDeploymentName
+var effectiveAzureDevOpsWikiKeyVaultUri = empty(azureDevOpsWikiKeyVaultUri)
+  ? dispatching.outputs.wikiKeyVaultUri
+  : azureDevOpsWikiKeyVaultUri
 
 // ----------------------------- App Service plans --------------------------
 
@@ -246,7 +289,7 @@ var commonCosmosSettings = [
   { name: 'ServiceHealthEventHub__ManagedIdentityClientId', value: managedIdentityClientId }
   { name: 'ServiceHealthEventHub__EnableIngress', value: 'true' }
   { name: 'ServiceHealthEventHub__EnableTestPublisher', value: 'false' }
-  { name: 'AzureDevOpsWiki__KeyVaultUri', value: azureDevOpsWikiKeyVaultUri }
+  { name: 'AzureDevOpsWiki__KeyVaultUri', value: effectiveAzureDevOpsWikiKeyVaultUri }
   { name: 'AzureDevOpsWiki__ManagedIdentityClientId', value: managedIdentityClientId }
   { name: 'WEBSITES_PORT', value: '8080' }
   { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
@@ -304,10 +347,17 @@ output serviceHealthProvisioningIdentityPrincipalId string = serviceHealthProvis
 output serviceHealthEventHubsNamespace string = serviceHealthEventHubs.outputs.fullyQualifiedNamespace
 output serviceHealthEventHubName string = serviceHealthEventHubs.outputs.eventHubName
 output serviceHealthEventHubAuthorizationRuleId string = serviceHealthEventHubs.outputs.authorizationRuleId
+output dispatchServiceBusNamespace string = dispatching.outputs.serviceBusNamespace
+output dispatchServiceBusTopic string = dispatching.outputs.serviceBusTopic
+output dispatchWorkerAppName string = dispatching.outputs.workerAppName
+output teamsDispatchProvisioned bool = dispatching.outputs.teamsDispatchProvisioned
+output botGatewayHostName string = dispatching.outputs.botGatewayHostName
+output azureDevOpsWikiKeyVaultName string = dispatching.outputs.wikiKeyVaultName
+output azureDevOpsWikiKeyVaultUri string = effectiveAzureDevOpsWikiKeyVaultUri
 
 // LLM endpoint the apps are configured to use (in-tenant private endpoint when
 // deployOpenAi is true, otherwise the externally provided endpoint).
 output openAiEndpointInUse string = effectiveOpenAiEndpoint
 output openAiDeploymentInUse string = effectiveOpenAiDeployment
 output openAiDeployed bool = deployOpenAi
-output openAiAccountName string = deployOpenAi ? openai.outputs.accountName : ''
+output openAiAccountName string = deployOpenAi ? openai!.outputs.accountName : ''

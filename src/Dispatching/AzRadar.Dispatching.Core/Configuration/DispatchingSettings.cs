@@ -38,3 +38,10 @@ public sealed class TeamsBotSettings
     public string MicrosoftAppTenantId { get; set; } = string.Empty;
     public string MicrosoftAppPassword { get; set; } = string.Empty;
 }
+
+public sealed class TeamsDispatchSettings
+{
+    public const string SectionName = "TeamsDispatch";
+
+    public bool Enabled { get; set; } = true;
+}

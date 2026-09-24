@@ -13,26 +13,32 @@ builder.Services.Configure<DispatchingServiceBusSettings>(
     builder.Configuration.GetSection(DispatchingServiceBusSettings.SectionName));
 builder.Services.Configure<TeamsBotSettings>(
     builder.Configuration.GetSection(TeamsBotSettings.SectionName));
+builder.Services.Configure<TeamsDispatchSettings>(
+    builder.Configuration.GetSection(TeamsDispatchSettings.SectionName));
 builder.Services.Configure<AzureDevOpsWikiSettings>(
     builder.Configuration.GetSection(AzureDevOpsWikiSettings.SectionName));
 builder.Services.AddDispatchingPersistence();
 builder.Services.AddDispatchingServiceBus();
 builder.Services.AddHttpClient<AzRadar.Shared.Interfaces.IAzureDevOpsWikiService, AzRadar.Shared.Services.AzureDevOpsWikiService>();
-builder.Services.AddSingleton<ServiceHealthAdaptiveCardRenderer>();
 builder.Services.AddSingleton<ServiceHealthWikiRenderer>();
-builder.Services.AddSingleton<IStorage, MemoryStorage>();
-builder.AddAgentApplicationOptions();
-builder.AddAgent<TeamsDispatchAgent>();
 builder.Services.AddHostedService<DeliveryIntentOutboxWorker>();
-builder.Services.AddHostedService<TeamsDeliveryWorker>();
 builder.Services.AddHostedService<AzureDevOpsWikiDeliveryWorker>();
 builder.Services.AddHostedService<AzureDevOpsWikiReconciliationWorker>();
+
+if (builder.Configuration.GetValue($"{TeamsDispatchSettings.SectionName}:Enabled", true))
+{
+    builder.Services.AddSingleton<ServiceHealthAdaptiveCardRenderer>();
+    builder.Services.AddSingleton<IStorage, MemoryStorage>();
+    builder.AddAgentApplicationOptions();
+    builder.AddAgent<TeamsDispatchAgent>();
+    builder.Services.AddHostedService<TeamsDeliveryWorker>();
+}
 
 var app = builder.Build();
 app.MapGet("/", () => Results.Ok(new
 {
     status = "running",
-    role = "teams-dispatch-worker",
+    role = "service-health-dispatch-worker",
     timestamp = DateTimeOffset.UtcNow
 }));
 app.Run();

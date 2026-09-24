@@ -267,7 +267,8 @@ export interface ServiceHealthChannel {
     | "uninstalled"
     | "degraded"
     | "disabled"
-    | "permission-required";
+    | "permission-required"
+    | "configuration-required";
   lastRegisteredAt?: string;
   lastAttemptedAt?: string;
   lastSucceededAt?: string;
@@ -276,6 +277,7 @@ export interface ServiceHealthChannel {
   lastErrorCode?: string;
   lastErrorMessage?: string;
   subscribedEventTypes: ServiceHealthEventType[];
+  includedRegions: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -292,6 +294,9 @@ export interface ServiceHealthEvent {
   summary: string;
   service: string;
   region: string;
+  affectedRegions: string[];
+  unresolvedRegionValues: string[];
+  regionScope: "regional" | "global" | "unscoped" | "unknown";
   eventTimestamp: string;
   receivedAt: string;
   isSynthetic: boolean;
@@ -461,6 +466,7 @@ export const api = {
     displayName: string;
     wikiUri: string;
     authenticationType: "pat" | "managed-identity";
+    includedRegions: string[];
     personalAccessToken?: string;
     managedIdentityClientId?: string;
     credentialExpiresAt?: string;
@@ -468,6 +474,12 @@ export const api = {
     apiFetch<ServiceHealthChannel>("/api/service-health/wiki-targets", {
       method: "POST",
       body: JSON.stringify(request),
+    }),
+
+  updateServiceHealthWikiTarget: (id: string, displayName: string, includedRegions: string[]) =>
+    apiFetch<ServiceHealthChannel>(`/api/service-health/wiki-targets/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ displayName, includedRegions }),
     }),
 
   testServiceHealthWikiTarget: (id: string) =>
@@ -488,12 +500,13 @@ export const api = {
   publishServiceHealthTestEvent: (
     subscriptionId: string,
     eventType: ServiceHealthEventType,
+    regions: string[],
   ) =>
     apiFetch<{ eventDataId: string; trackingId: string; eventType: ServiceHealthEventType; publishedAt: string }>(
       "/api/service-health/test-events",
       {
         method: "POST",
-        body: JSON.stringify({ subscriptionId, eventType }),
+        body: JSON.stringify({ subscriptionId, eventType, regions }),
       },
     ),
 

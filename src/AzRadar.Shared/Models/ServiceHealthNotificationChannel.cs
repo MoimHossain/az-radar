@@ -67,6 +67,9 @@ public class ServiceHealthNotificationChannel
     [JsonPropertyName("subscribedEventTypes")]
     public List<string> SubscribedEventTypes { get; set; } = [];
 
+    [JsonPropertyName("includedRegions")]
+    public List<string> IncludedRegions { get; set; } = [];
+
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
@@ -109,6 +112,7 @@ public static class ServiceHealthChannelRegistrationStatuses
     public const string Degraded = "degraded";
     public const string Disabled = "disabled";
     public const string PermissionRequired = "permission-required";
+    public const string ConfigurationRequired = "configuration-required";
 }
 
 public static class AzureDevOpsAuthenticationTypes

@@ -1,8 +1,286 @@
 # Azure Deployment Plan
 
-> **Status:** Deployed
+> **Status:** Validated
 
 Generated: 2026-09-08
+
+## Current release: Optional Teams dispatch infrastructure (2026-09-24)
+
+Make Teams channel dispatch an explicit opt-in for the primary customer deployment while preserving
+Azure DevOps Wiki dispatch as a complete, independently functional path.
+
+- Mode: modify existing Bicep infrastructure
+- Recipe: resource-group Bicep deployment through the existing Azure CLI workflow
+- Default behavior: `deployTeamsDispatch = false` on `infra\main.bicep`
+- Always provisioned for Wiki dispatch: Service Bus namespace/topic, Azure DevOps Wiki subscription,
+  dispatch worker identity/app/plan, Cosmos containers/RBAC, private Wiki Key Vault,
+  private endpoints/DNS, and Key Vault worker/API roles
+- Provisioned only when Teams is enabled: Bot Gateway identity/app/plan, Azure Bot resource,
+  Teams channel, Teams Service Bus subscription/filter, Bot Framework worker settings, and gateway
+  Cosmos RBAC
+- Compatibility: the lower-level `src\Dispatching\infra\main.bicep` keeps Teams enabled by default
+  for existing callers; the newly composed primary deployment explicitly passes its opt-in value
+- Upgrade safety: incremental deployments do not delete already existing Teams resources, but
+  existing Teams users must set `deployTeamsDispatch = true` so shared worker configuration
+  continues to include Teams delivery settings
+- Validation: compile/lint both templates and validate/what-if both `false` and `true` paths
+- Deployment: not requested
+- Approval: approved by the user on 2026-09-24
+- Status: implementation complete and ready for validation
+
+### Validation checklist
+
+- [x] All validation checks pass
+  - [x] Primary template with Teams disabled (default)
+  - [x] Primary template with Teams enabled (upgrade compatibility)
+  - [x] Lower-level dispatch template with its legacy Teams-enabled default
+  - [x] Wiki-only worker build and dispatching unit tests
+  - [x] Structured what-if confirms no resource deletion
+
+### Role assignment verification
+
+- Wiki-only mode retains the worker's Cosmos DB Built-in Data Contributor, Service Bus Data
+  Sender/Receiver, and Key Vault Secrets User assignments.
+- The API runtime retains Key Vault Secrets Officer for PAT creation and rotation.
+- Bot Gateway Cosmos RBAC is conditional with the Bot Gateway identity and is absent when Teams is
+  disabled.
+- No shared Wiki role assignment depends on the Teams opt-in flag.
+
+### Validation proof
+
+Validated on 2026-09-24 against subscription `5e22addc-6168-4683-afd0-789a121ca5d3`
+and resource group `az-radar-vnet-rg`.
+
+| Check | Result |
+|-------|--------|
+| Primary Bicep, `deployTeamsDispatch=false` | Build, lint, ARM validation, and what-if passed |
+| Primary Bicep, `deployTeamsDispatch=true` | Build, lint, ARM validation, and what-if passed |
+| Lower-level dispatch Bicep with legacy Teams-enabled default | Build, ARM validation, and what-if passed after adding the previously missing `apiPrincipalId` parameter |
+| Structured what-if, Teams disabled | `Create=1`, `Delete=0`, `Ignore=16`; existing Teams resources are retained by incremental deployment, while the sole apparent create is the already-existing module-output-based Key Vault role assignment |
+| Structured what-if, Teams enabled | `Create=1`, `Delete=0`; same unresolved existing Key Vault role assignment |
+| Structured what-if, direct dispatch template | `Create=1`, `Delete=0`; same unresolved existing Key Vault role assignment |
+| Compiled ARM inspection | Gateway identity/plan/app, Teams subscription/filter, Azure Bot, and Teams channel all carry the `deployTeamsDispatch` condition |
+| Dispatch worker runtime | `TeamsDispatch__Enabled=false` omits Teams agent and Teams delivery hosted-service registration; Wiki workers remain registered |
+| Dispatch tests | 10 passed |
+| Solution build | Passed with 0 warnings and 0 errors |
+| Frontend type-check | Passed |
+
+ARM validation found no deny-policy conflict in either mode. No Azure deployment was executed.
+
+## Current release: Self-contained Azure DevOps Wiki infrastructure upgrade (2026-09-24)
+
+Ensure the repository's primary Bicep deployment path provisions every resource required by Azure
+DevOps Wiki dispatch when upgrading an existing CloudLens environment.
+
+- Mode: modify existing Bicep infrastructure
+- Scope: Key Vault, private endpoint/DNS integration, managed-identity RBAC, app settings, and
+  dependency wiring required by Azure DevOps Wiki PAT storage
+- Security: RBAC-enabled Key Vault, no access policies, no embedded PATs or keys, private networking
+  consistent with the existing platform
+- Compatibility: additive deployment over an existing environment; no destructive resource changes
+- Validation: Bicep compile, repository tests/build where affected, resource-group ARM validation,
+  and what-if review against the existing deployment
+- Deployment: not requested; changes will be staged for the user to push and the customer to retry
+- Approval: approved by the user's instruction to implement and locally validate the Bicep fix
+- Status: primary deployment wiring implemented and validated
+
+### Design decision
+
+The documented customer deployment executes only `infra\main.bicep`, while the Wiki Key Vault and
+its least-privilege role assignments were owned by `src\Dispatching\infra\main.bicep`. The primary
+template now composes that existing dispatch template using deterministic resource names. This
+makes upgrades additive and idempotent: missing Service Bus, worker, Bot Gateway, private Wiki Key
+Vault, private DNS, private endpoint, and RBAC resources are created, while an already deployed
+dispatch stack is converged in place. The generated Key Vault URI is wired into the API and JobHost
+automatically; the existing URI parameter remains only as an optional external-vault override.
+
+### Validation checklist
+
+- [x] All validation checks pass
+  - [x] 1. Core Validation (Azure CLI authentication, Bicep build, ARM validation, and what-if)
+  - [x] 2. Bicep linting
+  - [x] 3. Azure Policy Validation
+
+### Role assignment verification
+
+- Status: Verified
+- Runtime identity: Cosmos DB Built-in Data Contributor; Event Hubs Data Receiver/Sender; Key Vault
+  Secrets Officer; Cognitive Services OpenAI User when the in-tenant account is enabled
+- Service Health provisioner: scoped custom role on the Event Hubs authorization rule
+- Dispatch worker: Cosmos DB Built-in Data Contributor; Azure Service Bus Data Sender/Receiver; Key
+  Vault Secrets User
+- Bot Gateway: Cosmos DB Built-in Data Contributor; its UAMI is also the Azure Bot identity
+- Scope: all data-plane roles are assigned at the specific Cosmos, Event Hubs, Service Bus, Key
+  Vault, or Azure OpenAI resource rather than subscription scope
+- Issues: none found
+
+### Validation proof
+
+Validated on 2026-09-24 against subscription `5e22addc-6168-4683-afd0-789a121ca5d3`
+and resource group `az-radar-vnet-rg`.
+
+| Check | Result |
+|-------|--------|
+| `az bicep build --file infra\main.bicep` | Passed |
+| `az bicep lint --file infra\main.bicep` | Passed with no Bicep diagnostics |
+| Azure validation workflow `validate-deployment.ps1` using a temporary live-aligned parameter file | `OVERALL: PASS`; CLI authenticated, template compiled, ARM resource-group validation passed, and what-if completed |
+| Structured `ResourceIdOnly` what-if | `Create=1`, `Delete=0`; the sole apparent create is the runtime identity's Key Vault Secrets Officer assignment, which already exists but cannot be resolved by what-if because its principal ID comes from a module output |
+| Live Key Vault RBAC verification | Runtime identity has Key Vault Secrets Officer; dispatch worker has Key Vault Secrets User |
+| Azure Policy validation | ARM validation found no deny-policy conflict. CLI compliance state reported only pre-existing audit findings for diagnostics and secret expiration; no planned resource was denied. The Azure Policy MCP query was also attempted but its separate credential lacked subscription Reader permission. |
+| `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` | Passed, 0 warnings and 0 errors |
+| `npx tsc --noEmit` in `src\az-radar-ui` | Passed |
+| `git diff --check` | Passed |
+
+The validation-only parameter file mirrored the existing generated app names, Event Hubs namespace,
+OpenAI deployment, and active blue/green image tags so the what-if compared the same resources
+rather than the generic sample names.
+
+## Current release: Region-scoped Azure DevOps Wiki dispatch (2026-09-23)
+
+Implement and deploy the approved region-scoped Service Health routing design to the existing
+private-network App Service environment.
+
+- Subscription: `MOHOSSA-M365CPI50986977`
+  (`5e22addc-6168-4683-afd0-789a121ca5d3`)
+- Resource group: `az-radar-vnet-rg`
+- Existing location: Central US (`centralus`)
+- Classification: existing production/pilot environment
+- Scale: multiple wiki targets with bounded region sets; existing App Service SKUs retained
+- Budget: no new resources or SKU changes
+- Recipe: Azure CLI App Service container image update
+- Quota validation: not applicable; this release creates no Azure resources and consumes no new
+  resource quota
+
+### Components and changes
+
+| Component | Existing Azure service | Planned change |
+|---|---|---|
+| API and React UI | `azr-api-x8c5i2` | Region catalog validation, wiki-target region create/edit API, synthetic-event regions, Fluent UI region selectors |
+| Service Health ingestion | `azr-job-x8c5i2` | Canonical multi-region normalization and region-aware wiki intent routing with global/unscoped fallback |
+| Dispatch worker | `az-radar-dispatch-ay637nckh3ebc` | Authoritative per-target filtering before wiki rendering and reconciliation |
+| Bot gateway | `az-radar-bot-ay637nckh3ebc` | No code or image change |
+| Cosmos DB | Existing account/containers | Additive JSON fields only; no container or partition-key change |
+| Key Vault | Existing `az-radar-wiki-ay637nckh3` | Store the supplied Azure DevOps PAT through the existing write-only credential path; never persist it in source, this plan, logs, or Cosmos DB |
+
+### Implementation
+
+- Add a shared canonical Azure region resolver with explicit display-name and ARM-location aliases.
+- Extend wiki target records with canonical `includedRegions`.
+- Extend Service Health events with canonical `affectedRegions` while retaining the singular region
+  field for compatibility.
+- Route known regional events only to intersecting wiki targets.
+- Route explicit global, missing/empty, and unknown-only regional scope to every active wiki target.
+- Keep Teams routing unchanged.
+- Filter again in the dispatch worker before rendering, including manual and daily reconciliation.
+- Preserve effective region scope across lifecycle updates that omit region information.
+- Add API/UI support to select regions during registration and edit them later.
+- Add synthetic-event region selection and pass it through the real Event Hub ingestion path.
+- Add focused unit/integration coverage for exact match, aliases, similar-name protection,
+  multi-region intersection, global/unscoped fallback, lifecycle updates, and renderer filtering.
+
+### Deployment
+
+Current image tags discovered from Azure on 2026-09-23:
+
+| App Service | Current image | Deploy image |
+|---|---|---|
+| `azr-api-x8c5i2` | `moimhossain/az-radar-api:blue` | `moimhossain/az-radar-api:green` |
+| `azr-job-x8c5i2` | `moimhossain/az-radar-jobhost:green` | `moimhossain/az-radar-jobhost:blue` |
+| `az-radar-dispatch-ay637nckh3ebc` | `moimhossain/az-radar-dispatch-worker:blue` | `moimhossain/az-radar-dispatch-worker:green` |
+
+The standard Docker build will first use the Microsoft npm proxy and configured NuGet sources. If
+Docker restore is blocked by organizational package policy, use the previously validated local
+restore/publish plus runtime-only `src\Dispatching\Dockerfile.prepublished` path without changing
+dependency manifests.
+
+All four Web Apps currently report `alwaysOn: false`. Restore Always On to `true` during deployment
+because the JobHost and dispatch worker require continuous listeners; keep it enabled during
+rollback.
+
+### Validation and end-to-end verification
+
+- [x] All validation checks pass
+  - [x] 1. Core Validation (Azure CLI authentication and application build; ARM validate/what-if
+        not applicable because this release changes only existing App Service image references and
+        Always On)
+  - [x] 2. Docker Build (API/UI, JobHost, and dispatch worker)
+  - [x] 3. Azure Policy Validation
+- [x] Build `AzRadar.slnx`.
+- [x] Run Shared and Dispatching tests, including new region-routing coverage.
+- [x] Type-check and build the React UI.
+- [x] Validate patch whitespace and ensure the supplied PAT is absent from tracked files and output.
+- [x] Build the three opposite-tag container images and run local container smoke checks where
+      practical.
+- [x] Invoke `azure-validate` and record validation proof before deployment.
+- [x] Push API green, JobHost blue, and dispatch worker green.
+- [x] Update and restart the three App Services.
+- [x] Restore and verify Always On on all four Web Apps.
+- [x] Verify API health, UI loading, target region persistence, and current image tags.
+- [x] Update the existing Azure DevOps Wiki target for
+      `https://dev.azure.com/moim/Platform/_wiki/wikis/Platform.wiki/13/Azure-Service-Health`
+      through the deployed API using the supplied PAT and approved regions.
+- [x] Publish a synthetic matching event and verify ingestion, matching intent, successful wiki
+      delivery, and rendered page content.
+- [x] Publish a synthetic non-matching known-region event and verify it is absent from the wiki.
+- [x] Publish a synthetic global or unscoped event and verify conservative all-target delivery.
+- [x] Verify Teams configuration and delivery routing are unchanged.
+- [x] Perform live RBAC and worker-liveness verification.
+
+### Rollback
+
+- Restore API to blue, JobHost to green, and dispatch worker to blue.
+- Additive Cosmos fields remain backward compatible and do not require data deletion.
+- Keep Always On enabled.
+- If target configuration causes unexpected filtering, restore the previous images before changing
+  or deleting target metadata.
+
+### Execution checklist
+
+- [x] Analyze workspace and existing Azure resources.
+- [x] Confirm the requested subscription and resource group from the portal URI and Azure CLI.
+- [x] Confirm existing Central US location.
+- [x] Confirm no new resources, quota, RBAC, networking, or SKU changes.
+- [x] Select Azure CLI blue-green App Service image update recipe.
+- [x] User approves this release plan and selects the wiki target regions.
+- [x] Implement and locally verify.
+- [x] Set status to `Ready for Validation`.
+- [x] Run `azure-validate`; only that workflow may set status to `Validated`.
+- [x] Run `azure-deploy`.
+- [x] Record deployment results and set status to `Deployed`.
+
+### Deployment result
+
+- API/UI image `moimhossain/az-radar-api:green`:
+  `sha256:a0b1c073d15ecfc027d1cd07e01d32d0b463a2b57154dd8bf4126f8eb3bf286c`.
+- JobHost image `moimhossain/az-radar-jobhost:blue`:
+  `sha256:7ac4852980f17dfa1c6da1653ee651d09dd6e8f263c666e65d4a041b52782cd9`.
+- Dispatch worker image `moimhossain/az-radar-dispatch-worker:green`:
+  `sha256:09f0fd647cc61853c9a280225c7afa28544aa0768f67cf4c177d0ab2b223e769`.
+- `azr-api-x8c5i2`, `azr-job-x8c5i2`, and `az-radar-dispatch-ay637nckh3ebc`
+  are running the planned opposite tags.
+- Always On is enabled on all four App Services.
+- `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`.
+- The deployed UI bundle contains the Azure-region registration/edit controls and synthetic
+  missing-region control.
+- Existing wiki target `bea9bb60-4456-4d6b-84ac-c34b8b57b27e` is registered for `Central US`;
+  its existing Key Vault credential passed the live connection test.
+- Synthetic routing verification:
+  - `TEST-20260923153447` (`Central US`) matched the wiki and was delivered.
+  - `TEST-20260923153639` (`Japan East`) did not match the wiki and is absent from the page.
+  - `TEST-20260923153747` (`Global`) matched the wiki and was delivered.
+  - `TEST-20260923153835` (missing region) matched the wiki and was delivered.
+- Azure DevOps page inspection confirmed the matching, global, and missing-region tracking IDs are
+  present and the non-matching Japan East tracking ID is absent.
+- Service Bus metrics reported an active connection and 56 successful requests during the
+  verification window.
+
+### Live role verification
+
+- Runtime UAMI `az-radar-uami` retains Cognitive Services OpenAI User, Event Hubs Data
+  Sender/Receiver, Key Vault Secrets Officer, and Cosmos DB Built-in Data Contributor.
+- Dispatch UAMI `az-radar-dispatch-worker-uami` retains Service Bus Data Sender/Receiver, Key Vault
+  Secrets User, and Cosmos DB Built-in Data Contributor.
+- Status: Pass.
 
 ## Current release: Multiple Azure DevOps Wiki targets and Always On (2026-09-21)
 
@@ -116,6 +394,30 @@ Planned validation:
 - [x] Verify `/api/azure-regions`, scoped watchlist persistence, UI availability, and JobHost health
 
 ## 7. Validation Proof
+
+- 2026-09-23: `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` succeeded with
+  0 warnings and 0 errors.
+- 2026-09-23: Shared tests passed 102/102 and Dispatching tests passed 10/10, including canonical
+  region aliases, exact non-match, global/missing/unknown fallback, and lifecycle scope retention.
+- 2026-09-23: `npx tsc --noEmit -p src\az-radar-ui\tsconfig.json` and
+  `npm --prefix src\az-radar-ui run build` succeeded; the existing bundle-size advisory is
+  non-blocking.
+- 2026-09-23: Release publishes succeeded without dependency changes using the existing restored
+  dependency graph and Microsoft IT proxy-compatible workflow.
+- 2026-09-23: runtime-only Docker validation images built successfully:
+  - API: `sha256:96a7bd5886c5ebf2514ba1a0844ae55608bee3867df9b7a7d3d439ce61ba0fcb`
+  - JobHost: `sha256:19f0ed8f8c9100106a6c06492ac14256e3c75fb0e42eb6d61e472581f9a70927`
+  - Dispatch worker: `sha256:8933e2c8282e9fa4cee2c41f68d40231465862562fd485a7ae83d28ce1c56fc0`
+- 2026-09-23: API container startup reached Azure service initialization; local health probing is
+  intentionally unavailable without the deployed managed identity and private Cosmos endpoint.
+- 2026-09-23: Azure CLI authenticated to `MOHOSSA-M365CPI50986977`
+  (`5e22addc-6168-4683-afd0-789a121ca5d3`) and confirmed all target App Services are running in
+  `az-radar-vnet-rg`.
+- 2026-09-23: `az policy assignment list` returned only existing Defender assignments; none deny
+  App Service image-reference or Always On changes.
+- 2026-09-23: static RBAC review confirmed no identity or role changes are required. Existing
+  Cosmos, Event Hubs, Service Bus, Key Vault, and Azure OpenAI managed-identity assignments remain
+  the deployment contract.
 
 - 2026-09-21: `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` succeeded
   with 0 warnings and 0 errors.

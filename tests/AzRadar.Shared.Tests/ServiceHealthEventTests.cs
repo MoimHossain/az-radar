@@ -45,6 +45,75 @@ public class ServiceHealthEventNormalizerTests
         result[0].TrackingId.Should().Be("TEST-123");
         result[0].IsSynthetic.Should().BeTrue();
         result[0].ContentHash.Should().HaveLength(64);
+        result[0].AffectedRegions.Should().Equal("Central US");
+        result[0].RegionScope.Should().Be(ServiceHealthRegionScopes.Regional);
+    }
+
+    public class ServiceHealthRegionMatcherTests
+    {
+        [Theory]
+        [InlineData("West Europe", "westeurope")]
+        [InlineData("East US 2", "east-us-2")]
+        public void Resolver_ApprovedForms_ReturnCanonicalRegion(string expected, string source)
+        {
+            AzureRegionResolver.TryResolve(source, out var canonical).Should().BeTrue();
+            canonical.Should().Be(expected);
+        }
+
+        [Fact]
+        public void MatchesTarget_KnownNonIntersectingRegion_IsExcluded()
+        {
+            var serviceHealthEvent = Event(ServiceHealthRegionScopes.Regional, ["Japan East"]);
+
+            ServiceHealthRegionMatcher.MatchesTarget(serviceHealthEvent, ["Central US"]).Should().BeFalse();
+        }
+
+        [Fact]
+        public void MatchesTarget_KnownNonMatchWithUnknownValue_RemainsExcluded()
+        {
+            var serviceHealthEvent = Event(ServiceHealthRegionScopes.Regional, ["Japan East"]);
+            serviceHealthEvent.UnresolvedRegionValues = ["Moon Base 1"];
+
+            ServiceHealthRegionMatcher.MatchesTarget(serviceHealthEvent, ["Central US"]).Should().BeFalse();
+        }
+
+        [Theory]
+        [InlineData(ServiceHealthRegionScopes.Global)]
+        [InlineData(ServiceHealthRegionScopes.Unscoped)]
+        [InlineData(ServiceHealthRegionScopes.Unknown)]
+        public void MatchesTarget_GlobalOrUnscoped_IsIncluded(string scope)
+        {
+            ServiceHealthRegionMatcher.MatchesTarget(Event(scope, []), ["Central US"]).Should().BeTrue();
+        }
+
+        [Fact]
+        public void FilterForTarget_ResolutionWithoutRegion_InheritsPriorScope()
+        {
+            var active = Event(ServiceHealthRegionScopes.Regional, ["Central US"]);
+            active.TrackingId = "TRACK-1";
+            active.Status = "Active";
+            active.EventTimestamp = DateTimeOffset.UtcNow.AddMinutes(-5);
+            var resolved = Event(ServiceHealthRegionScopes.Unscoped, []);
+            resolved.TrackingId = active.TrackingId;
+            resolved.Status = "Resolved";
+            resolved.EventTimestamp = DateTimeOffset.UtcNow;
+
+            var result = ServiceHealthRegionMatcher.FilterForTarget([active, resolved], ["Central US"]);
+
+            result.Should().ContainSingle();
+            result[0].Status.Should().Be("Resolved");
+            result[0].AffectedRegions.Should().Equal("Central US");
+        }
+
+        private static ServiceHealthEvent Event(string scope, List<string> regions) => new()
+        {
+            Id = Guid.NewGuid().ToString(),
+            TrackingId = Guid.NewGuid().ToString(),
+            RegionScope = scope,
+            AffectedRegions = regions,
+            EventTimestamp = DateTimeOffset.UtcNow,
+            ReceivedAt = DateTimeOffset.UtcNow
+        };
     }
 
     [Fact]
@@ -56,6 +125,28 @@ public class ServiceHealthEventNormalizerTests
 
         act.Should().Throw<System.Text.Json.JsonException>()
             .WithMessage("*ServiceHealth*");
+    }
+
+    [Fact]
+    public void Normalize_MultipleRegions_ResolvesCanonicalAndUnknownValues()
+    {
+        var payload = BinaryData.FromString("""
+            {
+              "category": "ServiceHealth",
+              "eventDataId": "event-regions",
+              "operationName": "Microsoft.ServiceHealth/maintenance/action",
+              "properties": {
+                "regions": ["centralus", "Japan East", "Moon Base 1"],
+                "trackingId": "REGIONS-1"
+              }
+            }
+            """);
+
+        var result = ServiceHealthEventNormalizer.Normalize(payload, DateTimeOffset.UtcNow).Single();
+
+        result.AffectedRegions.Should().BeEquivalentTo(["Central US", "Japan East"]);
+        result.UnresolvedRegionValues.Should().Equal("Moon Base 1");
+        result.RegionScope.Should().Be(ServiceHealthRegionScopes.Regional);
     }
 }
 
@@ -113,5 +204,62 @@ public class ServiceHealthEventProcessorTests
                 intent.ChannelId == "platform-incidents" &&
                 intent.Status == ServiceHealthDeliveryIntentStatuses.Pending),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("Central US", true)]
+    [InlineData("Japan East", false)]
+    [InlineData("Global", true)]
+    [InlineData("", true)]
+    [InlineData("Moon Base 1", true)]
+    public async Task ProcessAsync_WikiTarget_AppliesRegionPolicy(string eventRegion, bool expectedIntent)
+    {
+        var db = new Mock<ICosmosDbService>();
+        var llm = new Mock<ILlmAnalyzer>();
+        db.Setup(service => service.GetServiceHealthChannelsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ServiceHealthNotificationChannel
+                {
+                    Id = "wiki",
+                    DisplayName = "Wiki",
+                    Type = ServiceHealthChannelTypes.AzureDevOpsWiki,
+                    RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Registered,
+                    IncludedRegions = ["Central US"]
+                }
+            ]);
+        db.Setup(service => service.TryStoreServiceHealthEventAsync(
+                It.IsAny<ServiceHealthEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        db.Setup(service => service.TryCreateServiceHealthDeliveryIntentAsync(
+                It.IsAny<ServiceHealthDeliveryIntent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        llm.Setup(service => service.AnalyzeServiceHealthEventAsync(
+                It.IsAny<ServiceHealthEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmAnalysis());
+        var escapedRegion = eventRegion.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        var payload = BinaryData.FromString($$"""
+            {
+              "category": "ServiceHealth",
+              "eventDataId": "{{Guid.NewGuid()}}",
+              "resourceId": "/subscriptions/5e22addc-6168-4683-afd0-789a121ca5d3",
+              "operationName": "Microsoft.ServiceHealth/incident/action",
+              "properties": {
+                "title": "Incident",
+                "incidentType": "Incident",
+                "trackingId": "{{Guid.NewGuid()}}",
+                "region": "{{escapedRegion}}"
+              }
+            }
+            """);
+
+        await new ServiceHealthEventProcessor(
+            db.Object,
+            llm.Object,
+            NullLogger<ServiceHealthEventProcessor>.Instance)
+            .ProcessAsync(payload, DateTimeOffset.UtcNow);
+
+        db.Verify(service => service.TryCreateServiceHealthDeliveryIntentAsync(
+            It.IsAny<ServiceHealthDeliveryIntent>(), It.IsAny<CancellationToken>()),
+            expectedIntent ? Times.Once() : Times.Never());
     }
 }

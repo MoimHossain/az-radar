@@ -27,6 +27,7 @@ public sealed class AzureDevOpsWikiReconciliationWorker : BackgroundService
                 var day = DateTimeOffset.UtcNow.ToString("yyyyMMdd");
                 foreach (var target in targets.Where(target =>
                              target.RegistrationStatus == ServiceHealthChannelRegistrationStatuses.Registered &&
+                             target.IncludedRegions.Count > 0 &&
                              (target.LastSucceededAt == null ||
                               target.LastSucceededAt < DateTimeOffset.UtcNow.AddHours(-24))))
                 {

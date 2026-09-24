@@ -87,12 +87,16 @@ export function ServiceHealthConfigPage() {
   const [deliveryIntents, setDeliveryIntents] = useState<ServiceHealthDeliveryIntent[]>([]);
   const [subscriptionId, setSubscriptionId] = useState("");
   const [testEventType, setTestEventType] = useState<ServiceHealthEventType>("ServiceIssue");
+  const [azureRegions, setAzureRegions] = useState<string[]>([]);
+  const [testEventRegions, setTestEventRegions] = useState<string[]>(["Central US"]);
   const [wikiDisplayName, setWikiDisplayName] = useState("CloudLens Service Health Hub");
   const [wikiUri, setWikiUri] = useState("");
   const [wikiAuthenticationType, setWikiAuthenticationType] =
     useState<"pat" | "managed-identity">("pat");
   const [wikiPat, setWikiPat] = useState("");
   const [wikiManagedIdentityClientId, setWikiManagedIdentityClientId] = useState("");
+  const [wikiRegions, setWikiRegions] = useState<string[]>(["Central US"]);
+  const [targetRegionDrafts, setTargetRegionDrafts] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -101,17 +105,24 @@ export function ServiceHealthConfigPage() {
   );
 
   const load = async () => {
-    const [registeredSubscriptions, notificationChannels, recentEvents, recentIntents] = await Promise.all([
+    const [registeredSubscriptions, notificationChannels, recentEvents, recentIntents, regions] = await Promise.all([
       api.getServiceHealthSubscriptions(),
       api.getServiceHealthChannels(),
       api.getServiceHealthEvents(50),
       api.getServiceHealthDeliveryIntents(100),
+      api.getAzureRegions(),
     ]);
     setSubscriptions(registeredSubscriptions);
     setChannels(notificationChannels.filter((channel) => channel.type === "teams-bot"));
     setWikiTargets(notificationChannels.filter((channel) => channel.type === "azure-devops-wiki"));
     setEvents(recentEvents);
     setDeliveryIntents(recentIntents);
+    setAzureRegions(regions);
+    setTargetRegionDrafts(Object.fromEntries(
+      notificationChannels
+        .filter((channel) => channel.type === "azure-devops-wiki")
+        .map((channel) => [channel.id, channel.includedRegions ?? []]),
+    ));
   };
 
   useEffect(() => {
@@ -144,7 +155,7 @@ export function ServiceHealthConfigPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const result = await api.publishServiceHealthTestEvent(id, testEventType);
+      const result = await api.publishServiceHealthTestEvent(id, testEventType, testEventRegions);
       setMessage({
         type: "success",
         text: `Synthetic ${result.eventType} event ${result.trackingId} was published. Refresh recent events in a few seconds.`,
@@ -173,6 +184,7 @@ export function ServiceHealthConfigPage() {
       displayName: wikiDisplayName.trim(),
       wikiUri: wikiUri.trim(),
       authenticationType: wikiAuthenticationType,
+      includedRegions: wikiRegions,
       personalAccessToken: wikiAuthenticationType === "pat" ? wikiPat : undefined,
       managedIdentityClientId:
         wikiAuthenticationType === "managed-identity"
@@ -291,6 +303,28 @@ export function ServiceHealthConfigPage() {
                       <Option key={eventType.value} value={eventType.value}>{eventType.label}</Option>
                     ))}
                   </Dropdown>
+                  <Dropdown
+                    size="small"
+                    multiselect
+                    value={testEventRegions.length === 0
+                      ? "No region (fallback)"
+                      : `${testEventRegions.length} region${testEventRegions.length === 1 ? "" : "s"}`}
+                    selectedOptions={testEventRegions}
+                    onOptionSelect={(_, data) => setTestEventRegions(data.selectedOptions)}
+                    aria-label="Synthetic event regions"
+                  >
+                    <Option value="Global">Global</Option>
+                    {azureRegions.map((region) => (
+                      <Option key={region} value={region}>{region}</Option>
+                    ))}
+                  </Dropdown>
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    onClick={() => setTestEventRegions([])}
+                  >
+                    Test missing region
+                  </Button>
                   <Button
                     size="small"
                     appearance="secondary"
@@ -439,6 +473,22 @@ export function ServiceHealthConfigPage() {
                   placeholder="https://dev.azure.com/organization/project/_wiki/wikis/wiki/123/page"
                 />
               </Field>
+              <Field
+                label="Azure regions"
+                hint="Known regional events must match one of these regions. Global or unscoped events are always shown."
+                required
+              >
+                <Dropdown
+                  multiselect
+                  value={`${wikiRegions.length} region${wikiRegions.length === 1 ? "" : "s"} selected`}
+                  selectedOptions={wikiRegions}
+                  onOptionSelect={(_, data) => setWikiRegions(data.selectedOptions)}
+                >
+                  {azureRegions.map((region) => (
+                    <Option key={region} value={region}>{region}</Option>
+                  ))}
+                </Dropdown>
+              </Field>
               {wikiAuthenticationType === "pat" ? (
                 <Field
                   label="Personal Access Token"
@@ -472,6 +522,7 @@ export function ServiceHealthConfigPage() {
                     busy ||
                     !wikiDisplayName.trim() ||
                     !wikiUri.trim() ||
+                    wikiRegions.length === 0 ||
                     (wikiAuthenticationType === "pat"
                       ? !wikiPat
                       : !wikiManagedIdentityClientId.trim())
@@ -514,12 +565,47 @@ export function ServiceHealthConfigPage() {
                       ? new Date(target.lastSucceededAt).toLocaleString()
                       : "not published yet"}
                   </Text>
+                  <Field
+                    label="Azure regions"
+                    hint="Global, missing, and unknown-only event scope is shown automatically."
+                  >
+                    <Dropdown
+                      multiselect
+                      value={`${(targetRegionDrafts[target.id] ?? []).length} region${
+                        (targetRegionDrafts[target.id] ?? []).length === 1 ? "" : "s"
+                      } selected`}
+                      selectedOptions={targetRegionDrafts[target.id] ?? []}
+                      onOptionSelect={(_, data) => setTargetRegionDrafts((current) => ({
+                        ...current,
+                        [target.id]: data.selectedOptions,
+                      }))}
+                    >
+                      {azureRegions.map((region) => (
+                        <Option key={region} value={region}>{region}</Option>
+                      ))}
+                    </Dropdown>
+                  </Field>
                   {target.lastErrorMessage && (
                     <Text size={200} className={styles.error}>
                       {target.lastErrorCode}: {target.lastErrorMessage}
                     </Text>
                   )}
                   <div className={styles.actions}>
+                    <Button
+                      size="small"
+                      appearance="secondary"
+                      disabled={busy || (targetRegionDrafts[target.id] ?? []).length === 0}
+                      onClick={() => void runAction(
+                        () => api.updateServiceHealthWikiTarget(
+                          target.id,
+                          target.displayName,
+                          targetRegionDrafts[target.id] ?? [],
+                        ).then(() => undefined),
+                        "Azure DevOps Wiki regions updated and publication queued.",
+                      )}
+                    >
+                      Save regions
+                    </Button>
                     <Button
                       appearance="primary"
                       icon={<SendRegular />}

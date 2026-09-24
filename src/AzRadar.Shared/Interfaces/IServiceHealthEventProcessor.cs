@@ -15,6 +15,7 @@ public interface IServiceHealthTestEventPublisher
     Task<ServiceHealthTestEventResult> PublishAsync(
         string subscriptionId,
         string eventType,
+        IReadOnlyList<string> regions,
         CancellationToken cancellationToken = default);
 }
 

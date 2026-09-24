@@ -130,9 +130,19 @@ public sealed class AzureDevOpsWikiDeliveryWorker : IHostedService, IAsyncDispos
                     "The Azure DevOps Wiki target is disabled or has an invalid type.",
                     true);
             }
+            if (target.IncludedRegions.Count == 0)
+            {
+                throw new WikiDispatchException(
+                    "region-selection-required",
+                    "The Azure DevOps Wiki target requires at least one Azure region.",
+                    true);
+            }
 
-            var events = await _repository.GetEventsAsync(1000, args.CancellationToken);
-            var content = _renderer.Render(events, DateTimeOffset.UtcNow);
+            var events = await _repository.GetProjectionEventsAsync(args.CancellationToken);
+            var matchingEvents = ServiceHealthRegionMatcher.FilterForTarget(
+                events,
+                target.IncludedRegions);
+            var content = _renderer.Render(matchingEvents, DateTimeOffset.UtcNow);
             var contentHash = ServiceHealthEventNormalizer.ComputeHash(content);
 
             if (string.Equals(
@@ -183,6 +193,8 @@ public sealed class AzureDevOpsWikiDeliveryWorker : IHostedService, IAsyncDispos
             var status = failure.Code is "authentication-failed" or "credential-missing" or
                 "identity-authentication-failed" or "permission-required"
                 ? ServiceHealthChannelRegistrationStatuses.PermissionRequired
+                : failure.Code == "region-selection-required"
+                    ? ServiceHealthChannelRegistrationStatuses.ConfigurationRequired
                 : ServiceHealthChannelRegistrationStatuses.Degraded;
 
             attempt.CompletedAt = DateTimeOffset.UtcNow;

@@ -43,6 +43,15 @@ public class ServiceHealthEvent
     [JsonPropertyName("region")]
     public string Region { get; set; } = string.Empty;
 
+    [JsonPropertyName("affectedRegions")]
+    public List<string> AffectedRegions { get; set; } = [];
+
+    [JsonPropertyName("unresolvedRegionValues")]
+    public List<string> UnresolvedRegionValues { get; set; } = [];
+
+    [JsonPropertyName("regionScope")]
+    public string RegionScope { get; set; } = ServiceHealthRegionScopes.Unscoped;
+
     [JsonPropertyName("operationName")]
     public string OperationName { get; set; } = string.Empty;
 
@@ -69,6 +78,14 @@ public class ServiceHealthEvent
 
     [JsonPropertyName("matchingChannelIds")]
     public List<string> MatchingChannelIds { get; set; } = [];
+}
+
+public static class ServiceHealthRegionScopes
+{
+    public const string Regional = "regional";
+    public const string Global = "global";
+    public const string Unscoped = "unscoped";
+    public const string Unknown = "unknown";
 }
 
 public static class ServiceHealthRoutingStatuses
