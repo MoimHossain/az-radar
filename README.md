@@ -49,20 +49,11 @@ perform remediation.
 
 ## How it works
 
-```text
-Azure Updates ─┐
-Microsoft Learn ├──► Ingestion and deduplication ─► AI brief ─► Lifecycle calendar
-GitHub changes ─┘                                      │
-                                                      └──► Azure Resource Graph
-                                                           candidate impact
+![CloudLens architecture: from Azure signals through intelligence to engineering action](assets/images/cloudlens-architecture.svg)
 
-Registered Azure subscriptions
-        │
-        ▼
-Azure Service Health ─► Event Hubs ─► Cosmos DB ─► Service Bus
-                                                       ├──► CloudLens in Teams
-                                                       └──► Azure DevOps Wiki
-```
+<p align="center">
+  <sub><a href="assets/images/cloudlens-architecture.excalidraw">Open the editable Excalidraw source</a></sub>
+</p>
 
 The web application and background workers run as Linux containers on Azure App Service.
 Cosmos DB Change Feed provides durable job dispatch, while Event Hubs and Service Bus separate
