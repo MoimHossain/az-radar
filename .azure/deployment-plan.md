@@ -268,3 +268,156 @@ resource types use live Azure CLI counts plus Microsoft Learn service-limit docu
   enables export only during bootstrap and disables it in the final private state.
 
 Current phase: Deployed and verified.
+
+---
+
+## 12. Application Release — CloudLens Wiki and Subscription Navigation
+
+**Prepared:** 2026-09-25T06:47:04+02:00
+
+**Goal:** Deploy an application-only update that:
+
+- makes subscription IDs in Impact Analysis open the matching Azure portal subscription in a new tab;
+- converts Azure Service Health source HTML into safe Azure DevOps Wiki Markdown;
+- refreshes the Wiki dashboard headings and visual hierarchy;
+- adds a CloudLens-branded logo served by the dispatch worker and rendered in the Wiki page.
+
+### Azure Context
+
+- **Subscription:** `MOHOSSA-M365CPI50986977`
+  (`5e22addc-6168-4683-afd0-789a121ca5d3`)
+- **Resource group:** `az-radar-vnet-rg`
+- **Location:** Central US (`centralus`)
+- **User confirmation:** 2026-09-25
+
+### Deployment Scope
+
+| Component | Existing App Service | Image repository | Deployment action |
+|-----------|----------------------|------------------|-------------------|
+| API + React UI | `azr-api-x8c5i2` | `az-radar-api` | Build opposite blue/green tag and switch image |
+| Service Health dispatch worker | `az-radar-dispatch-ay637nckh3ebc` | `az-radar-dispatch-worker` | Build opposite blue/green tag and switch image |
+
+No infrastructure resources, role assignments, secrets, network settings, databases, or managed
+identities are created or changed by this release.
+
+### Validation Completed During Preparation
+
+- [x] Frontend TypeScript type-check
+- [x] Dispatch renderer tests (11/11)
+- [x] Git whitespace validation
+- [x] Subscription and location confirmed
+- [x] All validation checks pass
+  - [x] Azure CLI authentication and target context
+  - [x] API container build
+  - [x] Dispatch-worker container build
+  - [x] Azure Policy validation
+  - [x] Static RBAC review (no role changes)
+- [x] Build and publish opposite blue/green images
+- [x] Switch App Service image references
+- [x] Verify UI, API health, dispatch worker, logo endpoint, and Wiki reconciliation
+
+### Rollback
+
+Restore each App Service to its currently running ACR image tag and restart it. Existing blue/green
+tags remain available in ACR.
+
+Current phase: Deployed and verified.
+
+### Release Validation Proof
+
+| Check | Command Run | Result | Timestamp |
+|-------|-------------|--------|-----------|
+| Azure context | `az account show` / `az account set` | Pass; confirmed subscription `5e22addc-6168-4683-afd0-789a121ca5d3` | 2026-09-25T07:28:00+02:00 |
+| Frontend type-check | `cd src\az-radar-ui; npx tsc --noEmit` | Pass | 2026-09-25T07:22:00+02:00 |
+| Dispatch tests | `dotnet test src\Dispatching\AzRadar.Dispatching.Tests\AzRadar.Dispatching.Tests.csproj --no-restore` | Pass; 11/11 | 2026-09-25T07:24:00+02:00 |
+| Solution build | `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` | Pass; 0 warnings, 0 errors | 2026-09-25T07:38:00+02:00 |
+| API image build | `docker build --no-cache --build-arg NUGET_SOURCE=https://packagefeedproxy.microsoft.io/nuget/v3/index.json -f Dockerfile.api -t az-radar-api:validation .` | Pass; image `sha256:92b3e9736ce0...` | 2026-09-25T07:35:00+02:00 |
+| Dispatch image build | `docker build --no-cache --build-arg NUGET_SOURCE=https://packagefeedproxy.microsoft.io/nuget/v3/index.json -f src\Dispatching\Dockerfile.worker -t az-radar-dispatch-worker:validation .` | Pass; image `sha256:a7396ae10eff...` | 2026-09-25T07:35:00+02:00 |
+| Azure Policy | `az policy assignment list --scope ...\resourceGroups\az-radar-vnet-rg` | Pass; no assignments at target resource-group scope | 2026-09-25T07:29:00+02:00 |
+| Static RBAC | Review release diff and existing deployment plan | Pass; application files only, no IaC or role changes | 2026-09-25T07:35:00+02:00 |
+
+### Release Deployment Results
+
+- **Completed:** 2026-09-25T08:03:00+02:00
+- **API/UI image:** `azrxon32oitl5v66.azurecr.io/az-radar-api:green`
+- **Dispatch image:** `azrxon32oitl5v66.azurecr.io/az-radar-dispatch-worker:green`
+- **ACR Tasks:** API run `cj7`; dispatch run `cj8`; both succeeded
+- **API health:** `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`
+- **Brand asset:** `https://azr-api-x8c5i2.azurewebsites.net/cloudlens-logo.svg` returned HTTP 200
+- **Wiki target:** `Azure Service Health`
+- **Wiki publish intent:** `f04c58f6b46d54f339e2ff0a8aedcc4c6c2c1472a1dbd803122c2fcf7da64bbd`
+- **Wiki publish status:** Delivered
+- **Wiki version:** `"a00ba9fd55238ff2737f92f0b264a424a75b32a2"`
+- **ACR final state:** public network disabled; admin and anonymous access disabled
+- **App Service liveness:** Always On enabled for API and dispatch worker
+- **Live RBAC:** Three `AcrPull` assignments remain scoped to the private ACR
+
+---
+
+## 13. Wiki Executive Dashboard Hotfix
+
+**Prepared:** 2026-09-25T08:25:32+02:00
+
+**Goal:** Replace the Azure DevOps-incompatible SVG logo with a public PNG and upgrade the Service
+Health Wiki into an executive dashboard with:
+
+- at-a-glance KPI tiles for all four event families;
+- an executive status and decision brief;
+- a prioritized action queue;
+- compact, business-oriented event cards;
+- a concise operating and governance guide.
+
+### Deployment Scope
+
+| Component | Current tag | Target tag |
+|-----------|-------------|------------|
+| API + React UI | `green` | `blue` |
+| Service Health dispatch worker | `green` | `blue` |
+
+No infrastructure, identity, RBAC, network, database, or secret changes are included.
+
+### Validation Checklist
+
+- [x] All validation checks pass
+  - [x] Azure CLI authentication and existing target context
+  - [x] API production container build
+  - [x] Dispatch-worker production container build
+  - [x] Azure Policy validation unchanged from application release
+  - [x] Static RBAC review (no role changes)
+- [x] Wiki renderer tests (11/11)
+- [x] Frontend TypeScript type-check
+- [x] API production container build
+- [x] Dispatch-worker production container build
+- [x] PNG logo visual inspection
+- [x] Azure validation workflow
+- [x] Publish and deploy `blue` images
+- [x] Configure `CLOUDLENS_LOGO_URL` to the PNG endpoint
+- [x] Publish and verify the Azure DevOps Wiki page
+
+Current phase: Deployed and verified.
+
+### Hotfix Validation Proof
+
+| Check | Result |
+|-------|--------|
+| Renderer tests | Pass; 11/11 |
+| Frontend type-check | Pass |
+| Solution build | Pass; 0 warnings, 0 errors |
+| API container | Pass; `sha256:fc6b3dba3c8...` |
+| Dispatch container | Pass; `sha256:09a72333542e...` |
+| Azure Policy | Pass; no assignments at the target resource-group scope |
+| Static RBAC | Pass; no infrastructure or role changes |
+
+### Hotfix Deployment Results
+
+- **Completed:** 2026-09-25T08:50:20+02:00
+- **API/UI image:** `azrxon32oitl5v66.azurecr.io/az-radar-api:blue` (ACR run `cj9`)
+- **Dispatch image:** `azrxon32oitl5v66.azurecr.io/az-radar-dispatch-worker:blue` (ACR run `cja`)
+- **PNG logo:** `https://azr-api-x8c5i2.azurewebsites.net/cloudlens-logo.png` returned HTTP 200 and `image/png`
+- **API health:** `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`
+- **Wiki publish intent:** `0a5e2e313547c8a86a8cfe725f80455e9d07d0069ffae79beda9afe97c57d11b`
+- **Wiki publish status:** Delivered
+- **Wiki version:** `"aa078672478619ffe4201467bcaa1245763c9662"`
+- **ACR final state:** Public access, admin credentials, and anonymous pull disabled
+- **Live RBAC:** Three `AcrPull` assignments remain on the private registry
+- **Secondary page read:** Blocked by the expired local Azure DevOps CLI PAT; the worker delivery used its valid Key Vault credential and succeeded

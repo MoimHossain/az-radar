@@ -35,6 +35,7 @@ if (builder.Configuration.GetValue($"{TeamsDispatchSettings.SectionName}:Enabled
 }
 
 var app = builder.Build();
+app.UseStaticFiles();
 app.MapGet("/", () => Results.Ok(new
 {
     status = "running",

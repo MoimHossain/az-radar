@@ -205,6 +205,10 @@ const useStyles = makeStyles({
     whiteSpace: "pre-wrap" as const,
     wordBreak: "break-all" as const,
   },
+  subscriptionLink: {
+    fontFamily: "Consolas, 'Courier New', monospace",
+    fontSize: "12px",
+  },
   emptyState: {
     padding: "60px 40px",
     textAlign: "center" as const,
@@ -221,6 +225,10 @@ function formatAge(dateStr: string): string {
 
 function isRetirementType(changeType: string): boolean {
   return changeType === "retirement" || changeType === "deprecation";
+}
+
+function azurePortalSubscriptionUrl(subscriptionId: string): string {
+  return `https://portal.azure.com/#@/resource/subscriptions/${encodeURIComponent(subscriptionId)}/overview`;
 }
 
 function confidenceColor(confidence: string): "success" | "warning" | "informative" {
@@ -553,7 +561,11 @@ export function ImpactAnalysisPage() {
                     <div className={styles.breakdownSection}>
                       <Text className={styles.fieldLabel}>Subscription Breakdown</Text>
                       <Divider />
-                      {renderBreakdown(selectedItem.subscriptionBreakdown, styles)}
+                      {renderBreakdown(
+                        selectedItem.subscriptionBreakdown,
+                        styles,
+                        true
+                      )}
                     </div>
                   )}
                 </div>
@@ -604,15 +616,28 @@ export function ImpactAnalysisPage() {
 
 function renderBreakdown(
   data: Record<string, number>,
-  styles: ReturnType<typeof useStyles>
+  styles: ReturnType<typeof useStyles>,
+  linkToSubscription = false
 ) {
   const entries = Object.entries(data).sort(([, a], [, b]) => b - a);
   const max = Math.max(...entries.map(([, v]) => v), 1);
   return entries.map(([label, count]) => (
     <div key={label} className={styles.breakdownRow}>
-      <Text className={styles.breakdownLabel} title={label}>
-        {label}
-      </Text>
+      {linkToSubscription ? (
+        <Link
+          className={`${styles.breakdownLabel} ${styles.subscriptionLink}`}
+          href={azurePortalSubscriptionUrl(label)}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Open subscription ${label} in Azure portal`}
+        >
+          {label}
+        </Link>
+      ) : (
+        <Text className={styles.breakdownLabel} title={label}>
+          {label}
+        </Text>
+      )}
       <div className={styles.breakdownBarTrack}>
         <div
           className={styles.breakdownBarFill}
@@ -638,12 +663,16 @@ function ResourceRow({
         <Text size={200} weight="semibold">
           {resource.name}
         </Text>
-        <Text
-          size={100}
-          style={{ display: "block", color: tokens.colorNeutralForeground3 }}
+        <Link
+          className={styles.subscriptionLink}
+          href={azurePortalSubscriptionUrl(resource.subscriptionId)}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Open subscription ${resource.subscriptionId} in Azure portal`}
+          style={{ display: "block", marginTop: 2 }}
         >
           {resource.subscriptionId.substring(0, 8)}…
-        </Text>
+        </Link>
       </TableCell>
       <TableCell>
         <Text size={200}>{resource.resourceGroup}</Text>
