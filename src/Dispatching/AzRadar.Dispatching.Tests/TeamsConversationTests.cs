@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AzRadar.Dispatching.Core.Models;
 using AzRadar.Dispatching.Worker;
+using AzRadar.Shared.Models;
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Builder.App.Proactive;
 using Microsoft.Agents.Core.Models;
@@ -66,6 +67,18 @@ public sealed class TeamsConversationTests
         var channelData = JsonSerializer.Serialize(options.Parameters.ChannelData);
         Assert.Contains(reference.ChannelId, channelData);
         Assert.DoesNotContain("registration-message-id", channelData);
+    }
+
+    [Theory]
+    [InlineData(ServiceHealthChannelRegistrationStatuses.Disabled, true)]
+    [InlineData(ServiceHealthChannelRegistrationStatuses.Uninstalled, true)]
+    [InlineData(ServiceHealthChannelRegistrationStatuses.Registered, false)]
+    [InlineData(ServiceHealthChannelRegistrationStatuses.Degraded, false)]
+    public void IsRemovedTarget_RecognizesDeletedRoutingStates(string status, bool expected)
+    {
+        var channel = new ServiceHealthNotificationChannel { RegistrationStatus = status };
+
+        Assert.Equal(expected, TeamsDeliveryWorker.IsRemovedTarget(channel));
     }
 
     private static Conversation CreateConversation() => new(

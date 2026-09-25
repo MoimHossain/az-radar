@@ -1,6 +1,6 @@
 # Azure Deployment Plan
 
-> **Status:** Deployed
+> **Status:** Validated
 
 Generated: 2026-09-24T08:20:12+02:00
 
@@ -421,3 +421,53 @@ Current phase: Deployed and verified.
 - **ACR final state:** Public access, admin credentials, and anonymous pull disabled
 - **Live RBAC:** Three `AcrPull` assignments remain on the private registry
 - **Secondary page read:** Blocked by the expired local Azure DevOps CLI PAT; the worker delivery used its valid Key Vault credential and succeeded
+
+---
+
+## 14. Teams Routing Destination Deletion
+
+**Prepared:** 2026-09-25T12:48:05+02:00
+
+**Goal:** Allow administrators to remove stale Teams destinations from CloudLens without deleting
+the actual Teams channel.
+
+### Behavior
+
+- Add **Remove from CloudLens** to each Teams routing destination.
+- Clearly state that the Teams channel itself remains managed in Microsoft Teams.
+- Disable routing before cleanup to make retries safe.
+- Delete the CloudLens channel configuration and Teams conversation reference.
+- Delete related delivery intents and delivery-attempt history.
+- Remove the channel ID from stored event routing references.
+- Complete stale queued Service Bus messages for removed targets instead of dead-lettering them.
+
+### Validation
+
+- [x] Shared tests: 116/116
+- [x] Dispatch tests: 15/15
+- [x] Frontend TypeScript type-check
+- [x] Full solution build: 0 warnings, 0 errors
+- [x] API production container build
+- [x] Dispatch-worker production container build
+- [x] Azure validation workflow
+- [ ] Deploy opposite `green` tags
+- [ ] Delete `Operations Department / Test`
+- [ ] Verify channel and related delivery records are removed
+
+### Release Validation Proof
+
+| Check | Command Run | Result | Timestamp |
+|-------|-------------|--------|-----------|
+| Azure context | `az account set` / `az account show` | Pass; subscription `5e22addc-6168-4683-afd0-789a121ca5d3` enabled | 2026-09-25 |
+| Azure Policy | `az policy assignment list --scope ...\resourceGroups\az-radar-vnet-rg` | Pass; no assignments at target resource-group scope | 2026-09-25 |
+| Solution build | `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore` | Pass; 0 warnings, 0 errors | 2026-09-25 |
+| Shared tests | `dotnet test tests\AzRadar.Shared.Tests --no-build` | Pass; 116/116 | 2026-09-25 |
+| Dispatch tests | `dotnet test src\Dispatching\AzRadar.Dispatching.Tests\AzRadar.Dispatching.Tests.csproj --no-build` | Pass; 15/15 | 2026-09-25 |
+| Frontend type-check | `cd src\az-radar-ui; npx tsc --noEmit` | Pass | 2026-09-25 |
+| API container | `docker build --no-cache ... -f Dockerfile.api -t az-radar-api:delete-validation .` | Pass; `sha256:2d44e40ae669...` | 2026-09-25 |
+| Dispatch container | `docker build --no-cache ... -f src\Dispatching\Dockerfile.worker -t az-radar-dispatch-worker:delete-validation .` | Pass; `sha256:4c514268be44...` | 2026-09-25 |
+| Static RBAC | Review unstaged and staged diffs under `infra` and `src\Dispatching\infra` | Pass; no infrastructure or role-assignment changes | 2026-09-25 |
+
+**Validated by:** azure-validate skill
+
+Current phase: Validated and ready for deployment.

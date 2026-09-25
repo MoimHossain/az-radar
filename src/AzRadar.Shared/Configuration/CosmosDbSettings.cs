@@ -22,6 +22,8 @@ public class CosmosDbSettings
     public string ServiceHealthChannelsContainer { get; set; } = "service-health-channels";
     public string ServiceHealthEventsContainer { get; set; } = "service-health-events";
     public string ServiceHealthDeliveryIntentsContainer { get; set; } = "service-health-delivery-intents";
+    public string TeamsConversationReferencesContainer { get; set; } = "teams-conversation-references";
+    public string TeamsDeliveryAttemptsContainer { get; set; } = "teams-delivery-attempts";
     public string ServiceHealthCheckpointsContainer { get; set; } = "service-health-checkpoints";
     public string ServiceHealthQuarantineContainer { get; set; } = "service-health-quarantine";
 

@@ -179,6 +179,22 @@ export function ServiceHealthConfigPage() {
         : "Teams channel notifications paused because no event families are selected.",
     );
 
+  const deleteChannel = (channel: ServiceHealthChannel) => {
+    const channelName = channel.teamName && channel.channelName
+      ? `${channel.teamName} / ${channel.channelName}`
+      : channel.displayName || channel.channelName || "Teams channel";
+    if (!window.confirm(
+      `Remove ${channelName} from CloudLens routing?\n\n` +
+      "This deletes its CloudLens configuration, conversation reference, delivery intents, and attempt history. " +
+      "It does not delete the actual Teams channel.",
+    )) return;
+
+    void runAction(
+      () => api.deleteServiceHealthChannel(channel.id),
+      `${channelName} was removed from CloudLens routing.`,
+    );
+  };
+
   const registerWikiTarget = () => runAction(async () => {
     await api.createServiceHealthWikiTarget({
       displayName: wikiDisplayName.trim(),
@@ -382,6 +398,8 @@ export function ServiceHealthConfigPage() {
               <Text size={200} className={styles.muted}>
                 Install CloudLens in each Teams channel and register it there. Every registered channel can
                 independently receive one event family or any combination. Selecting none pauses notifications.
+                Removing a destination here deletes only CloudLens routing and delivery history; the Teams channel
+                itself remains managed in Teams.
               </Text>
               {channels.length === 0 && (
                 <Text className={styles.muted}>No Teams app channels have been registered yet.</Text>
@@ -429,6 +447,18 @@ export function ServiceHealthConfigPage() {
                         }}
                       />
                     ))}
+                  </div>
+                  <div className={styles.actions}>
+                    <Button
+                      size="small"
+                      appearance="subtle"
+                      icon={<DeleteRegular />}
+                      disabled={busy}
+                      onClick={() => deleteChannel(channel)}
+                      style={{ color: tokens.colorPaletteRedForeground1 }}
+                    >
+                      Remove from CloudLens
+                    </Button>
                   </div>
                 </div>
               ))}

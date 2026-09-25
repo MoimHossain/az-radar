@@ -462,6 +462,11 @@ export const api = {
       }),
     }),
 
+  deleteServiceHealthChannel: (id: string) =>
+    fetch(`${API_BASE}/api/service-health/channels/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+    }),
+
   createServiceHealthWikiTarget: (request: {
     displayName: string;
     wikiUri: string;

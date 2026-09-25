@@ -803,8 +803,9 @@ app.MapDelete("/api/service-health/channels/{id}", async (string id, ICosmosDbSe
 {
     var channels = await db.GetServiceHealthChannelsAsync();
     var channel = channels.FirstOrDefault(item => item.Id == id);
-    if (channel?.Type == ServiceHealthChannelTypes.TeamsBot)
-        return Results.BadRequest(new { error = "Uninstall the Teams app instead of deleting a discovered bot destination." });
+    if (channel == null) return Results.NotFound();
+    if (channel.Type != ServiceHealthChannelTypes.TeamsBot)
+        return Results.BadRequest(new { error = "Use the target-specific delete operation for this destination type." });
 
     var deleted = await db.DeleteServiceHealthChannelAsync(id);
     return deleted ? Results.NoContent() : Results.NotFound();

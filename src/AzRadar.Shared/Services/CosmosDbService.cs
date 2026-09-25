@@ -6,6 +6,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Cosmos.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text.Json.Serialization;
 
 namespace AzRadar.Shared.Services;
 
@@ -27,6 +28,8 @@ public class CosmosDbService : ICosmosDbService
     private Container? _serviceHealthChannelsContainer;
     private Container? _serviceHealthEventsContainer;
     private Container? _serviceHealthDeliveryIntentsContainer;
+    private Container? _teamsConversationReferencesContainer;
+    private Container? _teamsDeliveryAttemptsContainer;
     private Container? _serviceHealthCheckpointsContainer;
     private Container? _serviceHealthQuarantineContainer;
 
@@ -75,6 +78,10 @@ public class CosmosDbService : ICosmosDbService
             _settings.ServiceHealthEventsContainer, "/id", cancellationToken);
         _serviceHealthDeliveryIntentsContainer = await CreateContainerIfNotExistsAsync(
             _settings.ServiceHealthDeliveryIntentsContainer, "/id", cancellationToken);
+        _teamsConversationReferencesContainer = await CreateContainerIfNotExistsAsync(
+            _settings.TeamsConversationReferencesContainer, "/id", cancellationToken);
+        _teamsDeliveryAttemptsContainer = await CreateContainerIfNotExistsAsync(
+            _settings.TeamsDeliveryAttemptsContainer, "/id", cancellationToken);
         _serviceHealthCheckpointsContainer = await CreateContainerIfNotExistsAsync(
             _settings.ServiceHealthCheckpointsContainer, "/id", cancellationToken);
         _serviceHealthQuarantineContainer = await CreateContainerIfNotExistsAsync(
@@ -126,6 +133,12 @@ public class CosmosDbService : ICosmosDbService
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container ServiceHealthDeliveryIntents => _serviceHealthDeliveryIntentsContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container TeamsConversationReferences => _teamsConversationReferencesContainer
+        ?? throw new InvalidOperationException("Call InitializeAsync first");
+
+    private Container TeamsDeliveryAttempts => _teamsDeliveryAttemptsContainer
         ?? throw new InvalidOperationException("Call InitializeAsync first");
 
     private Container ServiceHealthCheckpoints => _serviceHealthCheckpointsContainer
@@ -698,16 +711,121 @@ public class CosmosDbService : ICosmosDbService
     public async Task<bool> DeleteServiceHealthChannelAsync(
         string id, CancellationToken cancellationToken = default)
     {
+        ServiceHealthNotificationChannel channel;
         try
         {
-            await ServiceHealthChannels.DeleteItemAsync<ServiceHealthNotificationChannel>(
+            var response = await ServiceHealthChannels.ReadItemAsync<ServiceHealthNotificationChannel>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
-            return true;
+            channel = response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
             return false;
         }
+
+        channel.RegistrationStatus = ServiceHealthChannelRegistrationStatuses.Disabled;
+        channel.SubscribedEventTypes = [];
+        channel.UpdatedAt = DateTimeOffset.UtcNow;
+        await ServiceHealthChannels.UpsertItemAsync(
+            channel,
+            new PartitionKey(channel.Id),
+            cancellationToken: cancellationToken);
+
+        var intentsQuery = ServiceHealthDeliveryIntents.GetItemQueryIterator<ServiceHealthDeliveryIntent>(
+            new QueryDefinition("SELECT * FROM c WHERE c.channelId = @channelId")
+                .WithParameter("@channelId", id));
+        var relatedIntents = new List<ServiceHealthDeliveryIntent>();
+        while (intentsQuery.HasMoreResults)
+        {
+            var response = await intentsQuery.ReadNextAsync(cancellationToken);
+            relatedIntents.AddRange(response);
+        }
+
+        if (channel.Type == ServiceHealthChannelTypes.TeamsBot)
+        {
+            var conversationReferenceId = string.IsNullOrWhiteSpace(channel.ConversationReferenceId)
+                ? channel.Id
+                : channel.ConversationReferenceId;
+            try
+            {
+                await TeamsConversationReferences.DeleteItemAsync<CosmosDocumentId>(
+                    conversationReferenceId,
+                    new PartitionKey(conversationReferenceId),
+                    cancellationToken: cancellationToken);
+            }
+            catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+                // The Teams uninstall callback may already have removed the reference.
+            }
+        }
+
+        foreach (var intent in relatedIntents)
+        {
+            var attemptsQuery = TeamsDeliveryAttempts.GetItemQueryIterator<CosmosDocumentId>(
+                new QueryDefinition("SELECT c.id FROM c WHERE c.deliveryIntentId = @deliveryIntentId")
+                    .WithParameter("@deliveryIntentId", intent.Id));
+            while (attemptsQuery.HasMoreResults)
+            {
+                var response = await attemptsQuery.ReadNextAsync(cancellationToken);
+                foreach (var attempt in response)
+                {
+                    try
+                    {
+                        await TeamsDeliveryAttempts.DeleteItemAsync<CosmosDocumentId>(
+                            attempt.Id,
+                            new PartitionKey(attempt.Id),
+                            cancellationToken: cancellationToken);
+                    }
+                    catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        // A concurrent cleanup may already have removed the attempt.
+                    }
+                }
+            }
+
+            try
+            {
+                await ServiceHealthDeliveryIntents.DeleteItemAsync<ServiceHealthDeliveryIntent>(
+                    intent.Id,
+                    new PartitionKey(intent.Id),
+                    cancellationToken: cancellationToken);
+            }
+            catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+                // A concurrent cleanup may already have removed the intent.
+            }
+        }
+
+        var eventsQuery = ServiceHealthEvents.GetItemQueryIterator<ServiceHealthEvent>(
+            new QueryDefinition("SELECT * FROM c WHERE ARRAY_CONTAINS(c.matchingChannelIds, @channelId)")
+                .WithParameter("@channelId", id));
+        while (eventsQuery.HasMoreResults)
+        {
+            var response = await eventsQuery.ReadNextAsync(cancellationToken);
+            foreach (var serviceHealthEvent in response)
+            {
+                var matchingChannelIds = serviceHealthEvent.MatchingChannelIds
+                    .Where(channelId => !string.Equals(channelId, id, StringComparison.Ordinal))
+                    .ToList();
+                await ServiceHealthEvents.PatchItemAsync<ServiceHealthEvent>(
+                    serviceHealthEvent.Id,
+                    new PartitionKey(serviceHealthEvent.Id),
+                    [
+                        PatchOperation.Set("/matchingChannelIds", matchingChannelIds),
+                        PatchOperation.Set(
+                            "/routingStatus",
+                            matchingChannelIds.Count > 0
+                                ? ServiceHealthRoutingStatuses.ReadyForDispatch
+                                : ServiceHealthRoutingStatuses.NoRoute)
+                    ],
+                    cancellationToken: cancellationToken);
+            }
+        }
+
+        await ServiceHealthChannels.DeleteItemAsync<ServiceHealthNotificationChannel>(
+            id, new PartitionKey(id), cancellationToken: cancellationToken);
+
+        return true;
     }
 
     // --- Service Health ingestion ---
@@ -898,5 +1016,15 @@ public class CosmosDbService : ICosmosDbService
             record,
             new PartitionKey(record.Id),
             cancellationToken: cancellationToken);
+    }
+
+    private sealed class CosmosDocumentId
+    {
+        public CosmosDocumentId()
+        {
+        }
+
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
     }
 }

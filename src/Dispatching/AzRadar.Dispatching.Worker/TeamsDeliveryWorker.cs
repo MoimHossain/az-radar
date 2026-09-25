@@ -104,11 +104,47 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
             args.CancellationToken);
         if (intent == null)
         {
+            var deletedChannel = await _repository.GetChannelAsync(
+                envelope.ChannelId,
+                args.CancellationToken);
+            if (deletedChannel == null || IsRemovedTarget(deletedChannel))
+            {
+                _logger.LogInformation(
+                    "Completing stale Teams delivery message {MessageId} because target {ChannelId} was deleted",
+                    args.Message.MessageId,
+                    envelope.ChannelId);
+                await args.CompleteMessageAsync(args.Message, args.CancellationToken);
+                return;
+            }
+
             await args.DeadLetterMessageAsync(
                 args.Message,
                 "IntentNotFound",
                 $"Delivery intent '{envelope.DeliveryIntentId}' was not found.",
                 args.CancellationToken);
+            return;
+        }
+
+        var channel = await _repository.GetChannelAsync(
+            envelope.ChannelId,
+            args.CancellationToken);
+        if (channel == null)
+        {
+            _logger.LogInformation(
+                "Completing stale Teams delivery message {MessageId} because target {ChannelId} was deleted",
+                args.Message.MessageId,
+                envelope.ChannelId);
+            await args.CompleteMessageAsync(args.Message, args.CancellationToken);
+            return;
+        }
+
+        if (IsRemovedTarget(channel))
+        {
+            _logger.LogInformation(
+                "Completing stale Teams delivery message {MessageId} because target {ChannelId} is being removed",
+                args.Message.MessageId,
+                envelope.ChannelId);
+            await args.CompleteMessageAsync(args.Message, args.CancellationToken);
             return;
         }
 
@@ -143,11 +179,6 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
                 _repository.GetEventAsync(envelope.EventId, args.CancellationToken),
                 "EventNotFound",
                 $"Service Health event '{envelope.EventId}' was not found.");
-            var channel = await RequireAsync(
-                _repository.GetChannelAsync(envelope.ChannelId, args.CancellationToken),
-                "ChannelNotFound",
-                $"Notification channel '{envelope.ChannelId}' was not found.");
-
             if (channel.Type != ServiceHealthChannelTypes.TeamsBot ||
                 channel.RegistrationStatus != ServiceHealthChannelRegistrationStatuses.Registered ||
                 channel.SubscribedEventTypes.Count == 0 ||
@@ -262,6 +293,10 @@ public sealed class TeamsDeliveryWorker : IHostedService, IAsyncDisposable
 
         return conversation;
     }
+
+    internal static bool IsRemovedTarget(ServiceHealthNotificationChannel channel) =>
+        channel.RegistrationStatus is ServiceHealthChannelRegistrationStatuses.Disabled
+            or ServiceHealthChannelRegistrationStatuses.Uninstalled;
 
     internal static CreateConversationOptions CreateChannelPostOptions(
         Conversation conversation,
