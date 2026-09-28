@@ -1,6 +1,6 @@
 # Azure Deployment Plan
 
-> **Status:** Validated
+> **Status:** Deployed
 
 Generated: 2026-09-24T08:20:12+02:00
 
@@ -450,9 +450,9 @@ the actual Teams channel.
 - [x] API production container build
 - [x] Dispatch-worker production container build
 - [x] Azure validation workflow
-- [ ] Deploy opposite `green` tags
-- [ ] Delete `Operations Department / Test`
-- [ ] Verify channel and related delivery records are removed
+- [x] Deploy opposite `green` tags
+- [x] Delete `Operations Department / Test`
+- [x] Verify channel and related delivery records are removed
 
 ### Release Validation Proof
 
@@ -470,4 +470,29 @@ the actual Teams channel.
 
 **Validated by:** azure-validate skill
 
-Current phase: Validated and ready for deployment.
+### Release Deployment Results
+
+- **Completed:** 2026-09-25
+- **API/UI image:** `azrxon32oitl5v66.azurecr.io/az-radar-api:green`
+  - ACR run `cjb`
+  - Digest `sha256:df2305b0c9ab131c24656b4ef1e00b8ee1adc08ddc269fcdb99242cc561399f3`
+- **Dispatch image:** `azrxon32oitl5v66.azurecr.io/az-radar-dispatch-worker:green`
+  - ACR run `cjc`
+  - Digest `sha256:9f87178fdb64ccf4a0e88937baad3b151580397a8a050a2f480a6e2f31903529`
+- **API health:** `https://azr-api-x8c5i2.azurewebsites.net/api/health` returned `healthy`.
+- **Deleted destination:** `Operations Department / Test`
+  (`b1eb48b6c20bff339cd9536c93969d57ba51ce392b6d905fe4dc148246a46171`)
+- **Delete result:** HTTP 204; the destination is absent from
+  `/api/service-health/channels`.
+- **Cascading cleanup:** No matching delivery intents or event routing references remain in the
+  API-visible Cosmos records. Successful completion of the delete endpoint also confirms the
+  conversation-reference and delivery-attempt cleanup sequence completed before the channel record
+  was deleted.
+- **Service Bus:** `teams-realtime` remained active with zero active messages; the pre-existing
+  dead-letter count remained stable at 9 across the post-delete verification window.
+- **App Service liveness:** API and dispatch worker are running with Always On enabled.
+- **ACR final state:** Public access disabled; admin credentials disabled; anonymous pull disabled;
+  export policy disabled.
+- **Live RBAC:** Three `AcrPull` assignments remain scoped to the private ACR.
+
+Current phase: Deployed and verified.
