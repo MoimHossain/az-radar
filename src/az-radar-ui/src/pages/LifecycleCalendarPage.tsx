@@ -35,6 +35,15 @@ import {
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type CalendarItem } from "../api/client";
+import {
+  BAND_COLORS,
+  QUARTER_FILTERS,
+  buildQuarterGrid,
+  countForFilter,
+  parseDeadline,
+  selectQuarterGrid,
+  type QuarterHorizonFilter,
+} from "../utils/quarterGrid";
 
 /* ------------------------------------------------------------------ */
 /*  Severity palette                                                   */
@@ -64,14 +73,6 @@ const SEVERITY_OPTIONS = ["critical", "high", "medium", "low"];
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-// Deadlines are calendar dates (yyyy-MM-dd); parse them as local dates so they never shift a day.
-function parseDeadline(value: string | null | undefined): Date | null {
-  if (!value) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
-  return isNaN(d.getTime()) ? null : d;
-}
-
 function startOfToday(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -104,36 +105,6 @@ function monthLabel(key: string): string {
   const [y, m] = key.split("-");
   const d = new Date(Number(y), Number(m) - 1);
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
-
-function quarterIndex(d: Date): number {
-  return d.getFullYear() * 4 + Math.floor(d.getMonth() / 3);
-}
-
-function quarterLabel(index: number): string {
-  return `Q${(index % 4) + 1} ${Math.floor(index / 4)}`;
-}
-
-function quarterOf(iso: string): string {
-  const d = parseDeadline(iso);
-  return d ? quarterLabel(quarterIndex(d)) : "Unknown";
-}
-
-/** Quarters from the earliest to the latest deadline (at least the next four quarters). */
-function getQuarters(items: CalendarItem[]): string[] {
-  const current = quarterIndex(startOfToday());
-  let first = current;
-  let last = current + 3;
-  for (const item of items) {
-    const d = parseDeadline(item.deadline);
-    if (!d) continue;
-    const q = quarterIndex(d);
-    if (q < first) first = q;
-    if (q > last) last = q;
-  }
-  const out: string[] = [];
-  for (let q = first; q <= last; q++) out.push(quarterLabel(q));
-  return out;
 }
 
 /** Relative horizon buckets, matching how platform teams plan lifecycle work. */
@@ -350,13 +321,59 @@ const useStyles = makeStyles({
     gap: "8px",
     cursor: "pointer",
   },
-  quarterGrid: {
+  quarterFilterBar: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "8px",
+  },
+  quarterSummary: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "8px",
+  },
+  bandDot: {
+    display: "inline-block",
+    width: "10px",
+    height: "10px",
+    borderRadius: "2px",
+    flexShrink: 0,
+  },
+  quarterSections: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+  },
+  yearHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "8px",
+    marginBottom: "8px",
+    fontWeight: 700,
+    fontSize: "18px",
+    color: tokens.colorNeutralForeground1,
+  },
+  yearGrid: {
     display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "16px",
-    "@media (max-width: 900px)": {
-      gridTemplateColumns: "1fr",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "12px",
+    "@media (max-width: 1200px)": {
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     },
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "minmax(0, 1fr)",
+    },
+  },
+  // Keep Q1-Q4 column alignment only when all four columns are visible.
+  quarterCol1: { "@media (min-width: 1201px)": { gridColumnStart: 1 } },
+  quarterCol2: { "@media (min-width: 1201px)": { gridColumnStart: 2 } },
+  quarterCol3: { "@media (min-width: 1201px)": { gridColumnStart: 3 } },
+  quarterCol4: { "@media (min-width: 1201px)": { gridColumnStart: 4 } },
+  quarterCardCompact: {
+    maxHeight: "340px",
+    padding: "12px",
   },
   quarterCard: {
     display: "flex",
@@ -664,6 +681,7 @@ export function LifecycleCalendarPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [view, setView] = useState<ViewMode>("timeline");
+  const [quarterFilter, setQuarterFilter] = useState<QuarterHorizonFilter>("all");
   const [changeTypeFilter, setChangeTypeFilter] = useState<string[]>([]);
   const [severityFilter, setSeverityFilter] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -729,16 +747,9 @@ export function LifecycleCalendarPage() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [filtered]);
 
-  /* Quarter groups */
-  const quarters = useMemo(() => {
-    const qs = getQuarters(filtered);
-    const map = new Map<string, CalendarItem[]>(qs.map((q) => [q, []]));
-    for (const item of filtered) {
-      const q = quarterOf(item.deadline);
-      if (map.has(q)) map.get(q)!.push(item);
-    }
-    return qs.map((q) => ({ label: q, items: map.get(q) ?? [] }));
-  }, [filtered]);
+  /* Three-year quarter grid (PRD R5) */
+  const quarterGrid = useMemo(() => buildQuarterGrid(filtered, startOfToday()), [filtered]);
+  const visibleQuarters = useMemo(() => selectQuarterGrid(quarterGrid, quarterFilter), [quarterGrid, quarterFilter]);
 
   /* Horizon groups */
   const horizons = useMemo(() => {
@@ -915,8 +926,19 @@ export function LifecycleCalendarPage() {
 
   /* ---- Main render ---- */
 
-  const renderBucketCard = (label: string, bucketItems: CalendarItem[], emptyText: string) => (
-    <Card key={label} className={styles.quarterCard}>
+  const renderBucketCard = (
+    label: string,
+    bucketItems: CalendarItem[],
+    emptyText: string,
+    options: { accent?: string; showAll?: boolean; className?: string } = {}
+  ) => {
+    const shown = options.showAll ? bucketItems : bucketItems.slice(0, QUARTER_VISIBLE);
+    return (
+    <Card
+      key={label}
+      className={`${styles.quarterCard} ${options.className ?? ""}`}
+      style={options.accent ? { borderTop: `4px solid ${options.accent}` } : undefined}
+    >
       <div className={styles.quarterHeader}>
         <span className={styles.quarterTitle}>{label}</span>
         <Badge appearance="tint" color="informative" size="medium">
@@ -930,10 +952,11 @@ export function LifecycleCalendarPage() {
         </Text>
       ) : (
         <div className={styles.quarterList}>
-          {bucketItems.slice(0, QUARTER_VISIBLE).map((item) => (
+          {shown.map((item) => (
             <div
               key={item.id}
               className={styles.quarterItem}
+              title={item.title}
               onClick={() => setSelectedCalendarItem(item)}
             >
               <span
@@ -944,13 +967,107 @@ export function LifecycleCalendarPage() {
               <span className={styles.quarterItemDate}>{formatDate(item.deadline)}</span>
             </div>
           ))}
-          {bucketItems.length > QUARTER_VISIBLE && (
-            <span className={styles.moreLabel}>+{bucketItems.length - QUARTER_VISIBLE} more</span>
+          {bucketItems.length > shown.length && (
+            <span className={styles.moreLabel}>+{bucketItems.length - shown.length} more</span>
           )}
         </div>
       )}
     </Card>
-  );
+    );
+  };
+
+  const quarterColClass = [styles.quarterCol1, styles.quarterCol2, styles.quarterCol3, styles.quarterCol4];
+
+  const renderQuarterView = () => {
+    const v = visibleQuarters;
+    const summary =
+      quarterFilter === "past"
+        ? "Past due"
+        : v.firstLabel
+          ? `${v.firstLabel} – ${v.lastLabel} · ${v.quarterCount} quarter${v.quarterCount === 1 ? "" : "s"}`
+          : "";
+    return (
+      <div className={styles.quarterSections}>
+        <Card size="small" style={{ padding: "12px 16px", gap: 10 }}>
+          <div className={styles.quarterFilterBar} role="radiogroup" aria-label="Planning horizon">
+            {QUARTER_FILTERS.map((f) => {
+              const color =
+                f.key === "all" ? null : BAND_COLORS[f.key === "25+" ? "25-36" : f.key];
+              return (
+                <Button
+                  key={f.key}
+                  size="small"
+                  role="radio"
+                  aria-checked={quarterFilter === f.key}
+                  appearance={quarterFilter === f.key ? "primary" : "outline"}
+                  icon={color ? <span className={styles.bandDot} style={{ backgroundColor: color }} /> : undefined}
+                  onClick={() => setQuarterFilter(f.key)}
+                >
+                  {f.label} ({countForFilter(quarterGrid, f.key)})
+                </Button>
+              );
+            })}
+          </div>
+          <div className={styles.quarterSummary}>
+            <Text size={300} weight="semibold">
+              {summary}
+              {summary ? " · " : ""}
+              {v.itemCount} item{v.itemCount === 1 ? "" : "s"}
+            </Text>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+              Colours show each quarter's planning horizon, counted from the current quarter.
+            </Text>
+          </div>
+        </Card>
+
+        {v.pastDue && (
+          <div>
+            <div className={styles.yearHeader}>Past due</div>
+            <div className={styles.yearGrid}>
+              {renderBucketCard("Past due (last 90 days)", v.pastDue, "Nothing past due", {
+                accent: BAND_COLORS.past,
+                showAll: true,
+                className: styles.quarterCardCompact,
+              })}
+            </div>
+          </div>
+        )}
+
+        {v.years.map((y) => (
+          <div key={y.year}>
+            <div className={styles.yearHeader}>
+              {y.year}
+              <Text size={200} style={{ color: tokens.colorNeutralForeground3, fontWeight: 400 }}>
+                {y.quarters.reduce((sum, q) => sum + q.items.length, 0)} items
+              </Text>
+            </div>
+            <div className={styles.yearGrid}>
+              {y.quarters.map((q) =>
+                renderBucketCard(q.label, q.items, "No items this quarter", {
+                  accent: BAND_COLORS[q.band],
+                  showAll: true,
+                  className: `${styles.quarterCardCompact} ${quarterColClass[q.quarter - 1]}`,
+                })
+              )}
+            </div>
+          </div>
+        ))}
+
+        {v.later && (
+          <div>
+            <div className={styles.yearHeader}>Later</div>
+            <div className={styles.yearGrid}>
+              {renderBucketCard(`After ${quarterGrid.lastLabel}`, v.later, "No later items", {
+                accent: BAND_COLORS.later,
+                showAll: true,
+                className: styles.quarterCardCompact,
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -1084,7 +1201,7 @@ export function LifecycleCalendarPage() {
       </Card>
 
       {/* Content */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && view !== "quarter" ? (
         <div className={styles.empty}>
           <CalendarRegular style={{ fontSize: 32 }} />
           <Text size={400}>No calendar items match the current filters.</Text>
@@ -1108,10 +1225,8 @@ export function LifecycleCalendarPage() {
           {horizons.map((h) => renderBucketCard(h.label, h.items, "No deadlines in this horizon"))}
         </div>
       ) : view === "quarter" ? (
-        /* Quarter View */
-        <div className={styles.quarterGrid}>
-          {quarters.map((q) => renderBucketCard(q.label, q.items, "No items this quarter"))}
-        </div>
+        /* Quarter View: fixed three-year grid with horizon filter */
+        renderQuarterView()
       ) : (
         /* Calendar (Month Grid) View */
         <div>

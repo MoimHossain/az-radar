@@ -102,7 +102,8 @@ the 3 items with no Azure Updates post, requires an inventory source (see sectio
    Bucket boundaries use calendar months from today.
 2. Each card shows service, title, deadline and change type, and opens the existing detail panel.
 3. The quarter view derives its quarters from the earliest to the latest deadline in the
-   filtered set, instead of a fixed four quarters.
+   filtered set, instead of a fixed four quarters. **Superseded by R5**, which replaces this
+   data-driven range with a fixed three-year quarter grid.
 4. Existing filters (change type, severity, keyword) apply to every view.
 
 ### R3 - Watchlist matching robustness and audit (fixes RC4)
@@ -150,13 +151,107 @@ Response items gain `deadlineSource` (`llm` | `extracted`) and `publishDate`. Ex
 unchanged. The `CalendarItem` TypeScript type is extended accordingly. A separate
 `GET /api/calendar/undated` returns retirement-type items without a deadline.
 
+### R5 - Three-year quarter grid (legacy dashboard parity) — Implemented (see section 12)
+
+**Problem.** The legacy dashboard used by Regulated Industry plans 36 months ahead (Within 6
+months, 7-12, 13-24 and 25-36 months). Before this PRD, the CloudLens quarter view showed one
+year. With R2.3 it grows and shrinks with the data, so the layout changes as filters change, and
+empty future quarters are not shown. Platform owners asked for a stable layout that visibly
+covers three years, for example Q1 2028 and Q2 2028.
+
+**Requirements**
+
+1. **Fixed window.** The quarter view always shows 12 quarters: the current calendar quarter
+   plus the next 11. On 2026-10-01 that is Q4 2026 to Q3 2029. Each quarter appears even when it
+   has no items ("No items this quarter"), so the user can see that the period is covered.
+2. **Edge buckets.**
+   - A leading **Past due** block holds items whose deadline is before the current quarter
+     (within the calendar API's 90-day lookback). It is shown only when it has items.
+   - A trailing **Later (after <last quarter>)** block holds items due after the 12th quarter.
+     It is also shown only when it has items.
+   - No item is silently dropped from the view.
+3. **Year grouping.** Quarters are grouped by calendar year. Each year has a header with the
+   year and its item count, followed by a four-column row aligned Q1-Q4. A partial first or
+   last year keeps its column positions: Q4 2026 sits in the Q4 column.
+   - Medium width: two columns. Narrow width: one column. Column alignment is dropped at both
+     widths.
+4. **Horizon colour cue.** Each quarter card gets a top accent in the colour of its legacy
+   horizon band, so the view reads like the legacy report.
+   - Bands, by quarter offset from the current quarter:
+     - offsets 0-1 → Within 6 months (red)
+     - offsets 2-3 → 7-12 months (orange)
+     - offsets 4-7 → 13-24 months (blue)
+     - offsets 8-11 → 25-36 months (green)
+   - Past due uses grey and Later uses neutral.
+   - The bands match the Horizon view exactly when today is at the start of a quarter.
+     Otherwise they are an approximation (at most two months). A legend explains this.
+5. **Dense quarters.** Each quarter card shows a count badge. When a card has more than eight
+   items, its body scrolls internally (bounded height), so 12 quarters stay scannable on one
+   screen. Card content and the detail panel are unchanged (reuse `renderBucketCard`).
+6. **Header.** A one-line summary above the grid, for example "Q4 2026 – Q3 2029 · 12 quarters ·
+   42 items". Filters (change type, severity, source, keyword) apply to all buckets and counts.
+7. **No API change.** The default `/api/calendar` window (today − 90 days to today + 60 months)
+   already covers the grid and the Later bucket.
+8. **Horizon filter (quarter view only).** A single-select control above the grid with the
+   options below. The default is All.
+
+   | Option | Quarters shown |
+   |---|---|
+   | All | Past due (if any) + all 12 quarters + Later (if any) |
+   | Past due | Past due block only (deadline before the current quarter, within the 90-day lookback) |
+   | Within 6 months | Quarter offsets 0-1 (red band) |
+   | Within 7-12 months | Quarter offsets 2-3 (orange band) |
+   | Within 13-24 months | Quarter offsets 4-7 (blue band) |
+   | After 25 months | Quarter offsets 8-11 (green band) + Later (if any) |
+
+   - Selection is by quarter band, the same mapping as the colour cue in R5.4. Whole quarter
+     blocks are shown or hidden, never split, so the filter and the colours always agree.
+   - Past due has its own option, mirroring the legacy dashboard's separate "Out of Support"
+     column. It is excluded from every time-band option, so the bands never overlap. When Past
+     due has no items, its option still appears, shows a count of 0 and displays an empty state
+     ("Nothing past due").
+   - Year groups with no visible quarters are hidden. The remaining quarters keep their Q1-Q4
+     column alignment.
+   - Each option shows its item count, for example "Within 13-24 months (7)". Counts respect the
+     other active filters (change type, severity, source, keyword).
+   - The summary line reflects the selection, for example "Q4 2027 – Q3 2028 · 4 quarters · 7 items".
+   - The selection is kept while switching views during the session and resets to All on reload.
+     It does not affect the Timeline, Horizon or Calendar views.
+9. **Implementation shape.**
+   - Move the bucketing into a pure helper, `buildQuarterGrid(items, today, quarterCount = 12)`,
+     in `src/az-radar-ui/src/utils/quarterGrid.ts`.
+   - It returns `{ pastDue, years: [{ year, quarters: [{ label, index, band, items }] }], later }`.
+   - It replaces `getQuarters` and `quarterOf`. All date handling stays local-date based
+     (`parseDeadline`) to avoid UTC shifting.
+
+**R5 acceptance criteria (as of 2026-10-01)**
+
+1. The quarter view renders exactly 12 quarter cards, Q4 2026 to Q3 2029, including Q1 2028 and
+   Q2 2028, whether or not those quarters have items.
+2. An item due 2028-12-31 appears in Q4 2028 with the 25-36 month (green) accent. An item due
+   2028-09-30 appears in Q3 2028 with the 13-24 month (blue) accent. An item due 2027-03-31
+   appears in Q1 2027 with the red accent.
+3. An item due 2026-08-31 appears under Past due. An item due 2029-12-31 appears under Later.
+4. The sum of all bucket counts equals the number of filtered calendar items.
+5. Applying a change type, severity or keyword filter changes counts but never the set of
+   12 quarter cards.
+6. With the horizon filter on Within 13-24 months (on 2026-10-01), only Q4 2027 to Q3 2028 are
+   shown, under year headers 2027 and 2028. The 2026 and 2029 groups and Past due are hidden.
+7. Within 6 months shows only Q4 2026 and Q1 2027. After 25 months shows Q4 2028 to Q3 2029 plus
+   Later when it has items. Past due shows only the Past due block (an item due 2026-08-31
+   appears there and in no other option). All restores the full grid.
+8. Each option's count equals the number of items in the blocks it shows. The counts of Past due
+   and the four time bands add up to the count of All.
+9. Frontend type-check and the production build pass. A live check on the demo environment shows
+   the grid and each filter option with the deployed data.
+
 ## 7. Acceptance criteria
 
 1. With more than 500 retained feed items, an item published 2024-03 with deadline 2027-03-31 is
    returned by `/api/calendar` and shown in the 7-12 months bucket (relative to 2026-10).
 2. Of the 18 flagged items present in the catalog, all whose service is on the watchlist appear
    in the correct horizon bucket after migration and one crawl.
-3. Quarter view shows quarters through 2029 when items are due in 2029.
+3. Quarter view shows quarters through 2029 when items are due in 2029 (see R5 criteria below).
 4. `/api/dashboard/stats` retirement and urgent counts equal the counts derived from
    `/api/calendar`.
 5. A watchlist entry "Virtual Machines" retains "OS disks on Standard HDD", "Azure Disk
@@ -216,3 +311,21 @@ Remaining gap in the demo environment: 9,842 Azure Updates were stored by an ear
 LLM analysis skipped, so they have no deadline and are not shown. Showing their long-horizon
 retirements requires a bounded re-analysis. Customer environments with fully analyzed history
 benefit directly from the removed 500-item cap.
+
+## 12. R5 implementation and verification (2026-10-01)
+
+Implemented R5 in the UI only. `src/az-radar-ui/src/utils/quarterGrid.ts` holds the pure bucketing
+and filter logic, and `LifecycleCalendarPage.tsx` renders it. The API is unchanged.
+
+| Check | Result |
+|---|---|
+| Production build (`npm run build`) | Pass |
+| ESLint on changed files | No new findings. The two `set-state-in-effect` findings already exist in the previous version |
+| Grid logic (compiled helper run under Node, today = 2026-10-01) | Acceptance criteria 1-3 and 6-8 pass, including the empty-data and empty Past due cases |
+| Live grid (`/api/calendar`, 42 items) | 12 quarters, Q4 2026 to Q3 2029 |
+| Live filter counts | Past due 12, Within 6 months 5, 7-12 months 9, 13-24 months 6, After 25 months 10. These add up to All (42) |
+| Live per-quarter counts | Q4 2026: 4 · 2027: 1/6/3/0 · 2028: 1/3/2/1 · 2029: 8/1/0 · Later: 0 |
+
+The quarter-band counts differ slightly from the month-based Horizon view (section 11). The quarter
+view assigns whole quarters to a band, so a deadline near a band edge can land one band apart. This
+is the R5.4 approximation, and it is exact on the first day of a quarter.

@@ -513,4 +513,17 @@ Current phase: Deployed and verified.
 - **Rollback:** Switch both apps back to `blue`. The new Cosmos fields are additive and ignored by
   older images.
 
+## 16. Three-Year Quarter Grid and Horizon Filter
+
+**Completed:** 2026-10-01 · PRD: `prds/lifecycle-calendar-horizon-completeness.md` (R5)
+
+- **API/UI image:** `azrxon32oitl5v66.azurecr.io/az-radar-api:blue` (ACR run `cjm`; previous `green` run `cjj`)
+- **JobHost image:** Unchanged at `az-radar-jobhost:green`. This release changes the UI only.
+- **ACR publication:** The same temporary opening for ACR Tasks, then restored: public access
+  disabled, `defaultAction=Deny`, export disabled.
+- **App Service liveness:** Always On confirmed `true` on the API app.
+- **Validation:** health `healthy`. The UI bundle contains the new quarter filter strings. Live data
+  gives 12 quarter blocks (Q4 2026 to Q3 2029), and the filter counts (12 + 5 + 9 + 6 + 10) equal All (42).
+- **Rollback:** Switch `azr-api-x8c5i2` back to `az-radar-api:green`.
+
 Current phase: Deployed and verified.
