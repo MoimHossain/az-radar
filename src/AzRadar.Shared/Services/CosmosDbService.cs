@@ -304,6 +304,7 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task<bool> TryStoreFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default)
     {
+        LifecycleDeadlineResolver.Stamp(item);
         try
         {
             await FeedItems.CreateItemAsync(
@@ -321,6 +322,7 @@ public class CosmosDbService : ICosmosDbService
     {
         if (string.IsNullOrWhiteSpace(item.ETag))
             throw new InvalidOperationException("Replacing a feed item requires its current ETag.");
+        LifecycleDeadlineResolver.Stamp(item);
         try
         {
             await FeedItems.ReplaceItemAsync(FeedItemContentCodec.Encode(item), item.Id, new PartitionKey(item.Id),
@@ -348,6 +350,175 @@ public class CosmosDbService : ICosmosDbService
             return false;
         }
     }
+
+    private const string CalendarFeedProjection =
+        "c.id, c.source, c.title, c.link, c.publishDate, c.summary, c.llmAnalysis, " +
+        "c.lifecycleDeadline, c.deadlineSource, c.deadlineResolverVersion";
+
+    private const string CalendarDocProjection =
+        "c.id, c.source, c.serviceName, c.docUrl, c.title, c.snippet, c.llmAnalysis, c.lastAnalyzedAt, " +
+        "c.lifecycleDeadline, c.deadlineSource, c.deadlineResolverVersion";
+
+    // Documents written before the resolver existed are resolved in memory until the backfill stamps them.
+    private const string CalendarRangeFilter =
+        "(IS_DEFINED(c.deadlineResolverVersion) AND c.lifecycleDeadline >= @from AND c.lifecycleDeadline <= @to) " +
+        "OR (NOT IS_DEFINED(c.deadlineResolverVersion) AND IS_DEFINED(c.llmAnalysis) AND NOT IS_NULL(c.llmAnalysis))";
+
+    private const string UndatedLifecycleFilter =
+        "IS_DEFINED(c.llmAnalysis) AND NOT IS_NULL(c.llmAnalysis) AND " +
+        "(NOT IS_DEFINED(c.lifecycleDeadline) OR IS_NULL(c.lifecycleDeadline)) AND " +
+        "(ARRAY_CONTAINS(@types, c.llmAnalysis.changeType) OR CONTAINS(LOWER(c.title), 'retire') " +
+        "OR CONTAINS(LOWER(c.title), 'deprecat'))";
+
+    public async Task<IReadOnlyList<FeedItem>> GetCalendarFeedItemsAsync(
+        string from, string to, CancellationToken cancellationToken = default)
+    {
+        var items = await QueryAllAsync<FeedItem>(FeedItems,
+            new QueryDefinition($"SELECT {CalendarFeedProjection} FROM c WHERE {CalendarRangeFilter}")
+                .WithParameter("@from", from).WithParameter("@to", to),
+            cancellationToken);
+        return items.Where(item => EnsureStamped(item) && InRange(item.LifecycleDeadline, from, to)).ToList();
+    }
+
+    public async Task<IReadOnlyList<FeedItem>> GetUndatedLifecycleFeedItemsAsync(
+        int limit = 200, CancellationToken cancellationToken = default)
+    {
+        var items = await QueryAllAsync<FeedItem>(FeedItems,
+            new QueryDefinition($"SELECT {CalendarFeedProjection} FROM c WHERE {UndatedLifecycleFilter}")
+                .WithParameter("@types", LifecycleDeadlineResolver.LifecycleChangeTypes),
+            cancellationToken);
+        return items
+            .Where(item => EnsureStamped(item) && item.LifecycleDeadline == null)
+            .OrderByDescending(item => item.PublishDate)
+            .Take(limit)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<DocInsight>> GetCalendarDocInsightsAsync(
+        string from, string to, CancellationToken cancellationToken = default)
+    {
+        var items = await QueryAllAsync<DocInsight>(DocInsights,
+            new QueryDefinition($"SELECT {CalendarDocProjection} FROM c WHERE {CalendarRangeFilter}")
+                .WithParameter("@from", from).WithParameter("@to", to),
+            cancellationToken);
+        return items.Where(item => EnsureStamped(item) && InRange(item.LifecycleDeadline, from, to)).ToList();
+    }
+
+    public async Task<IReadOnlyList<DocInsight>> GetUndatedLifecycleDocInsightsAsync(
+        int limit = 200, CancellationToken cancellationToken = default)
+    {
+        var items = await QueryAllAsync<DocInsight>(DocInsights,
+            new QueryDefinition($"SELECT {CalendarDocProjection} FROM c WHERE {UndatedLifecycleFilter}")
+                .WithParameter("@types", LifecycleDeadlineResolver.LifecycleChangeTypes),
+            cancellationToken);
+        return items
+            .Where(item => EnsureStamped(item) && item.LifecycleDeadline == null)
+            .OrderByDescending(item => item.LastAnalyzedAt)
+            .Take(limit)
+            .ToList();
+    }
+
+    public async Task<LifecycleDeadlineBackfillResult> BackfillLifecycleDeadlinesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        const string staleFilter =
+            "IS_DEFINED(c.llmAnalysis) AND NOT IS_NULL(c.llmAnalysis) AND " +
+            "(NOT IS_DEFINED(c.deadlineResolverVersion) OR IS_NULL(c.deadlineResolverVersion) " +
+            "OR c.deadlineResolverVersion < @version)";
+
+        var feedItems = await QueryAllAsync<FeedItem>(FeedItems,
+            new QueryDefinition($"SELECT {CalendarFeedProjection} FROM c WHERE {staleFilter}")
+                .WithParameter("@version", LifecycleDeadlineResolver.Version),
+            cancellationToken);
+        var feedStamped = 0;
+        var feedDated = 0;
+        foreach (var item in feedItems)
+        {
+            LifecycleDeadlineResolver.Stamp(item);
+            if (await TryPatchDeadlineAsync(FeedItems, item.Id, item.LifecycleDeadline, item.DeadlineSource, cancellationToken))
+            {
+                feedStamped++;
+                if (item.LifecycleDeadline != null) feedDated++;
+            }
+        }
+
+        var docs = await QueryAllAsync<DocInsight>(DocInsights,
+            new QueryDefinition($"SELECT {CalendarDocProjection} FROM c WHERE {staleFilter}")
+                .WithParameter("@version", LifecycleDeadlineResolver.Version),
+            cancellationToken);
+        var docsStamped = 0;
+        var docsDated = 0;
+        foreach (var doc in docs)
+        {
+            LifecycleDeadlineResolver.Stamp(doc);
+            if (await TryPatchDeadlineAsync(DocInsights, doc.Id, doc.LifecycleDeadline, doc.DeadlineSource, cancellationToken))
+            {
+                docsStamped++;
+                if (doc.LifecycleDeadline != null) docsDated++;
+            }
+        }
+
+        return new LifecycleDeadlineBackfillResult(
+            feedItems.Count, feedStamped, docs.Count, docsStamped, feedDated, docsDated);
+    }
+
+    private async Task<bool> TryPatchDeadlineAsync(
+        Container container, string id, string? deadline, string? source, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await container.PatchItemStreamAsync(id, new PartitionKey(id),
+            [
+                PatchOperation.Set("/lifecycleDeadline", deadline),
+                PatchOperation.Set("/deadlineSource", source),
+                PatchOperation.Set("/deadlineResolverVersion", LifecycleDeadlineResolver.Version),
+            ], cancellationToken: cancellationToken);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return false;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Lifecycle deadline patch for {Id} failed with {Status}", id, response.StatusCode);
+                return false;
+            }
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<List<T>> QueryAllAsync<T>(
+        Container container, QueryDefinition query, CancellationToken cancellationToken)
+    {
+        var iterator = container.GetItemQueryIterator<T>(query);
+        var results = new List<T>();
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    private static bool EnsureStamped(FeedItem item)
+    {
+        if (item.DeadlineResolverVersion is null)
+            LifecycleDeadlineResolver.Stamp(item);
+        return true;
+    }
+
+    private static bool EnsureStamped(DocInsight item)
+    {
+        if (item.DeadlineResolverVersion is null)
+            LifecycleDeadlineResolver.Stamp(item);
+        return true;
+    }
+
+    private static bool InRange(string? deadline, string from, string to) =>
+        deadline != null &&
+        string.CompareOrdinal(deadline, from) >= 0 &&
+        string.CompareOrdinal(deadline, to) <= 0;
 
     // --- Watchlist operations ---
 
@@ -502,6 +673,7 @@ public class CosmosDbService : ICosmosDbService
     public async Task<bool> UpsertDocInsightAsync(
         DocInsight insight, CancellationToken cancellationToken = default)
     {
+        LifecycleDeadlineResolver.Stamp(insight);
         await DocInsights.UpsertItemAsync(
             insight, new PartitionKey(insight.Id), cancellationToken: cancellationToken);
         return true;

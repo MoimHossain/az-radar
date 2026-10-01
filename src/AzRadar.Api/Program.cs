@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AzRadar.Api;
 using AzRadar.Shared;
 using AzRadar.Shared.Configuration;
 using AzRadar.Shared.Interfaces;
@@ -150,25 +151,41 @@ app.MapGet("/api/feed-items/{id}", async (string id, ICosmosDbService db) =>
 app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
 {
     var jobs = await db.GetCrawlJobsAsync(100);
-    var feedItems = await db.GetFeedItemsAsync(limit: 500);
-    var docInsights = await db.GetDocInsightsAsync(limit: 500);
+    LifecycleCalendarWindow.TryCreate(null, null, DateOnly.FromDateTime(DateTime.UtcNow), out var calendarWindow, out _);
+    // Recent items plus everything on the lifecycle calendar, so long-horizon deadlines are counted.
+    var feedItems = (await db.GetFeedItemsAsync(limit: 500))
+        .Concat(await db.GetCalendarFeedItemsAsync(calendarWindow.From, calendarWindow.To))
+        .DistinctBy(f => f.Id)
+        .ToList();
+    var docInsights = (await db.GetDocInsightsAsync(limit: 500))
+        .Concat(await db.GetCalendarDocInsightsAsync(calendarWindow.From, calendarWindow.To))
+        .DistinctBy(d => d.Id)
+        .ToList();
     var watchlist = await db.GetWatchlistAsync();
     var blastRadius = await db.GetBlastRadiusSummariesAsync(200);
 
     // Combine all items for unified analysis
     var allAnalyses = feedItems
         .Where(f => f.LlmAnalysis != null)
-        .Select(f => new { f.Title, f.Link, f.PublishDate, Analysis = f.LlmAnalysis!, Source = "azure-updates" })
+        .Select(f => new
+        {
+            f.Title, f.Link, f.PublishDate, Analysis = f.LlmAnalysis!, Source = "azure-updates",
+            Deadline = CalendarItemMapper.EffectiveDeadline(f).Deadline ?? f.LlmAnalysis!.Deadline,
+        })
         .Concat(docInsights
             .Where(d => d.LlmAnalysis != null)
-            .Select(d => new { d.Title, Link = d.DocUrl, PublishDate = d.LastAnalyzedAt, Analysis = d.LlmAnalysis!, Source = "ms-learn" }))
+            .Select(d => new
+            {
+                d.Title, Link = d.DocUrl, PublishDate = d.LastAnalyzedAt, Analysis = d.LlmAnalysis!, Source = "ms-learn",
+                Deadline = CalendarItemMapper.EffectiveDeadline(d).Deadline ?? d.LlmAnalysis!.Deadline,
+            }))
         .ToList();
 
     // Filter out analyses with deadlines overdue > 90 days
     var relevantAnalyses = allAnalyses.Where(a =>
     {
-        if (string.IsNullOrEmpty(a.Analysis.Deadline)) return true;
-        if (!DateTimeOffset.TryParse(a.Analysis.Deadline, out var dl)) return true;
+        if (string.IsNullOrEmpty(a.Deadline)) return true;
+        if (!DateTimeOffset.TryParse(a.Deadline, out var dl)) return true;
         var days = (int)(dl - DateTimeOffset.UtcNow).TotalDays;
         return days > -90;
     }).ToList();
@@ -185,12 +202,12 @@ app.MapGet("/api/dashboard/stats", async (ICosmosDbService db) =>
 
     // Upcoming deadlines (sorted by urgency)
     var deadlines = allAnalyses
-        .Where(a => !string.IsNullOrEmpty(a.Analysis.Deadline))
+        .Where(a => !string.IsNullOrEmpty(a.Deadline))
         .Select(a => new
         {
             a.Title,
             a.Link,
-            a.Analysis.Deadline,
+            a.Deadline,
             a.Analysis.Severity,
             a.Analysis.ChangeType,
             a.Analysis.ActionRequired,
@@ -888,62 +905,39 @@ app.MapGet("/api/doc-insights/{id}", async (string id, ICosmosDbService db) =>
     return item is null ? Results.NotFound() : Results.Ok(item);
 });
 
-// --- Calendar endpoint ---
-app.MapGet("/api/calendar", async (ICosmosDbService db) =>
+// --- Calendar endpoints ---
+// Items are selected by lifecycle deadline (not publish date), so long-horizon retirements
+// announced years ago are not crowded out by recent posts.
+app.MapGet("/api/calendar", async (string? from, string? to, ICosmosDbService db) =>
 {
-    var feedItems = await db.GetFeedItemsAsync(limit: 500);
-    var docInsights = await db.GetDocInsightsAsync(limit: 500);
-    var cutoff = DateTimeOffset.UtcNow.AddDays(-90);
+    if (!LifecycleCalendarWindow.TryCreate(from, to, DateOnly.FromDateTime(DateTime.UtcNow), out var window, out var error))
+        return Results.BadRequest(new { error });
 
-    var calendarItems = new List<object>();
+    var feedItems = await db.GetCalendarFeedItemsAsync(window.From, window.To);
+    var docInsights = await db.GetCalendarDocInsightsAsync(window.From, window.To);
 
-    foreach (var fi in feedItems)
-    {
-        if (fi.LlmAnalysis == null) continue;
-        var deadline = fi.LlmAnalysis.Deadline;
-        if (string.IsNullOrEmpty(deadline)) continue;
-        if (DateTimeOffset.TryParse(deadline, out var dl) && dl < cutoff) continue;
-
-        calendarItems.Add(new
-        {
-            id = fi.Id,
-            title = fi.Title,
-            link = fi.Link,
-            deadline,
-            changeType = fi.LlmAnalysis.ChangeType,
-            severity = fi.LlmAnalysis.Severity,
-            affectedServices = fi.LlmAnalysis.AffectedServices,
-            actionRequired = fi.LlmAnalysis.ActionRequired,
-            source = "azure-updates",
-            briefSummary = fi.LlmAnalysis.BriefSummary,
-        });
-    }
-
-    foreach (var di in docInsights)
-    {
-        if (di.LlmAnalysis == null) continue;
-        var deadline = di.LlmAnalysis.Deadline;
-        if (string.IsNullOrEmpty(deadline)) continue;
-        if (DateTimeOffset.TryParse(deadline, out var dl) && dl < cutoff) continue;
-
-        calendarItems.Add(new
-        {
-            id = di.Id,
-            title = di.Title,
-            link = di.DocUrl,
-            deadline,
-            changeType = di.LlmAnalysis.ChangeType,
-            severity = di.LlmAnalysis.Severity,
-            affectedServices = di.LlmAnalysis.AffectedServices,
-            actionRequired = di.LlmAnalysis.ActionRequired,
-            source = "ms-learn",
-            briefSummary = di.LlmAnalysis.BriefSummary,
-        });
-    }
-
-    return Results.Ok(calendarItems.OrderBy(i => ((dynamic)i).deadline));
+    var calendarItems = feedItems
+        .Select(CalendarItemMapper.FromFeedItem)
+        .Concat(docInsights.Select(CalendarItemMapper.FromDocInsight))
+        .Where(item => item.Deadline != null)
+        .OrderBy(item => item.Deadline, StringComparer.Ordinal)
+        .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    return Results.Ok(calendarItems);
 });
 
+// Lifecycle changes (retirement, deprecation, ...) whose announcement has no resolvable date.
+app.MapGet("/api/calendar/undated", async (ICosmosDbService db) =>
+{
+    var feedItems = await db.GetUndatedLifecycleFeedItemsAsync();
+    var docInsights = await db.GetUndatedLifecycleDocInsightsAsync();
+    var items = feedItems
+        .Select(CalendarItemMapper.FromFeedItem)
+        .Concat(docInsights.Select(CalendarItemMapper.FromDocInsight))
+        .OrderByDescending(item => item.PublishDate)
+        .ToList();
+    return Results.Ok(items);
+});
 // --- AppConfig endpoints ---
 app.MapGet("/api/config/{key}", async (string key, ICosmosDbService db) =>
 {

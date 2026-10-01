@@ -45,6 +45,7 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
         int skipped = 0;
         int totalChecked = 0;
         int discarded = 0;
+        int auditedDiscards = 0;
 
         foreach (var service in watchlist)
         {
@@ -115,6 +116,7 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                         _logger.LogInformation(
                             "Deleted unchanged doc {Title} because it no longer matches the service and region watchlist",
                             searchResult.Title);
+                        await AuditDiscardAsync(existing.Title, existing.LlmAnalysis, service.ServiceName, "no longer matches");
                     }
                     else
                     {
@@ -151,6 +153,7 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                     _logger.LogInformation(
                         "Discarded MS Learn doc {Title} because it does not match the service and region watchlist",
                         searchResult.Title);
+                    await AuditDiscardAsync(searchResult.Title, analysis, service.ServiceName, "not matched");
                     continue;
                 }
 
@@ -184,7 +187,8 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
                 {
                     NewItems = newItems,
                     TotalChecked = totalChecked,
-                    SkippedItems = skipped
+                    SkippedItems = skipped,
+                    DiscardedItems = discarded
                 };
                 var updatedJob = await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
                 job.ETag = updatedJob.ETag;
@@ -199,14 +203,46 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
         {
             NewItems = newItems,
             TotalChecked = totalChecked,
-            SkippedItems = skipped
+            SkippedItems = skipped,
+            DiscardedItems = discarded
         };
+
+        if (discarded > 0)
+        {
+            await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+            {
+                JobId = job.Id,
+                Step = "watchlist-discard-summary",
+                Message = $"Discarded {discarded} MS Learn docs that did not match the service and region watchlist " +
+                          $"({auditedDiscards} itemized as 'watchlist-discard' entries, limit {MaxItemizedDiscards}).",
+                ResultCount = discarded,
+            }, cancellationToken);
+        }
 
         _logger.LogInformation(
             "MS Learn Intelligence complete: {New} new/updated, {Skipped} skipped, " +
             "{Discarded} discarded by watchlist, {Total} total",
             newItems, skipped, discarded, totalChecked);
+
+        async Task AuditDiscardAsync(string title, LlmAnalysis? analysis, string watchedService, string reason)
+        {
+            if (auditedDiscards >= MaxItemizedDiscards)
+                return;
+            auditedDiscards++;
+            await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+            {
+                JobId = job.Id,
+                Step = "watchlist-discard",
+                ItemTitle = title,
+                Message = $"Discarded ({reason}) while searching '{watchedService}'. " +
+                          $"Change type: {analysis?.ChangeType ?? "n/a"}; deadline: {analysis?.Deadline ?? "none"}; " +
+                          $"services: [{string.Join(", ", (analysis?.AffectedServices ?? []).Take(8))}]; " +
+                          $"regions: [{string.Join(", ", (analysis?.AffectedRegions ?? []).Take(8))}].",
+            }, cancellationToken);
+        }
     }
+
+    private const int MaxItemizedDiscards = 100;
 
     private static string NormalizeUrl(string url)
     {

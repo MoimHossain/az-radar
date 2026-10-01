@@ -496,3 +496,21 @@ the actual Teams channel.
 - **Live RBAC:** Three `AcrPull` assignments remain scoped to the private ACR.
 
 Current phase: Deployed and verified.
+
+## 15. Lifecycle Calendar Horizon Completeness
+
+**Completed:** 2026-10-01 · PRD: `prds/lifecycle-calendar-horizon-completeness.md`
+
+- **API/UI image:** `azrxon32oitl5v66.azurecr.io/az-radar-api:green` (ACR run `cjj`; previous `blue` run `cjg`)
+- **JobHost image:** `azrxon32oitl5v66.azurecr.io/az-radar-jobhost:green` (ACR run `cjk`; previous `blue` run `cjh`)
+- **ACR publication:** Temporarily enabled the export policy, public access and `defaultAction=Allow`
+  for ACR Tasks, then restored them: public access disabled, `defaultAction=Deny`, export disabled,
+  admin and anonymous pull disabled.
+- **App Service liveness:** Always On had drifted to `false` on both apps and was re-enabled.
+- **Validation:** health `healthy`. `/api/calendar` went from 30 to 42 items. 55 undated lifecycle
+  items are visible. Stats and calendar counts agree. The deadline backfill patched 17 feed items
+  and 616 doc insights. Two crawls succeeded with discard diagnostics.
+- **Rollback:** Switch both apps back to `blue`. The new Cosmos fields are additive and ignored by
+  older images.
+
+Current phase: Deployed and verified.

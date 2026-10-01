@@ -39,6 +39,17 @@ public class DocInsight
     [JsonPropertyName("crawlJobId")]
     public string CrawlJobId { get; set; } = string.Empty;
 
+    /// <summary>Normalized lifecycle deadline (yyyy-MM-dd) used for calendar range queries.</summary>
+    [JsonPropertyName("lifecycleDeadline")]
+    public string? LifecycleDeadline { get; set; }
+
+    /// <summary>llm | extracted</summary>
+    [JsonPropertyName("deadlineSource")]
+    public string? DeadlineSource { get; set; }
+
+    [JsonPropertyName("deadlineResolverVersion")]
+    public int? DeadlineResolverVersion { get; set; }
+
     // --- GitHub Change Radar fields (source = "github") ---
 
     [JsonPropertyName("commitSha")]

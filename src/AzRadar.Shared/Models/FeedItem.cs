@@ -50,6 +50,21 @@ public class FeedItem
     [JsonPropertyName("sourceModifiedAt")]
     public DateTimeOffset? SourceModifiedAt { get; set; }
 
+    /// <summary>Azure Updates catalog products, kept so watchlist decisions can be audited.</summary>
+    [JsonPropertyName("products")]
+    public List<string> Products { get; set; } = [];
+
+    /// <summary>Normalized lifecycle deadline (yyyy-MM-dd) used for calendar range queries.</summary>
+    [JsonPropertyName("lifecycleDeadline")]
+    public string? LifecycleDeadline { get; set; }
+
+    /// <summary>llm | extracted</summary>
+    [JsonPropertyName("deadlineSource")]
+    public string? DeadlineSource { get; set; }
+
+    [JsonPropertyName("deadlineResolverVersion")]
+    public int? DeadlineResolverVersion { get; set; }
+
     [JsonPropertyName("_etag")]
     public string? ETag { get; set; }
 

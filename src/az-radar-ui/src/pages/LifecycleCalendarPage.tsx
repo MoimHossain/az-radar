@@ -64,21 +64,38 @@ const SEVERITY_OPTIONS = ["critical", "high", "medium", "low"];
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-function daysUntil(deadline: string): number | null {
-  const d = new Date(deadline);
-  if (isNaN(d.getTime())) return null;
-  return Math.ceil((d.getTime() - Date.now()) / 86_400_000);
+// Deadlines are calendar dates (yyyy-MM-dd); parse them as local dates so they never shift a day.
+function parseDeadline(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  return isNaN(d.getTime()) ? null : d;
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
+function startOfToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function addMonths(date: Date, months: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + months, date.getDate());
+}
+
+function daysUntil(deadline: string | null | undefined): number | null {
+  const d = parseDeadline(deadline);
+  if (!d) return null;
+  return Math.round((d.getTime() - startOfToday().getTime()) / 86_400_000);
+}
+
+function formatDate(iso: string | null | undefined): string {
+  const d = parseDeadline(iso);
+  if (!d) return iso || "No date announced";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function monthKey(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "Unknown";
+  const d = parseDeadline(iso);
+  if (!d) return "Unknown";
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
@@ -89,24 +106,55 @@ function monthLabel(key: string): string {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-function quarterOf(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "Unknown";
-  const q = Math.ceil((d.getMonth() + 1) / 3);
-  return `Q${q} ${d.getFullYear()}`;
+function quarterIndex(d: Date): number {
+  return d.getFullYear() * 4 + Math.floor(d.getMonth() / 3);
 }
 
-function getQuarters(): string[] {
-  const now = new Date();
-  const q = Math.ceil((now.getMonth() + 1) / 3);
-  const y = now.getFullYear();
-  const out: string[] = [];
-  for (let i = 0; i < 4; i++) {
-    const qn = ((q - 1 + i) % 4) + 1;
-    const yn = y + Math.floor((q - 1 + i) / 4);
-    out.push(`Q${qn} ${yn}`);
+function quarterLabel(index: number): string {
+  return `Q${(index % 4) + 1} ${Math.floor(index / 4)}`;
+}
+
+function quarterOf(iso: string): string {
+  const d = parseDeadline(iso);
+  return d ? quarterLabel(quarterIndex(d)) : "Unknown";
+}
+
+/** Quarters from the earliest to the latest deadline (at least the next four quarters). */
+function getQuarters(items: CalendarItem[]): string[] {
+  const current = quarterIndex(startOfToday());
+  let first = current;
+  let last = current + 3;
+  for (const item of items) {
+    const d = parseDeadline(item.deadline);
+    if (!d) continue;
+    const q = quarterIndex(d);
+    if (q < first) first = q;
+    if (q > last) last = q;
   }
+  const out: string[] = [];
+  for (let q = first; q <= last; q++) out.push(quarterLabel(q));
   return out;
+}
+
+/** Relative horizon buckets, matching how platform teams plan lifecycle work. */
+const HORIZONS = [
+  { key: "past", label: "Past due (last 90 days)", fromMonths: -Infinity, toMonths: 0 },
+  { key: "0-6", label: "Within 6 months", fromMonths: 0, toMonths: 6 },
+  { key: "7-12", label: "Within 7–12 months", fromMonths: 6, toMonths: 12 },
+  { key: "13-24", label: "Within 13–24 months", fromMonths: 12, toMonths: 24 },
+  { key: "25-36", label: "Within 25–36 months", fromMonths: 24, toMonths: 36 },
+  { key: "later", label: "Beyond 36 months", fromMonths: 36, toMonths: Infinity },
+] as const;
+
+function horizonOf(deadline: string, today: Date): string | null {
+  const d = parseDeadline(deadline);
+  if (!d) return null;
+  for (const h of HORIZONS) {
+    const from = h.fromMonths === -Infinity ? null : addMonths(today, h.fromMonths);
+    const to = h.toMonths === Infinity ? null : addMonths(today, h.toMonths);
+    if ((from === null || d >= from) && (to === null || d < to)) return h.key;
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,6 +326,30 @@ const useStyles = makeStyles({
   },
 
   /* ---------- Quarter view ---------- */
+  horizonGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: "16px",
+    "@media (max-width: 1200px)": {
+      gridTemplateColumns: "1fr 1fr",
+    },
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr",
+    },
+  },
+  undatedCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    padding: "16px",
+  },
+  undatedHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    cursor: "pointer",
+  },
   quarterGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
@@ -567,7 +639,7 @@ const useStyles = makeStyles({
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
-type ViewMode = "timeline" | "quarter" | "calendar";
+type ViewMode = "timeline" | "horizon" | "quarter" | "calendar";
 
 const CHANGE_TYPE_ICONS: Record<string, React.ReactNode> = {
   retirement: <ErrorCircleRegular style={{ color: "#dc2626" }} />,
@@ -586,6 +658,8 @@ export function LifecycleCalendarPage() {
   const navigate = useNavigate();
 
   const [items, setItems] = useState<CalendarItem[]>([]);
+  const [undatedItems, setUndatedItems] = useState<CalendarItem[]>([]);
+  const [showUndated, setShowUndated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -607,6 +681,8 @@ export function LifecycleCalendarPage() {
   /* Fetch */
   useEffect(() => {
     setLoading(true);
+    // Undated items are supplementary; their failure must not hide the calendar.
+    api.getUndatedCalendarItems().then(setUndatedItems).catch(() => setUndatedItems([]));
     api
       .getCalendarItems()
       .then(setItems)
@@ -614,24 +690,33 @@ export function LifecycleCalendarPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  /* Filtered items */
-  const filtered = useMemo(() => {
-    let f = items;
-    if (changeTypeFilter.length)
-      f = f.filter((i) => changeTypeFilter.includes(i.changeType.toLowerCase()));
-    if (severityFilter.length)
-      f = f.filter((i) => severityFilter.includes(i.severity.toLowerCase()));
-    if (keyword.trim()) {
-      const kw = keyword.toLowerCase();
-      f = f.filter(
-        (i) =>
+  const matchesFilters = useCallback(
+    (i: CalendarItem) => {
+      if (changeTypeFilter.length && !changeTypeFilter.includes(i.changeType.toLowerCase())) return false;
+      if (severityFilter.length && !severityFilter.includes(i.severity.toLowerCase())) return false;
+      if (keyword.trim()) {
+        const kw = keyword.toLowerCase();
+        return (
           i.title.toLowerCase().includes(kw) ||
           i.affectedServices.some((s) => s.toLowerCase().includes(kw)) ||
-          i.briefSummary.toLowerCase().includes(kw)
-      );
-    }
-    return f.sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
-  }, [items, changeTypeFilter, severityFilter, keyword]);
+          (i.briefSummary ?? "").toLowerCase().includes(kw)
+        );
+      }
+      return true;
+    },
+    [changeTypeFilter, severityFilter, keyword]
+  );
+
+  /* Filtered items */
+  const filtered = useMemo(
+    () =>
+      items
+        .filter(matchesFilters)
+        .sort((a, b) => (parseDeadline(a.deadline)?.getTime() ?? 0) - (parseDeadline(b.deadline)?.getTime() ?? 0)),
+    [items, matchesFilters]
+  );
+
+  const filteredUndated = useMemo(() => undatedItems.filter(matchesFilters), [undatedItems, matchesFilters]);
 
   /* Month groups */
   const monthGroups = useMemo(() => {
@@ -646,13 +731,24 @@ export function LifecycleCalendarPage() {
 
   /* Quarter groups */
   const quarters = useMemo(() => {
-    const qs = getQuarters();
+    const qs = getQuarters(filtered);
     const map = new Map<string, CalendarItem[]>(qs.map((q) => [q, []]));
     for (const item of filtered) {
       const q = quarterOf(item.deadline);
       if (map.has(q)) map.get(q)!.push(item);
     }
     return qs.map((q) => ({ label: q, items: map.get(q) ?? [] }));
+  }, [filtered]);
+
+  /* Horizon groups */
+  const horizons = useMemo(() => {
+    const today = startOfToday();
+    const map = new Map<string, CalendarItem[]>(HORIZONS.map((h) => [h.key, []]));
+    for (const item of filtered) {
+      const key = horizonOf(item.deadline, today);
+      if (key) map.get(key)!.push(item);
+    }
+    return HORIZONS.map((h) => ({ label: h.label, items: map.get(h.key) ?? [] }));
   }, [filtered]);
 
   /* Calendar month grid helpers */
@@ -682,8 +778,8 @@ export function LifecycleCalendarPage() {
   const calendarItemsByDay = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
     for (const item of filtered) {
-      const d = new Date(item.deadline);
-      if (isNaN(d.getTime())) continue;
+      const d = parseDeadline(item.deadline);
+      if (!d) continue;
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(item);
@@ -819,6 +915,43 @@ export function LifecycleCalendarPage() {
 
   /* ---- Main render ---- */
 
+  const renderBucketCard = (label: string, bucketItems: CalendarItem[], emptyText: string) => (
+    <Card key={label} className={styles.quarterCard}>
+      <div className={styles.quarterHeader}>
+        <span className={styles.quarterTitle}>{label}</span>
+        <Badge appearance="tint" color="informative" size="medium">
+          {bucketItems.length}
+        </Badge>
+      </div>
+
+      {bucketItems.length === 0 ? (
+        <Text size={200} style={{ color: tokens.colorNeutralForeground3, padding: "12px 0" }}>
+          {emptyText}
+        </Text>
+      ) : (
+        <div className={styles.quarterList}>
+          {bucketItems.slice(0, QUARTER_VISIBLE).map((item) => (
+            <div
+              key={item.id}
+              className={styles.quarterItem}
+              onClick={() => setSelectedCalendarItem(item)}
+            >
+              <span
+                className={styles.quarterDot}
+                style={{ backgroundColor: severityColor(item.severity) }}
+              />
+              <span className={styles.quarterItemTitle}>{item.title}</span>
+              <span className={styles.quarterItemDate}>{formatDate(item.deadline)}</span>
+            </div>
+          ))}
+          {bucketItems.length > QUARTER_VISIBLE && (
+            <span className={styles.moreLabel}>+{bucketItems.length - QUARTER_VISIBLE} more</span>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+
   if (loading) {
     return (
       <div className={styles.center}>
@@ -845,7 +978,7 @@ export function LifecycleCalendarPage() {
             Lifecycle Calendar
           </Text>
           <Text size={300} style={{ color: tokens.colorNeutralForeground3 }}>
-            Upcoming Azure changes at a glance
+            Azure lifecycle deadlines from the last 90 days through the next 5 years
           </Text>
         </div>
 
@@ -857,6 +990,14 @@ export function LifecycleCalendarPage() {
             onClick={() => setView("timeline")}
           >
             Timeline
+          </Button>
+          <Button
+            appearance={view === "horizon" ? "primary" : "subtle"}
+            icon={<ArrowTrendingRegular />}
+            size="small"
+            onClick={() => setView("horizon")}
+          >
+            Horizon
           </Button>
           <Button
             appearance={view === "quarter" ? "primary" : "subtle"}
@@ -961,52 +1102,15 @@ export function LifecycleCalendarPage() {
             </div>
           ))}
         </div>
+      ) : view === "horizon" ? (
+        /* Horizon View */
+        <div className={styles.horizonGrid}>
+          {horizons.map((h) => renderBucketCard(h.label, h.items, "No deadlines in this horizon"))}
+        </div>
       ) : view === "quarter" ? (
         /* Quarter View */
         <div className={styles.quarterGrid}>
-          {quarters.map((q) => (
-            <Card key={q.label} className={styles.quarterCard}>
-              <div className={styles.quarterHeader}>
-                <span className={styles.quarterTitle}>{q.label}</span>
-                <Badge appearance="tint" color="informative" size="medium">
-                  {q.items.length}
-                </Badge>
-              </div>
-
-              {q.items.length === 0 ? (
-                <Text
-                  size={200}
-                  style={{ color: tokens.colorNeutralForeground3, padding: "12px 0" }}
-                >
-                  No items this quarter
-                </Text>
-              ) : (
-                <div className={styles.quarterList}>
-                  {q.items.slice(0, QUARTER_VISIBLE).map((item) => (
-                    <div
-                      key={item.id}
-                      className={styles.quarterItem}
-                      onClick={() => setSelectedCalendarItem(item)}
-                    >
-                      <span
-                        className={styles.quarterDot}
-                        style={{ backgroundColor: severityColor(item.severity) }}
-                      />
-                      <span className={styles.quarterItemTitle}>{item.title}</span>
-                      <span className={styles.quarterItemDate}>
-                        {formatDate(item.deadline)}
-                      </span>
-                    </div>
-                  ))}
-                  {q.items.length > QUARTER_VISIBLE && (
-                    <span className={styles.moreLabel}>
-                      +{q.items.length - QUARTER_VISIBLE} more
-                    </span>
-                  )}
-                </div>
-              )}
-            </Card>
-          ))}
+          {quarters.map((q) => renderBucketCard(q.label, q.items, "No items this quarter"))}
         </div>
       ) : (
         /* Calendar (Month Grid) View */
@@ -1136,6 +1240,49 @@ export function LifecycleCalendarPage() {
         </div>
       )}
 
+      {/* Undated lifecycle changes */}
+      {filteredUndated.length > 0 && (
+        <Card className={styles.undatedCard}>
+          <div
+            className={styles.undatedHeader}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowUndated((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") setShowUndated((v) => !v);
+            }}
+          >
+            <Text weight="semibold">
+              <WarningRegular style={{ marginRight: 6, verticalAlign: "middle", color: "#ea580c" }} />
+              Lifecycle changes without an announced date ({filteredUndated.length})
+            </Text>
+            {showUndated ? <ChevronUpRegular /> : <ChevronDownRegular />}
+          </div>
+          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+            Retirements and deprecations whose announcement does not state a deadline. They cannot be placed on
+            the calendar but still need follow-up.
+          </Text>
+          {showUndated && (
+            <div className={styles.quarterList}>
+              {filteredUndated.map((item) => (
+                <div
+                  key={item.id}
+                  className={styles.quarterItem}
+                  onClick={() => setSelectedCalendarItem(item)}
+                >
+                  <span
+                    className={styles.quarterDot}
+                    style={{ backgroundColor: severityColor(item.severity) }}
+                  />
+                  <span className={styles.quarterItemTitle}>{item.title}</span>
+                  <span className={styles.quarterItemDate}>{item.changeType}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Detail Panel */}
       {selectedCalendarItem && (() => {
         const item = selectedCalendarItem;
@@ -1192,6 +1339,11 @@ export function LifecycleCalendarPage() {
                         : ` (${days}d remaining)`
                     )}
                   </Badge>
+                  {item.deadlineSource === "extracted" && (
+                    <Badge appearance="outline" color="warning" size="medium">
+                      Date taken from announcement text
+                    </Badge>
+                  )}
                 </div>
 
                 <Divider />

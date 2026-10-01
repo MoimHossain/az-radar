@@ -50,6 +50,7 @@ public class AzureUpdatesJobHandler : IJobHandler
         int updatedItems = 0;
         int skipped = 0;
         int discarded = 0;
+        int auditedDiscards = 0;
         job.Result = new CrawlJobResult();
 
         foreach (var update in updates)
@@ -83,6 +84,7 @@ public class AzureUpdatesJobHandler : IJobHandler
                     _logger.LogInformation(
                         "Deleted Azure update {Id} because it no longer matches the service and region watchlist",
                         update.Id);
+                    await AuditDiscardAsync(existing.Title, update, existing.LlmAnalysis, "no longer matches");
                     continue;
                 }
 
@@ -109,6 +111,7 @@ public class AzureUpdatesJobHandler : IJobHandler
                 SourceContentHash = contentHash,
                 LlmAnalysisSkipped = job.SkipLlmAnalysis,
                 SourceModifiedAt = DateTimeOffset.Parse(update.Modified, System.Globalization.CultureInfo.InvariantCulture),
+                Products = [.. update.Products],
                 ETag = existing?.ETag
             };
 
@@ -136,6 +139,7 @@ public class AzureUpdatesJobHandler : IJobHandler
                 _logger.LogInformation(
                     "Discarded Azure update {Id} because it does not match the service and region watchlist",
                     update.Id);
+                await AuditDiscardAsync(feedItem.Title, update, feedItem.LlmAnalysis, "not matched");
                 if (!job.SkipLlmAnalysis || (newItems + updatedItems + skipped) % 50 == 0)
                     await SaveProgressAsync();
                 continue;
@@ -143,7 +147,8 @@ public class AzureUpdatesJobHandler : IJobHandler
 
             if (existing != null)
             {
-                if (!await _cosmosDb.TryReplaceFeedItemAsync(feedItem, cancellationToken))
+                if (!await _cosmosDb.TryReplaceFeedItemAsync(feedItem, cancellationToken) &&
+                    !await RetryReplaceAfterMetadataPatchAsync(feedItem, existing))
                     throw new InvalidOperationException($"Azure update {update.Id} changed concurrently; retry the crawl.");
                 updatedItems++;
             }
@@ -161,8 +166,23 @@ public class AzureUpdatesJobHandler : IJobHandler
             NewItems = newItems,
             UpdatedItems = updatedItems,
             TotalChecked = updates.Count,
-            SkippedItems = skipped
+            SkippedItems = skipped,
+            DiscardedItems = discarded
         };
+
+        if (discarded > 0)
+        {
+            await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+            {
+                JobId = job.Id,
+                Step = "watchlist-discard-summary",
+                Message = watchlist.Count == 0
+                    ? $"Discarded all {discarded} updates because the watchlist is empty."
+                    : $"Discarded {discarded} updates that did not match the service and region watchlist " +
+                      $"({auditedDiscards} itemized as 'watchlist-discard' entries, limit {MaxItemizedDiscards}).",
+                ResultCount = discarded,
+            }, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Azure Updates crawl complete: {New} new, {Updated} updated, {Skipped} skipped, " +
@@ -178,6 +198,37 @@ public class AzureUpdatesJobHandler : IJobHandler
                 watchlist, affectedServices, analysis?.AffectedRegions);
         }
 
+        async Task AuditDiscardAsync(string title, AzureUpdateItem update, LlmAnalysis? analysis, string reason)
+        {
+            if (auditedDiscards >= MaxItemizedDiscards)
+                return;
+            auditedDiscards++;
+            var services = string.Join(", ", (analysis?.AffectedServices ?? []).Take(8));
+            var products = string.Join(", ", update.Products.Take(8));
+            var regions = string.Join(", ", (analysis?.AffectedRegions ?? []).Take(8));
+            await _cosmosDb.StoreDiagnosticAsync(new JobDiagnosticEntry
+            {
+                JobId = job.Id,
+                Step = "watchlist-discard",
+                ItemTitle = title,
+                Message = $"Discarded ({reason}). Update id: {update.Id}; change type: {analysis?.ChangeType ?? "n/a"}; " +
+                          $"deadline: {analysis?.Deadline ?? "none"}; services: [{services}]; products: [{products}]; " +
+                          $"regions: [{regions}].",
+            }, cancellationToken);
+        }
+
+        async Task<bool> RetryReplaceAfterMetadataPatchAsync(FeedItem feedItem, FeedItem existing)
+        {
+            // The lifecycle-deadline backfill patches metadata only; the source content is unchanged
+            // when the hash still matches the version this crawl read, so a single retry is safe.
+            var current = await _cosmosDb.GetFeedItemAsync(feedItem.Id, cancellationToken);
+            if (current is null || current.SourceContentHash != existing.SourceContentHash ||
+                current.CrawlJobId != existing.CrawlJobId)
+                return false;
+            feedItem.ETag = current.ETag;
+            return await _cosmosDb.TryReplaceFeedItemAsync(feedItem, cancellationToken);
+        }
+
         async Task SaveProgressAsync()
         {
             job.Result = new CrawlJobResult
@@ -185,12 +236,15 @@ public class AzureUpdatesJobHandler : IJobHandler
                 NewItems = newItems,
                 UpdatedItems = updatedItems,
                 TotalChecked = newItems + updatedItems + skipped,
-                SkippedItems = skipped
+                SkippedItems = skipped,
+                DiscardedItems = discarded
             };
             var updated = await _cosmosDb.UpdateCrawlJobAsync(job, cancellationToken);
             job.ETag = updated.ETag;
         }
     }
+
+    internal const int MaxItemizedDiscards = 100;
 
     internal static string GenerateContentHash(AzureUpdateItem update) =>
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(update))).ToLowerInvariant();

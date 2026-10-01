@@ -585,7 +585,9 @@ export function CrawlJobsPage() {
                       {job.result ? (
                         <Text size={200}>
                           {job.result.newItems} new / {job.result.updatedItems ?? 0} updated / {job.result.skippedItems}{" "}
-                          skipped / {job.result.totalChecked} total
+                          skipped
+                          {job.result.discardedItems ? ` (${job.result.discardedItems} not on watchlist)` : ""} /{" "}
+                          {job.result.totalChecked} total
                         </Text>
                       ) : job.error ? (
                         <Tooltip content={job.error} relationship="description">
@@ -712,6 +714,12 @@ export function CrawlJobsPage() {
                   <Text size={200}>
                     {selectedJob.result.newItems} new / {selectedJob.result.updatedItems ?? 0} updated / {selectedJob.result.skippedItems} skipped / {selectedJob.result.totalChecked} total checked
                   </Text>
+                  {!!selectedJob.result.discardedItems && (
+                    <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                      {selectedJob.result.discardedItems} items did not match the watchlist and were not stored. See
+                      the "watchlist-discard" diagnostics below for the services each item was matched against.
+                    </Text>
+                  )}
                 </div>
               )}
               {selectedJob.skipLlmAnalysis && (

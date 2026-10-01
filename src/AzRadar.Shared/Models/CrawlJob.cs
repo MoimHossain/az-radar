@@ -62,6 +62,10 @@ public class CrawlJobResult
 
     [JsonPropertyName("updatedItems")]
     public int UpdatedItems { get; set; }
+
+    /// <summary>Items removed or not stored because they did not match the watchlist.</summary>
+    [JsonPropertyName("discardedItems")]
+    public int DiscardedItems { get; set; }
 }
 
 public static class CrawlJobStatus

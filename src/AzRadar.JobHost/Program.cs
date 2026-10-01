@@ -20,6 +20,7 @@ builder.Services.AddAzRadarSharedServices();
 // Register the Change Feed processor as a hosted service
 builder.Services.AddHostedService<ChangeFeedWorker>();
 builder.Services.AddHostedService<ServiceHealthIngressWorker>();
+builder.Services.AddHostedService<LifecycleDeadlineBackfillWorker>();
 
 var app = builder.Build();
 

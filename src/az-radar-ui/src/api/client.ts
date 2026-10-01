@@ -19,6 +19,7 @@ export interface CrawlJobResult {
   totalChecked: number;
   skippedItems: number;
   updatedItems?: number;
+  discardedItems?: number;
 }
 
 export interface FeedItem {
@@ -159,6 +160,9 @@ export interface CalendarItem {
   title: string;
   link: string;
   deadline: string;
+  /** "llm" when the analysis supplied the date; "extracted" when recovered from the announcement text. */
+  deadlineSource?: "llm" | "extracted" | null;
+  publishDate?: string;
   changeType: string;
   severity: string;
   affectedServices: string[];
@@ -425,7 +429,14 @@ export const api = {
   getBlastRadiusSummary: (id: string) =>
     apiFetch<BlastRadiusSummary>(`/api/blast-radius/${id}`),
 
-  getCalendarItems: () => apiFetch<CalendarItem[]>("/api/calendar"),
+  getCalendarItems: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const query = params.toString();
+    return apiFetch<CalendarItem[]>(`/api/calendar${query ? `?${query}` : ""}`);
+  },
+  getUndatedCalendarItems: () => apiFetch<CalendarItem[]>("/api/calendar/undated"),
 
   // Service Health
   getServiceHealthSubscriptions: () =>

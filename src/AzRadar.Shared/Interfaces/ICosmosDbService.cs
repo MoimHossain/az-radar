@@ -41,6 +41,17 @@ public interface ICosmosDbService
     Task<bool> TryReplaceFeedItemAsync(FeedItem item, CancellationToken cancellationToken = default);
     Task<bool> DeleteFeedItemAsync(string id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns every analyzed feed item whose lifecycle deadline falls within [from, to] (yyyy-MM-dd),
+    /// independent of publish date. Heavy fields (raw content) are not loaded.
+    /// </summary>
+    Task<IReadOnlyList<FeedItem>> GetCalendarFeedItemsAsync(
+        string from, string to, CancellationToken cancellationToken = default);
+
+    /// <summary>Lifecycle-type feed items (retirement, deprecation, ...) without a resolvable deadline.</summary>
+    Task<IReadOnlyList<FeedItem>> GetUndatedLifecycleFeedItemsAsync(
+        int limit = 200, CancellationToken cancellationToken = default);
+
     // Watchlist operations
     Task<WatchlistItem> CreateWatchlistItemAsync(WatchlistItem item, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<WatchlistItem>> GetWatchlistAsync(CancellationToken cancellationToken = default);
@@ -62,6 +73,17 @@ public interface ICosmosDbService
         CancellationToken cancellationToken = default);
     Task<bool> UpsertDocInsightAsync(DocInsight insight, CancellationToken cancellationToken = default);
     Task<bool> DeleteDocInsightAsync(string id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DocInsight>> GetCalendarDocInsightsAsync(
+        string from, string to, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DocInsight>> GetUndatedLifecycleDocInsightsAsync(
+        int limit = 200, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stamps lifecycleDeadline/deadlineSource/deadlineResolverVersion on analyzed documents written
+    /// before the current resolver version. Uses field patches so concurrent writers are not overwritten.
+    /// </summary>
+    Task<LifecycleDeadlineBackfillResult> BackfillLifecycleDeadlinesAsync(
+        CancellationToken cancellationToken = default);
 
     // AppConfig operations
     Task<AppConfig?> GetAppConfigAsync(string key, CancellationToken cancellationToken = default);

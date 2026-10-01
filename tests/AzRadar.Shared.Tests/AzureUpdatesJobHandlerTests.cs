@@ -500,6 +500,82 @@ public class AzureUpdatesJobHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_DiscardedUpdates_AreCountedAndAudited()
+    {
+        var update = new AzureUpdateItem
+        {
+            Id = "artifact-streaming", Title = "Artifact Streaming update", Products = ["Artifact Streaming"],
+            Modified = "2026-09-01T00:00:00Z"
+        };
+        _sourceMock.Setup(x => x.GetUpdatesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AzureUpdatesSnapshot([update], 1, 0));
+        _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmAnalysis
+            {
+                AiConfidence = 0.9, ChangeType = ChangeTypes.Retirement, Deadline = "2028-09-30",
+                AffectedServices = ["Artifact Streaming"]
+            });
+
+        var job = new CrawlJob { Id = "discard-job" };
+        await _handler.HandleAsync(job);
+
+        job.Result!.DiscardedItems.Should().Be(1);
+        _cosmosDbMock.Verify(x => x.StoreDiagnosticAsync(
+            It.Is<JobDiagnosticEntry>(e => e.Step == "watchlist-discard" && e.JobId == "discard-job" &&
+                e.Message.Contains("Artifact Streaming") && e.Message.Contains("2028-09-30")),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _cosmosDbMock.Verify(x => x.StoreDiagnosticAsync(
+            It.Is<JobDiagnosticEntry>(e => e.Step == "watchlist-discard-summary" && e.ResultCount == 1),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_PersistsCatalogProducts()
+    {
+        var update = new AzureUpdateItem
+        {
+            Id = "aks-products", Title = "AKS change", Products = ["Azure Kubernetes Service"],
+            Modified = "2026-09-01T00:00:00Z"
+        };
+        _sourceMock.Setup(x => x.GetUpdatesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AzureUpdatesSnapshot([update], 1, 0));
+        _cosmosDbMock.Setup(x => x.TryStoreFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9 });
+
+        await _handler.HandleAsync(new CrawlJob());
+
+        _cosmosDbMock.Verify(x => x.TryStoreFeedItemAsync(
+            It.Is<FeedItem>(f => f.Products.SequenceEqual(new[] { "Azure Kubernetes Service" })),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_MetadataOnlyConcurrentPatch_RetriesReplaceOnce()
+    {
+        var update = new AzureUpdateItem { Id = "123", Title = "Update", Modified = "2026-09-01T00:00:00Z" };
+        _sourceMock.Setup(x => x.GetUpdatesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AzureUpdatesSnapshot([update], 1, 1));
+        _cosmosDbMock.SetupSequence(x => x.GetFeedItemAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedItem { ETag = "etag-1", SourceContentHash = "old" })
+            .ReturnsAsync(new FeedItem { ETag = "etag-2", SourceContentHash = "old", DeadlineResolverVersion = 1 });
+        _cosmosDbMock.Setup(x => x.TryReplaceFeedItemAsync(
+                It.Is<FeedItem>(f => f.ETag == "etag-1"), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        _cosmosDbMock.Setup(x => x.TryReplaceFeedItemAsync(
+                It.Is<FeedItem>(f => f.ETag == "etag-2"), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _llmAnalyzerMock.Setup(x => x.AnalyzeFeedItemAsync(It.IsAny<FeedItem>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmAnalysis { AiConfidence = 0.9, AffectedServices = ["Test Service"] });
+
+        var job = new CrawlJob();
+        await _handler.HandleAsync(job);
+
+        job.Result!.UpdatedItems.Should().Be(1);
+    }
+
+    [Fact]
     public void GenerateDedupId_SameInput_ReturnsSameHash()
     {
         var id1 = AzureUpdatesJobHandler.GenerateDedupId("redis-tls-retirement");
