@@ -1,0 +1,133 @@
+1
+00:00:01,500 --> 00:00:03,279
+Azure changes every day.
+
+2
+00:00:03,700 --> 00:00:05,279
+Most of it has nothing to do with you.
+
+3
+00:00:07,800 --> 00:00:11,379
+But somewhere in that noise is the
+one that takes down production.
+
+4
+00:00:13,200 --> 00:00:17,001
+And the alerts meant to protect
+you? Switched on everywhere.
+
+5
+00:00:17,001 --> 00:00:18,129
+Quietly ignored.
+
+6
+00:00:19,800 --> 00:00:23,179
+The problem was never
+signal. It's context.
+
+7
+00:00:24,100 --> 00:00:26,029
+This is CloudLens.
+
+8
+00:00:26,300 --> 00:00:31,729
+It listens to Azure Updates, Microsoft
+Learn, and Azure Service Health.
+
+9
+00:00:31,979 --> 00:00:37,544
+AI analyzes every item for severity,
+deadline, and migration path.
+
+10
+00:00:37,794 --> 00:00:42,073
+Then it asks the only question that
+matters: does this touch my estate?
+
+11
+00:00:43,000 --> 00:00:45,279
+Context starts with
+knowing what's production.
+
+12
+00:00:45,800 --> 00:00:48,906
+It ranks your subscriptions
+by spend, production tags
+
+13
+00:00:48,906 --> 00:00:52,129
+and live workload signals,
+in an order you control.
+
+14
+00:00:53,400 --> 00:00:56,350
+So alerts go only where action is likely.
+
+15
+00:00:56,350 --> 00:00:59,229
+Not everywhere. Where it matters.
+
+16
+00:01:00,000 --> 00:01:04,329
+Then AI adds the context,
+and noise becomes signal.
+
+17
+00:01:04,700 --> 00:01:06,738
+Not "this service is retiring.
+
+18
+00:01:06,738 --> 00:01:09,794
+" But: seven of your
+production clusters,
+
+19
+00:01:09,794 --> 00:01:12,579
+across four regions, in one subscription.
+
+20
+00:01:12,829 --> 00:01:16,257
+What to do, who owns
+it, and by when.
+
+21
+00:01:17,000 --> 00:01:19,579
+That's not a headline.
+That's a work item.
+
+22
+00:01:21,100 --> 00:01:24,779
+Every deadline tracked. 
+Every delivery confirmed.
+
+23
+00:01:25,029 --> 00:01:27,107
+And it lands where your
+teams already work.
+
+24
+00:01:28,200 --> 00:01:31,337
+The Teams channel that
+owns it. Your wiki.
+
+25
+00:01:31,337 --> 00:01:33,929
+A work item, or a GitHub issue.
+
+26
+00:01:35,500 --> 00:01:38,029
+Ticketing tools like
+ServiceNow can connect, too.
+
+27
+00:01:39,100 --> 00:01:41,929
+Zero keys. Private by design.
+
+28
+00:01:42,200 --> 00:01:46,129
+Less noise. More
+context. Faster action.
+
+29
+00:01:46,379 --> 00:01:49,907
+CloudLens. From radar to response.
