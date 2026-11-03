@@ -32,6 +32,10 @@ public static class ServiceCollectionExtensions
             });
         });
         services.AddSingleton<ICosmosDbService, CosmosDbService>();
+        services.AddSingleton<IScheduleStore, CosmosScheduleStore>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ScheduleCoordinator>();
+        services.AddSingleton<JobExecutionGate>();
         services.AddSingleton<IServiceHealthSubscriptionProvisioner>(sp =>
             new ServiceHealthSubscriptionProvisioner(
                 new HttpClient { Timeout = TimeSpan.FromSeconds(30) },

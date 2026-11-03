@@ -29,6 +29,7 @@ param tags object = {}
 // Container definitions: name + partition key path.
 var containers = [
   { name: 'crawl-jobs', partitionKey: '/id' }
+  { name: 'schedule-control', partitionKey: '/scheduleId' }
   { name: 'feed-items', partitionKey: '/id' }
   { name: 'change-feed-leases', partitionKey: '/id' }
   { name: 'watchlist', partitionKey: '/id' }

@@ -1,6 +1,107 @@
 # Azure Deployment Plan
 
-> **Status:** Deployed
+> **Status:** Deployed and verified - JobHost schedules rollout (2026-11-03)
+
+## Current rollout
+
+The user approved implementing and deploying durable JobHost scheduling to the
+existing Central US API/UI and JobHost in `az-radar-vnet-rg`, subscription
+`5e22addc-6168-4683-afd0-789a121ca5d3`. No Function App, hosting plan, or dispatch
+stack changes. Update `prds\job-schedules.md`, implement schedules and recovery,
+validate backend/frontend, then use opposite blue/green tags in the existing
+private ACR. Deploy compatible JobHost before API. Preserve managed identity,
+private registry access, and Always On. Test controlled one-time runs and chaining.
+
+Recipe: AZCLI / existing container deployment. The historical deployment evidence
+below applies only to the earlier ACR rollout, not this change.
+
+### Section 7: Current validation proof (schedules)
+
+- [x] All validation checks pass
+  - [x] Core CLI/auth/Bicep/ARM validation and isolated what-if
+  - [x] Container builds (ACR Tasks; local Docker daemon is unavailable)
+  - [x] Azure Policy validation
+  - [x] Backend build/tests and frontend build/type-check/targeted lint
+  - [x] Static and live runtime role review
+
+Fresh checks on 2026-11-03:
+
+- `dotnet test tests\AzRadar.Shared.Tests --no-restore -p:Platform="Any CPU"`:
+  194 passed (including 21 scheduling cases).
+- `dotnet build AzRadar.slnx -p:Platform="Any CPU" --no-restore`: passed,
+  zero warnings/errors.
+- Frontend `npm run build`, `npx tsc --noEmit`: passed. Existing bundle-size
+  advisory remains.
+- Targeted ESLint on all changed UI: passed after correcting the initial-load effect.
+- `az bicep build` and `az deployment group validate` on
+  `infra\schedules-rollout.bicep`: passed.
+- Isolated what-if: Create schedule-control only; all unrelated resources Ignore,
+  no modifications/deletions.
+- Confirmed existing UAMI Cosmos Data Contributor role at account scope.
+- Live API image blue -> deploy green; JobHost green -> deploy blue.
+- Both live apps have Always On disabled; enable during the scoped rollout.
+- Private ACR final state must remain public Disabled/default Deny/export disabled.
+- `.dockerignore` excludes local operator files and deployment state from ACR context.
+- Canonical AZCLI validation helper: OVERALL PASS. Direct structured what-if
+  confirms exactly one new container (the helper's text count duplicates Create).
+- Static role review: existing cosmos-rbac module grants account-scoped Cosmos
+  Data Contributor; no new roles are needed for the new container. Live API and
+  JobHost UAMI `az-radar-uami` has this role and registry-scoped AcrPull.
+- Policy assignments retrieved with the authenticated target-subscription Azure CLI:
+  no applicable assignments returned. Azure MCP policy retrieval used a different
+  tenant identity and returned 403; CLI/ARM validation succeeded in the target tenant.
+- Fresh ACR container builds succeeded: API green `cjp`, JobHost blue `cjq`.
+  Initial streamed-log attempt `cjn` failed its push after a Windows CLI Unicode
+  output error triggered registry restoration; rebuilt successfully using no-logs.
+- Registry verified restored: public Disabled, default Deny, export disabled,
+  admin disabled. Existing dependency audit reports 22 vulnerabilities (14 moderate,
+  8 high); no dependencies changed in this rollout.
+
+No new deployment is authorized by the historical validation proof.
+
+### Current deployment evidence
+
+- Isolated deployment `schedules-20261103`: Succeeded; only schedule-control added.
+- JobHost blue deployed before API green. Existing images for rollback:
+  JobHost green, API blue (do not overwrite these during this rollout).
+- API image digest: `sha256:7f59fe09375be76aa076f90cf7788f3342d53d132205237e993544e472016495`.
+- JobHost image digest: `sha256:4e34d57a99e4c9d9edf27a36b33feb6620a0bbeac94059930628d05681d30f13`.
+- Both apps verified Always On true and ACR managed-identity credentials true.
+- Registry verified private after deployment: Disabled/Deny/export disabled/admin false.
+- API health returns supportsSchedules=true; `/schedules` returns 200, and
+  deployed asset `index-DX-CU36z.js` contains the new editor and post-job controls.
+- Live RBAC verification passed: runtime UAMI has registry AcrPull and account-
+  scoped Cosmos Data Contributor.
+- JobHost public ingress remains Disabled. Direct workstation health/SCM probes
+  correctly return 403; no network restrictions were weakened. Actual scheduler
+  execution is verified through the durable run/job records, not an external
+  health endpoint response.
+- Live preview, invalid-zone rejection, creation idempotency/conflict, ETag-required
+  edits, stale-ETag rejection, pause/edit/resume, list/history, and overlap rejection
+  passed. Europe/Amsterdam spring-gap and autumn-fold previews passed on Linux.
+- Controlled smoke schedule persisted; JobHost stopped before its 08:21 UTC due
+  time and started after it. Exactly one occurrence was admitted at 08:23:03 UTC
+  after cold start; the primary was claimed once.
+- Run `4df455b71961904d983f115e16da47d11e6ad4383aceb7958287609ee84b5038`:
+  succeeded at 08:45:28 UTC. Primary job
+  `7b95c761007184a0cdfb621069e95487ed7255a1d1d72d4150a20d268cf2b64e`
+  checked 10,016 Azure Updates, retained 11 new items, succeeded at 08:41:55 UTC,
+  and persisted one completion-barrier page.
+- Post-job `e85386820fc519cc8946ecdebeea6be7decd22bc1d1a3f9e8ac9dd8fdc7ad7f7`
+  started at 08:43:29 UTC (after primary success), checked 73 retirements, stored
+  seven Blast Radius summaries, and succeeded at 08:45:16 UTC. One execution
+  attempt per job; parent/run correlations correct; no premature post dispatch.
+- Completion-barrier application succeeded in the live worker. Fresh-process
+  handoff between primary/post was not separately fault-injected.
+- Scheduled-job deletion guard returned 409. Final one-time definition had no
+  active run or next occurrence. Smoke schedule soft-deleted after completion;
+  diagnostic job/run history retained. Visible schedule list is empty; no
+  unintended recurring smoke work remains.
+- Final API health passed. Multi-replica load, mid-handler crash recovery, forced
+  upstream failure, independent alerting and coordinated retention cleanup remain
+  outside this successful smoke test; relevant negative transitions have unit tests.
+
+---
 
 Generated: 2026-09-24T08:20:12+02:00
 

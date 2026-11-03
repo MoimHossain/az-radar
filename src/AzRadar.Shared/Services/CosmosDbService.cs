@@ -200,6 +200,9 @@ public class CosmosDbService : ICosmosDbService
                 PatchOperation.Set("/status", job.Status),
                 PatchOperation.Set("/result", job.Result),
                 PatchOperation.Set("/error", job.Error),
+                PatchOperation.Set("/outcome", job.Outcome),
+                PatchOperation.Set("/barrierPages", job.BarrierPages),
+                PatchOperation.Set("/retryable", job.Retryable),
                 PatchOperation.Set("/completedAt", job.CompletedAt),
                 PatchOperation.Set("/lastProgressAt", progressAt)
             ],
@@ -307,8 +310,9 @@ public class CosmosDbService : ICosmosDbService
         LifecycleDeadlineResolver.Stamp(item);
         try
         {
-            await FeedItems.CreateItemAsync(
+            var response = await FeedItems.CreateItemAsync(
                 FeedItemContentCodec.Encode(item), new PartitionKey(item.Id), cancellationToken: cancellationToken);
+            JobExecutionContext.Record(_settings.FeedItemsContainer, item.Id, response?.Headers?.Session);
             return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
@@ -325,8 +329,9 @@ public class CosmosDbService : ICosmosDbService
         LifecycleDeadlineResolver.Stamp(item);
         try
         {
-            await FeedItems.ReplaceItemAsync(FeedItemContentCodec.Encode(item), item.Id, new PartitionKey(item.Id),
+            var response = await FeedItems.ReplaceItemAsync(FeedItemContentCodec.Encode(item), item.Id, new PartitionKey(item.Id),
                 new ItemRequestOptions { IfMatchEtag = item.ETag }, cancellationToken);
+            JobExecutionContext.Record(_settings.FeedItemsContainer, item.Id, response?.Headers?.Session);
             return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
@@ -341,8 +346,9 @@ public class CosmosDbService : ICosmosDbService
         try
         {
             await DeleteBlastRadiusSummariesForSourceAsync(id, cancellationToken);
-            await FeedItems.DeleteItemAsync<FeedItem>(
+            var response = await FeedItems.DeleteItemAsync<FeedItem>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
+            JobExecutionContext.Record(_settings.FeedItemsContainer, id, response.Headers.Session);
             return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
@@ -607,6 +613,7 @@ public class CosmosDbService : ICosmosDbService
     {
         var response = await RepoWatchlist.UpsertItemAsync(
             item, new PartitionKey(item.Id), cancellationToken: cancellationToken);
+        JobExecutionContext.Record(_settings.RepoWatchlistContainer, item.Id, response.Headers.Session);
         var updated = response.Resource;
         updated.ETag = response.ETag;
         return updated;
@@ -674,8 +681,9 @@ public class CosmosDbService : ICosmosDbService
         DocInsight insight, CancellationToken cancellationToken = default)
     {
         LifecycleDeadlineResolver.Stamp(insight);
-        await DocInsights.UpsertItemAsync(
+        var response = await DocInsights.UpsertItemAsync(
             insight, new PartitionKey(insight.Id), cancellationToken: cancellationToken);
+        JobExecutionContext.Record(_settings.DocInsightsContainer, insight.Id, response.Headers.Session);
         return true;
     }
 
@@ -685,8 +693,9 @@ public class CosmosDbService : ICosmosDbService
         try
         {
             await DeleteBlastRadiusSummariesForSourceAsync(id, cancellationToken);
-            await DocInsights.DeleteItemAsync<DocInsight>(
+            var response = await DocInsights.DeleteItemAsync<DocInsight>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
+            JobExecutionContext.Record(_settings.DocInsightsContainer, id, response.Headers.Session);
             return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
@@ -707,8 +716,9 @@ public class CosmosDbService : ICosmosDbService
             var response = await query.ReadNextAsync(cancellationToken);
             foreach (var summary in response)
             {
-                await BlastRadius.DeleteItemAsync<BlastRadiusSummary>(
+                var deletion = await BlastRadius.DeleteItemAsync<BlastRadiusSummary>(
                     summary.Id, new PartitionKey(summary.Id), cancellationToken: cancellationToken);
+                JobExecutionContext.Record(_settings.BlastRadiusContainer, summary.Id, deletion.Headers.Session);
             }
         }
     }
@@ -742,8 +752,9 @@ public class CosmosDbService : ICosmosDbService
     public async Task UpsertBlastRadiusSummaryAsync(
         BlastRadiusSummary summary, CancellationToken cancellationToken = default)
     {
-        await BlastRadius.UpsertItemAsync(
+        var response = await BlastRadius.UpsertItemAsync(
             summary, new PartitionKey(summary.Id), cancellationToken: cancellationToken);
+        JobExecutionContext.Record(_settings.BlastRadiusContainer, summary.Id, response.Headers.Session);
     }
 
     public async Task<IReadOnlyList<BlastRadiusSummary>> GetBlastRadiusSummariesAsync(

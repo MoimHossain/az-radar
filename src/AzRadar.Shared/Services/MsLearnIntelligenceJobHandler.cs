@@ -142,6 +142,8 @@ public class MsLearnIntelligenceJobHandler : IJobHandler
 
                 _logger.LogInformation("Analyzing doc: {Title}", searchResult.Title);
                 var analysis = await _llmAnalyzer.AnalyzeFeedItemAsync(feedItem, cancellationToken);
+                if (job.ScheduleId is not null && analysis.AiConfidence <= 0)
+                    throw new InvalidOperationException("LLM analysis did not succeed; scheduled crawl cannot be marked successful.");
                 var matchedWatch = WatchlistRelevanceMatcher.FindMatch(
                     watchlist, analysis.AffectedServices, analysis.AffectedRegions);
                 if (matchedWatch is null)

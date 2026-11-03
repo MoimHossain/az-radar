@@ -10,6 +10,7 @@ public class CosmosDbSettings
     public string Endpoint { get; set; } = string.Empty;
     public string DatabaseName { get; set; } = "az-radar-db";
     public string CrawlJobsContainer { get; set; } = "crawl-jobs";
+    public string SchedulesContainer { get; set; } = "schedule-control";
     public string FeedItemsContainer { get; set; } = "feed-items";
     public string LeasesContainer { get; set; } = "change-feed-leases";
     public string WatchlistContainer { get; set; } = "watchlist";

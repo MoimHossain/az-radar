@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CrawlJobsPage } from "./pages/CrawlJobsPage";
+import { SchedulesPage } from "./pages/SchedulesPage";
 import { FeedItemsPage } from "./pages/FeedItemsPage";
 import { WatchlistPage } from "./pages/WatchlistPage";
 import { DocInsightsPage } from "./pages/DocInsightsPage";
@@ -20,6 +21,7 @@ function App() {
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/crawl-jobs" element={<CrawlJobsPage />} />
+            <Route path="/schedules" element={<SchedulesPage />} />
             <Route path="/feed-items" element={<FeedItemsPage />} />
             <Route path="/watchlist" element={<WatchlistPage />} />
             <Route path="/repo-watchlist" element={<RepositoryWatchlistPage />} />

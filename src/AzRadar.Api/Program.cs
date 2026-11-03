@@ -7,8 +7,23 @@ using AzRadar.Shared.Models;
 using AzRadar.Shared.Services;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        context.Request.Path.StartsWithSegments("/api/schedules") && context.Request.Method != "GET"
+            ? RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+                })
+            : RateLimitPartition.GetNoLimiter("other"));
+    options.OnRejected = async (context, ct) =>
+        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Too many schedule changes. Retry in a minute." }, ct);
+});
 
 // Configuration
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection(CosmosDbSettings.SectionName));
@@ -38,8 +53,10 @@ var app = builder.Build();
 // Initialize Cosmos DB
 var cosmosDb = app.Services.GetRequiredService<ICosmosDbService>();
 await cosmosDb.InitializeAsync();
+await app.Services.GetRequiredService<IScheduleStore>().InitializeAsync();
 
 app.UseCors();
+app.UseRateLimiter();
 
 // Serve static frontend files from /wwwroot
 var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
@@ -53,7 +70,8 @@ if (Directory.Exists(wwwrootPath))
 app.MapGet("/api/health", () => Results.Ok(new
 {
     status = "healthy", timestamp = DateTimeOffset.UtcNow,
-    azureUpdatesIngestion = "catalog-rss-v2", supportsSkipLlmAnalysis = true, supportsJobHeartbeat = true
+    azureUpdatesIngestion = "catalog-rss-v2", supportsSkipLlmAnalysis = true, supportsJobHeartbeat = true,
+    supportsSchedules = true
 }));
 
 // --- LLM connectivity check ---
@@ -103,6 +121,9 @@ app.MapGet("/api/health/llm", async (OpenAI.Chat.ChatClient chat, IOptions<OpenA
 // --- CrawlJob endpoints ---
 app.MapPost("/api/crawl-jobs", async (CreateCrawlJobRequest request, ICosmosDbService db) =>
 {
+    var validation = ScheduleRecurrence.ValidateTemplate(new ScheduledJobTemplate
+        { JobType = request.JobType, SkipLlmAnalysis = request.SkipLlmAnalysis });
+    if (validation is not null) return Results.BadRequest(new { error = validation });
     if (request.SkipLlmAnalysis && request.JobType != CrawlJobTypes.AzureUpdates)
         return Results.BadRequest(new { error = "Skipping LLM analysis is supported only for Azure Updates backfills." });
 
@@ -130,8 +151,185 @@ app.MapGet("/api/crawl-jobs/{id}", async (string id, ICosmosDbService db) =>
 
 app.MapDelete("/api/crawl-jobs/{id}", async (string id, ICosmosDbService db) =>
 {
+    var job = await db.GetCrawlJobAsync(id);
+    if (job?.ScheduleId is not null || job?.Status == CrawlJobStatus.Processing)
+        return Results.Conflict(new { error = "Scheduled and running jobs are retained for reliable execution/history." });
     var deleted = await db.DeleteCrawlJobAsync(id);
     return deleted ? Results.NoContent() : Results.NotFound();
+});
+
+// --- Durable schedules ---
+app.MapGet("/api/job-types", () => Results.Ok(ScheduleRecurrence.JobTypes));
+app.MapPost("/api/schedules/preview", (ScheduleRequest request) =>
+{
+    var error = ScheduleRecurrence.Validate(request);
+    if (error is not null) return Results.BadRequest(new { error });
+    var dates = new List<DateTimeOffset>();
+    var after = DateTimeOffset.UtcNow;
+    for (var i = 0; i < 5; i++)
+    {
+        var next = ScheduleRecurrence.Next(request, after);
+        if (!next.HasValue) break;
+        dates.Add(next.Value);
+        after = next.Value;
+    }
+    return Results.Ok(dates);
+});
+app.MapGet("/api/schedules", async (string? continuation, IScheduleStore store, CancellationToken ct) =>
+    Results.Ok(await store.ListAsync(continuation, ct)));
+app.MapGet("/api/schedules/{id}", async (string id, IScheduleStore store, CancellationToken ct) =>
+{
+    var schedule = await store.GetAsync(id, ct);
+    return schedule is null || schedule.Deleted ? Results.NotFound() : Results.Ok(schedule);
+});
+app.MapPost("/api/schedules", async (ScheduleRequest request, HttpRequest http, IScheduleStore store, CancellationToken ct) =>
+{
+    var error = ScheduleRecurrence.Validate(request);
+    if (error is not null) return Results.BadRequest(new { error });
+    if (!Guid.TryParse(http.Headers["Idempotency-Key"], out var key))
+        return Results.BadRequest(new { error = "A UUID Idempotency-Key header is required." });
+    var id = ScheduleRecurrence.StableId("schedule", key.ToString());
+    var fingerprint = ScheduleRecurrence.StableId(JsonSerializer.Serialize(request));
+    var existing = await store.GetAsync(id, ct);
+    if (existing is not null)
+        return existing.RequestFingerprint == fingerprint
+            ? Results.Ok(existing)
+            : Results.Conflict(new { error = "Idempotency key was already used with a different payload." });
+    var now = DateTimeOffset.UtcNow;
+    var next = ScheduleRecurrence.Next(request, now);
+    if (!next.HasValue) return Results.BadRequest(new { error = "Schedule must have a future occurrence." });
+    var schedule = new JobSchedule
+    {
+        ScheduleId = id, Configuration = request, CreatedAt = now, NextDueAt = next,
+        RequestFingerprint = fingerprint
+    };
+    ScheduleRecurrence.SetWake(schedule, now);
+    try { await store.CreateAsync(schedule, ct); }
+    catch (Microsoft.Azure.Cosmos.CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+    {
+        existing = await store.GetAsync(id, ct);
+        return existing?.RequestFingerprint == fingerprint ? Results.Ok(existing) :
+            Results.Conflict(new { error = "Concurrent creation used a different payload." });
+    }
+    return Results.Created($"/api/schedules/{id}", schedule);
+});
+app.MapPut("/api/schedules/{id}", async (string id, ScheduleRequest request, HttpRequest http, IScheduleStore store, CancellationToken ct) =>
+{
+    var error = ScheduleRecurrence.Validate(request);
+    if (error is not null) return Results.BadRequest(new { error });
+    var schedule = await store.GetAsync(id, ct);
+    if (schedule is null || schedule.Deleted) return Results.NotFound();
+    if (http.Headers.IfMatch.ToString() != schedule.ETag)
+        return Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
+    var next = ScheduleRecurrence.Next(request, DateTimeOffset.UtcNow);
+    if (!next.HasValue) return Results.BadRequest(new { error = "Schedule must have a future occurrence." });
+    schedule.Configuration = request;
+    schedule.Revision++;
+    schedule.NextDueAt = next;
+    ScheduleRecurrence.SetWake(schedule, DateTimeOffset.UtcNow);
+    return await store.SaveAsync(schedule, ct: ct) ? Results.Ok(schedule) :
+        Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
+});
+app.MapPost("/api/schedules/{id}/{action:regex(^(pause|resume)$)}",
+    async (string id, string action, HttpRequest http, IScheduleStore store, CancellationToken ct) =>
+{
+    var schedule = await store.GetAsync(id, ct);
+    if (schedule is null || schedule.Deleted) return Results.NotFound();
+    if (http.Headers.IfMatch.ToString() != schedule.ETag)
+        return Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
+    schedule.Enabled = action == "resume";
+    if (schedule.Enabled) schedule.NextDueAt = ScheduleRecurrence.Next(schedule.Configuration, DateTimeOffset.UtcNow);
+    ScheduleRecurrence.SetWake(schedule, DateTimeOffset.UtcNow);
+    return await store.SaveAsync(schedule, ct: ct) ? Results.Ok(schedule) :
+        Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
+});
+app.MapDelete("/api/schedules/{id}", async (string id, HttpRequest http, IScheduleStore store, CancellationToken ct) =>
+{
+    var schedule = await store.GetAsync(id, ct);
+    if (schedule is null) return Results.NotFound();
+    if (http.Headers.IfMatch.ToString() != schedule.ETag)
+        return Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
+    schedule.Deleted = true;
+    schedule.Enabled = false;
+    ScheduleRecurrence.SetWake(schedule, DateTimeOffset.UtcNow);
+    return await store.SaveAsync(schedule, ct: ct) ? Results.Ok(new { deleted = true }) :
+        Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
+});
+app.MapPost("/api/schedules/{id}/run-now", async (string id, HttpRequest http, IScheduleStore store, CancellationToken ct) =>
+{
+    if (!Guid.TryParse(http.Headers["Idempotency-Key"], out var key))
+        return Results.BadRequest(new { error = "A UUID Idempotency-Key header is required." });
+    var schedule = await store.GetAsync(id, ct);
+    if (schedule is null || schedule.Deleted) return Results.NotFound();
+    var runId = ScheduleRecurrence.StableId(id, "manual", key.ToString());
+    var existing = await store.GetRunAsync(id, runId, ct);
+    if (existing is not null) return Results.Ok(existing);
+    if (schedule.ActiveRunId is not null) return Results.Conflict(new { error = "This schedule already has an active chain." });
+    var now = DateTimeOffset.UtcNow;
+    var run = ScheduleCoordinator.NewRun(schedule, runId, now, now, "manual");
+    schedule.ActiveRunId = runId;
+    ScheduleRecurrence.SetWake(schedule, now.AddSeconds(-30));
+    return await store.SaveAsync(schedule, run, createRun: true, ct) ? Results.Ok(run) :
+        Results.Conflict(new { error = "Schedule changed. Refresh and retry with the same request key." });
+});
+app.MapGet("/api/schedules/{id}/runs", async (string id, string? continuation, IScheduleStore store, CancellationToken ct) =>
+    Results.Ok(await store.RunsAsync(id, continuation, ct)));
+app.MapGet("/api/schedules/{id}/runs/{runId}", async (string id, string runId, IScheduleStore store, CancellationToken ct) =>
+{
+    var run = await store.GetRunAsync(id, runId, ct);
+    return run is null ? Results.NotFound() : Results.Ok(run);
+});
+app.MapPost("/api/schedules/{id}/runs/{runId}/retry",
+    async (string id, string runId, HttpRequest http, IScheduleStore store, ICosmosDbService db, CancellationToken ct) =>
+{
+    if (!Guid.TryParse(http.Headers["Idempotency-Key"], out var key))
+        return Results.BadRequest(new { error = "A UUID Idempotency-Key header is required." });
+    var schedule = await store.GetAsync(id, ct);
+    if (schedule is null || schedule.Deleted) return Results.NotFound();
+    var original = await store.GetRunAsync(id, runId, ct);
+    if (original is null) return Results.NotFound();
+    var recoveryId = ScheduleRecurrence.StableId(id, "retry", runId, key.ToString());
+    var existing = await store.GetRunAsync(id, recoveryId, ct);
+    if (existing is not null) return Results.Ok(existing);
+    if (original.Status != "failed" || schedule.ActiveRunId is not null)
+        return Results.Conflict(new { error = "Only a failed chain without another active run can be retried." });
+    var now = DateTimeOffset.UtcNow;
+    var recovery = ScheduleCoordinator.NewRun(schedule, recoveryId, now, now, "retry");
+    recovery.Configuration = original.Configuration;
+    recovery.Revision = original.Revision;
+    recovery.RetryOfRunId = original.Id;
+    recovery.PostJobId = original.Configuration.PostJob is null ? null : ScheduleRecurrence.StableId(recovery.Id, "post");
+    var primary = await db.GetCrawlJobAsync(original.PrimaryJobId, ct);
+    if (primary?.Status == CrawlJobStatus.Completed && primary.Outcome == "succeeded" &&
+        original.Configuration.PostJob is not null)
+    {
+        recovery.PrimaryJobId = original.PrimaryJobId;
+        recovery.Status = "post-pending";
+        recovery.Step = 1;
+    }
+    schedule.ActiveRunId = recovery.Id;
+    schedule.LastOutcome = recovery.Status;
+    ScheduleRecurrence.SetWake(schedule, now.AddSeconds(-30));
+    return await store.SaveAsync(schedule, recovery, createRun: true, ct) ? Results.Ok(recovery) :
+        Results.Conflict(new { error = "Schedule changed. Refresh and retry with the same request key." });
+});
+app.MapPost("/api/crawl-jobs/{id}/resolve-stalled",
+    async (string id, ResolveStalledJobRequest request, ICosmosDbService db, JobExecutionGate gate, CancellationToken ct) =>
+{
+    if (!request.WorkerStopped)
+        return Results.BadRequest(new { error = "Stop the owning worker first and explicitly confirm WorkerStopped." });
+    var job = await db.GetCrawlJobAsync(id, ct);
+    if (job is null) return Results.NotFound();
+    if (job.Status != CrawlJobStatus.Processing ||
+        DateTimeOffset.UtcNow - (job.LastHeartbeatAt ?? job.StartedAt ?? job.CreatedAt) < TimeSpan.FromMinutes(5))
+        return Results.Conflict(new { error = "Job is not stalled." });
+    job.Status = CrawlJobStatus.Failed;
+    job.Outcome = "interrupted";
+    job.Error = "Operator confirmed owning worker stopped and resolved stalled execution.";
+    job.CompletedAt = DateTimeOffset.UtcNow;
+    await db.UpdateCrawlJobAsync(job, ct);
+    await gate.ReleaseAsync(job, ct);
+    return Results.Ok(job);
 });
 
 // --- FeedItem endpoints ---
@@ -1002,6 +1200,7 @@ app.Run();
 
 // --- Request DTOs ---
 public record CreateCrawlJobRequest(string JobType, bool SkipLlmAnalysis = false);
+public record ResolveStalledJobRequest(bool WorkerStopped);
 public record CreateWatchlistRequest(
     string ServiceName,
     List<string>? Regions = null,

@@ -442,6 +442,8 @@ public class LlmAnalyzerService : ILlmAnalyzer
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to generate ARG query for: {Title}", title);
+            if (JobExecutionContext.IsScheduled)
+                throw new InvalidOperationException("Scheduled Resource Graph query generation failed.", ex);
             return null;
         }
     }

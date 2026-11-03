@@ -174,6 +174,7 @@ const navSections: NavSection[] = [
     title: "Services",
     items: [
       { path: "/crawl-jobs", label: "Crawling Jobs", icon: <TaskListSquareLtrRegular /> },
+      { path: "/schedules", label: "Schedules", icon: <CalendarRegular /> },
     ],
   },
   {

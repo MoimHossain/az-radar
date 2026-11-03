@@ -12,6 +12,59 @@ export interface CrawlJob {
   result?: CrawlJobResult;
   error?: string;
   attemptCount: number;
+  outcome?: string;
+  scheduleId?: string;
+  scheduleRunId?: string;
+  parentJobId?: string;
+}
+
+export interface ScheduledJobTemplate {
+  jobType: string;
+  skipLlmAnalysis: boolean;
+}
+
+export interface ScheduleRequest {
+  name: string;
+  frequency: "once" | "daily" | "weekly";
+  timeZone: string;
+  localDate: string;
+  localTime: string;
+  weekdays: number[];
+  primary: ScheduledJobTemplate;
+  postJob: ScheduledJobTemplate | null;
+}
+
+export interface JobSchedule {
+  scheduleId: string;
+  revision: number;
+  configuration: ScheduleRequest;
+  enabled: boolean;
+  nextDueAt?: string;
+  activeRunId?: string;
+  lastOutcome?: string;
+  lastError?: string;
+  skippedOccurrences: number;
+  missedOccurrences: number;
+  eTag: string;
+}
+
+export interface ScheduleRun {
+  id: string;
+  scheduleId: string;
+  revision: number;
+  configuration: ScheduleRequest;
+  scheduledFor: string;
+  createdAt: string;
+  completedAt?: string;
+  status: string;
+  primaryJobId: string;
+  postJobId?: string;
+  error?: string;
+}
+
+export interface SchedulePage<T> {
+  items: T[];
+  continuationToken?: string;
 }
 
 export interface CrawlJobResult {
@@ -340,6 +393,26 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getJobTypes: () => apiFetch<string[]>("/api/job-types"),
+  getSchedules: (continuation?: string) =>
+    apiFetch<SchedulePage<JobSchedule>>(`/api/schedules${continuation ? `?continuation=${encodeURIComponent(continuation)}` : ""}`),
+  previewSchedule: (request: ScheduleRequest) =>
+    apiFetch<string[]>("/api/schedules/preview", { method: "POST", body: JSON.stringify(request) }),
+  createSchedule: (request: ScheduleRequest, key: string) =>
+    apiFetch<JobSchedule>("/api/schedules", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(request) }),
+  updateSchedule: (schedule: JobSchedule, request: ScheduleRequest) =>
+    apiFetch<JobSchedule>(`/api/schedules/${schedule.scheduleId}`, { method: "PUT", headers: { "If-Match": schedule.eTag }, body: JSON.stringify(request) }),
+  setScheduleEnabled: (schedule: JobSchedule, enabled: boolean) =>
+    apiFetch<JobSchedule>(`/api/schedules/${schedule.scheduleId}/${enabled ? "resume" : "pause"}`, { method: "POST", headers: { "If-Match": schedule.eTag } }),
+  deleteSchedule: (schedule: JobSchedule) =>
+    apiFetch<{ deleted: boolean }>(`/api/schedules/${schedule.scheduleId}`, { method: "DELETE", headers: { "If-Match": schedule.eTag } }),
+  runScheduleNow: (schedule: JobSchedule, key: string) =>
+    apiFetch<ScheduleRun>(`/api/schedules/${schedule.scheduleId}/run-now`, { method: "POST", headers: { "Idempotency-Key": key } }),
+  getScheduleRuns: (id: string, continuation?: string) =>
+    apiFetch<SchedulePage<ScheduleRun>>(`/api/schedules/${id}/runs${continuation ? `?continuation=${encodeURIComponent(continuation)}` : ""}`),
+  retryScheduleRun: (id: string, runId: string, key: string) =>
+    apiFetch<ScheduleRun>(`/api/schedules/${id}/runs/${runId}/retry`, { method: "POST", headers: { "Idempotency-Key": key } }),
+
   getDashboardStats: () => apiFetch<DashboardStats>("/api/dashboard/stats"),
 
   getCrawlJobs: (limit = 50) => apiFetch<CrawlJob[]>(`/api/crawl-jobs?limit=${limit}`),

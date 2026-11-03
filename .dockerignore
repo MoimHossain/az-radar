@@ -1,6 +1,12 @@
 node_modules
 publish
 .git
+.local
+.azure
+**/.env*
+**/*.pfx
+**/*.publishsettings
+**/*.zip
 *.md
 tests
 **/.vs

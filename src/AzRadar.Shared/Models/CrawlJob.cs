@@ -45,6 +45,14 @@ public class CrawlJob
     [JsonPropertyName("attemptCount")]
     public int AttemptCount { get; set; }
 
+    public string? Outcome { get; set; }
+    public string? ScheduleId { get; set; }
+    public string? ScheduleRunId { get; set; }
+    public string? ParentJobId { get; set; }
+    public DateTimeOffset? ScheduledFor { get; set; }
+    public int? BarrierPages { get; set; }
+    public bool Retryable { get; set; }
+
     [JsonPropertyName("_etag")]
     public string? ETag { get; set; }
 }

@@ -143,6 +143,8 @@ public class BlastRadiusJobHandler : IJobHandler
 
             if (queryResult == null || usedQuery == null)
             {
+                job.Outcome = "partial";
+                job.Error = "One or more Resource Graph queries failed; inspect diagnostics.";
                 skipped++;
                 continue;
             }

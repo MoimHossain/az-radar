@@ -119,6 +119,8 @@ public class AzureUpdatesJobHandler : IJobHandler
             {
                 _logger.LogInformation("Analyzing: {Title}", update.Title);
                 var analysis = await _llmAnalyzer.AnalyzeFeedItemAsync(feedItem, cancellationToken);
+                if (job.ScheduleId is not null && analysis.AiConfidence <= 0)
+                    throw new InvalidOperationException("LLM analysis did not succeed; scheduled crawl cannot be marked successful.");
 
                 if (analysis.AffectedServices.Count == 0 && update.Products.Count > 0)
                     analysis.AffectedServices = update.Products;

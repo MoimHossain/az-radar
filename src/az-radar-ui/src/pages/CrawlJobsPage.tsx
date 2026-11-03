@@ -36,6 +36,7 @@ import {
   DismissRegular,
 } from "@fluentui/react-icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type CrawlJob, type JobDiagnosticEntry } from "../api/client";
 
 const useStyles = makeStyles({
@@ -273,6 +274,8 @@ export function CrawlJobsPage() {
   const [diagnostics, setDiagnostics] = useState<JobDiagnosticEntry[]>([]);
   const [diagLoading, setDiagLoading] = useState(false);
   const [forceDeleteTarget, setForceDeleteTarget] = useState<CrawlJob | null>(null);
+  const [searchParams] = useSearchParams();
+  const [linkedJobError, setLinkedJobError] = useState("");
 
   const hasFilters = searchText || selectedStatuses.length > 0 || selectedTypes.length > 0;
 
@@ -321,9 +324,9 @@ export function CrawlJobsPage() {
   }, []);
 
   useEffect(() => {
-    loadJobs();
+    const initialLoad = setTimeout(loadJobs, 0);
     const interval = setInterval(loadJobs, 5000);
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initialLoad); clearInterval(interval); };
   }, [loadJobs]);
 
   const handleCreate = async () => {
@@ -382,8 +385,21 @@ export function CrawlJobsPage() {
       .finally(() => setDiagLoading(false));
   }, []);
 
+  const linkedJobId = searchParams.get("jobId");
+  useEffect(() => {
+    if (!linkedJobId) return;
+    let active = true;
+    api.getCrawlJob(linkedJobId).then((job) => {
+      if (active) { setLinkedJobError(""); handleSelectJob(job); }
+    }).catch((error: unknown) => {
+      if (active) setLinkedJobError(`Linked job is not available yet: ${String(error)}`);
+    });
+    return () => { active = false; };
+  }, [linkedJobId, handleSelectJob]);
+
   return (
     <div className={styles.container}>
+      {linkedJobError && <Text role="alert">{linkedJobError}</Text>}
       <div className={styles.headerRow}>
         <div>
           <Text size={700} weight="bold" block>
@@ -693,7 +709,7 @@ export function CrawlJobsPage() {
                     </Text>
                     <Badge appearance="outline">{selectedJob.jobType}</Badge>
                     <Badge color={statusColor(selectedJob.status)} className={styles.statusBadge}>
-                      {selectedJob.status}
+                      {selectedJob.outcome === "partial" ? "Partial" : selectedJob.status}
                     </Badge>
                   </div>
                 </div>

@@ -79,6 +79,8 @@ public class GitHubCrawlJobHandler : IJobHandler
 
             if (filesThisRun >= _settings.MaxFilesPerRun)
             {
+                job.Outcome = "partial";
+                job.Error = "The file cap was reached before all repositories were scanned.";
                 await DiagAsync(job.Id, "cap", repo.Label, DiagnosticLevel.Warning,
                     $"Reached per-run file cap ({_settings.MaxFilesPerRun}); remaining repos will be scanned next run.", cancellationToken);
                 break;
@@ -115,14 +117,19 @@ public class GitHubCrawlJobHandler : IJobHandler
             }
             catch (GitHubRateLimitException ex)
             {
+                job.Outcome = "partial";
+                job.Error = ex.Message;
                 repo.LastScanAt = DateTimeOffset.UtcNow;
                 repo.LastScanStatus = "rate-limited";
                 repo.LastScanError = ex.Message;
                 await _cosmosDb.UpdateRepoWatchAsync(repo, cancellationToken);
                 await DiagAsync(job.Id, "error", repo.Label, DiagnosticLevel.Error, ex.Message, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
+                job.Outcome = "partial";
+                job.Error = ex.Message;
                 repo.LastScanAt = DateTimeOffset.UtcNow;
                 repo.LastScanStatus = "error";
                 repo.LastScanError = ex.Message;
@@ -208,7 +215,11 @@ public class GitHubCrawlJobHandler : IJobHandler
             ct.ThrowIfCancellationRequested();
 
             if (filesAlreadyThisRun + repoFiles >= _settings.MaxFilesPerRun)
-                break; // stop at commit boundary; cursor stays at last fully-processed commit
+            {
+                job.Outcome = "partial";
+                job.Error = "The file cap was reached before all commits were scanned.";
+                break;
+            }
 
             var detail = await _github.GetCommitAsync(repo.Owner, repo.Repo, commitRef.Sha, token, ct);
             if (detail == null) continue;
@@ -251,6 +262,8 @@ public class GitHubCrawlJobHandler : IJobHandler
                     BlobUrl: file.BlobUrl);
 
                 var analysis = await _llmAnalyzer.AnalyzeDocChangeAsync(change, ct);
+                if (job.ScheduleId is not null && analysis.AiConfidence <= 0)
+                    throw new InvalidOperationException("LLM change analysis failed; repository cursor must not advance.");
                 sw.Stop();
 
                 var related = FindRelatedFeedItems(analysis, feedItems);
