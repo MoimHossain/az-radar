@@ -6,7 +6,8 @@ using Microsoft.Azure.Cosmos;
 
 namespace AzRadar.Shared.Services;
 
-public sealed class ScheduleCoordinator(IScheduleStore store, ICosmosDbService jobs, TimeProvider clock)
+public sealed class ScheduleCoordinator(IScheduleStore store, ICosmosDbService jobs, TimeProvider clock,
+    IAiProfileStore? profiles = null)
 {
     public async Task ReconcileAsync(string scheduleId, CancellationToken ct = default)
     {
@@ -45,6 +46,8 @@ public sealed class ScheduleCoordinator(IScheduleStore store, ICosmosDbService j
         }
         var runId = ScheduleRecurrence.StableId(scheduleId, schedule.Revision.ToString(CultureInfo.InvariantCulture), due.ToString("O"));
         var occurrence = NewRun(schedule, runId, due, now, "scheduled");
+        occurrence.AiProfileSnapshot = profiles is null ? null : (await profiles.GetActiveAsync(ct)).Profile;
+        occurrence.AiProfileId = occurrence.AiProfileSnapshot?.Id;
         schedule.ActiveRunId = occurrence.Id;
         schedule.LastOutcome = occurrence.Status;
         schedule.LastError = null;
@@ -86,7 +89,8 @@ public sealed class ScheduleCoordinator(IScheduleStore store, ICosmosDbService j
                 {
                     Id = id, JobType = template.JobType, SkipLlmAnalysis = template.SkipLlmAnalysis,
                     ScheduleId = schedule.ScheduleId, ScheduleRunId = run.Id,
-                    ParentJobId = post ? run.PrimaryJobId : null, ScheduledFor = run.ScheduledFor
+                    ParentJobId = post ? run.PrimaryJobId : null, ScheduledFor = run.ScheduledFor,
+                    AiProfileId = run.AiProfileId, AiProfileSnapshot = run.AiProfileSnapshot
                 };
                 try { job = await jobs.CreateCrawlJobAsync(requested, ct); }
                 catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
@@ -100,7 +104,7 @@ public sealed class ScheduleCoordinator(IScheduleStore store, ICosmosDbService j
         {
             if (job.ScheduleId != schedule.ScheduleId || job.ScheduleRunId != run.Id ||
                 job.JobType != template.JobType || job.SkipLlmAnalysis != template.SkipLlmAnalysis ||
-                job.ParentJobId != (post ? run.PrimaryJobId : null))
+                job.ParentJobId != (post ? run.PrimaryJobId : null) || job.AiProfileId != run.AiProfileId)
                 throw new InvalidOperationException("Scheduled job identity/payload mismatch.");
             run.Status = post ? "post-running" : "primary-running";
             if (job.Status == CrawlJobStatus.Completed && job.Outcome == "succeeded" && string.IsNullOrEmpty(job.Error))

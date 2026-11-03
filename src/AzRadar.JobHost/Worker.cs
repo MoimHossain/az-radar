@@ -30,6 +30,7 @@ public class ChangeFeedWorker : BackgroundService
     private readonly JobHeartbeatRunner _heartbeat;
     private readonly IScheduleStore _schedules;
     private readonly JobExecutionGate _gate;
+    private readonly IAiProfileStore _aiProfiles;
     private readonly ConcurrentDictionary<string, byte> _queued = new();
     private readonly Channel<CrawlJob> _queue =
         Channel.CreateBounded<CrawlJob>(new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.Wait });
@@ -44,7 +45,8 @@ public class ChangeFeedWorker : BackgroundService
         IConfiguration configuration,
         JobHeartbeatRunner heartbeat,
         IScheduleStore schedules,
-        JobExecutionGate gate)
+        JobExecutionGate gate,
+        IAiProfileStore aiProfiles)
     {
         _logger = logger;
         _cosmosClient = cosmosClient;
@@ -55,6 +57,7 @@ public class ChangeFeedWorker : BackgroundService
         _heartbeat = heartbeat;
         _schedules = schedules;
         _gate = gate;
+        _aiProfiles = aiProfiles;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -279,7 +282,9 @@ public class ChangeFeedWorker : BackgroundService
         var handlerStarted = false;
         try
         {
-            using var context = new JobExecutionContext(job.ScheduleId is not null);
+            var profile = job.AiProfileSnapshot ??
+                await _aiProfiles.GetAsync(job.AiProfileId ?? AiProviderProfile.LegacyId, cancellationToken);
+            using var context = new JobExecutionContext(job.ScheduleId is not null, profile);
             await _heartbeat.RunAsync(job, async ct =>
             {
                 if (job.ParentJobId is not null)

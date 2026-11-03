@@ -1,6 +1,238 @@
 # Azure Deployment Plan
 
-> **Status:** Deployed and verified - JobHost schedules rollout (2026-11-03)
+> **Status:** Ready for Validation - strict query response contract correction (2026-11-03)
+
+## AI settings rollout - initial plan
+
+Scope: update the provider PRD for fine-grained PAT onboarding, implement
+Settings -> AI settings with Foundry/Copilot prompt tests and explicit activation,
+preserve Foundry/UAMI by default, and use Key Vault-backed PAT storage for
+background jobs. No OAuth app or callback URI in this initial version.
+
+Target: existing API/UI and JobHost in `az-radar-vnet-rg`, subscription
+`5e22addc-6168-4683-afd0-789a121ca5d3`; confirm existing region and Azure context.
+Recipe: existing AZCLI/container rollout with alternate blue/green tags.
+Preserve private registry/network configuration, scheduling, and unrelated apps.
+
+### Requirements and components
+
+Modify the existing .NET 8 Shared/API/JobHost and React FluentUI application.
+Initial release uses a user-owned fine-grained PAT with the Copilot Requests
+account permission. No GitHub App, OAuth callback, or organization-app preview.
+PATs are write-only, accessed server-side through managed identity and Key Vault.
+The UI separates test from activation and keeps Foundry as the existing default.
+
+Extract a provider-neutral completion transport beneath existing analysis
+prompts. Use a pinned, organization-approved SDK/runtime and inference-only
+sessions with no tools. Persist provider revisions without credentials and
+preserve scheduled-chain identity, success-only post-jobs, and Service Health
+non-LLM fallback behavior. Expired/revoked PATs fail visibly; never fall back
+across providers automatically.
+
+### Azure context and infrastructure inventory
+
+Read-only Azure verification on 2026-11-03 found subscription
+`MOHOSSA-M365CPI50986977` (`5e22addc-6168-4683-afd0-789a121ca5d3`),
+resource group `az-radar-vnet-rg`, region `centralus`.
+
+| Resource | Planned new instances | Approach / capacity |
+|---|---|---|
+| App Services | 0 | Update existing API `azr-api-x8c5i2` and worker `azr-job-x8c5i2`; retain plans. |
+| Container registry | 0 | Existing private ACR; alternate current image tags and restore network/export restrictions after builds. |
+| Key Vault | 0 | Reuse `az-radar-wiki-ay637nckh3` with separate AI secret names and existing managed identities; verify API write and worker read roles. |
+| Cosmos DB accounts/containers | 0 | Existing app-config/job/schedule storage; no credentials in records. |
+| Regional compute/network capacity | 0 | No regional capacity increase; provisioning quota increases are not required. Benchmark runtime memory before rollout. |
+
+### Management access - explicitly accepted initial-release limitation
+
+ARM `authsettingsV2` read confirmed App Service authentication is disabled on
+the public API. The user explicitly approved unauthenticated initial-release
+management on 2026-11-03, with write-only PAT submission and no token retrieval
+route. Customer deployments will restrict/disable dashboard access through
+network settings after setup. No Entra/GitHub App registration is authorized.
+Use bounded global rate limits, request-size limits, redacted errors, and Key
+Vault storage. Write-only does not prevent unauthorized changes or use of
+saved credentials for billable tests: this remains an accepted demo risk, not
+a production security guarantee.
+
+### Delivery and verification
+
+1. Obtain approval of this plan, existing Azure context, and management boundary.
+2. Update provider PRD to the selected PAT-first scope and implement backend/UI.
+3. Validate backend build and focused tests, existing scheduling regressions,
+   frontend type-check/build/lint, secret-redaction/access-control behavior,
+   SDK/runtime packaging, bounded inference/cancellation, and Foundry regression.
+4. Invoke azure-validate with fresh proof; only then invoke azure-deploy.
+5. Deploy worker/API compatible images via existing AZCLI blue/green recipe;
+   preserve Always On and private registry/network configuration.
+6. Smoke-test live UI/API, Foundry inference, settings persistence, validation
+   boundaries, and worker/provider integration. Anonymous management is explicitly
+   accepted for this demo. Live successful Copilot inference requires a user-provided
+   eligible PAT entered directly in the UI, not chat or logs. Do not borrow the
+   operator's ambient GitHub credentials.
+
+Roll back only the scoped images/settings. Leave Foundry selected until the
+user explicitly activates a successfully tested Copilot connection. No new
+Foundry resources, Azure API keys, or unrelated dispatch changes.
+
+### Fresh implementation proof
+
+### Section 7: AI settings validation proof
+
+- [x] All validation checks pass
+  - [x] Core CLI/auth/Bicep/ARM validation and scoped what-if
+  - [x] API and JobHost container builds with verified native assets and notices
+  - [x] Azure Policy validation
+  - [x] Static role mapping verification
+
+Fresh Azure validation on 2026-11-03:
+
+- Final corrected images: run `cju` API green Succeeded,
+  `sha256:31f1788cccb01e0a997bd53735ba805b803a622c9da03aa390e202336c3d2ac4`;
+  run `cjv` JobHost blue Succeeded,
+  `sha256:1f51f45b1e13e40167bdb6c50d72c081ea3168393e314af3566040521b005465`.
+  Registry restrictions restored after both completed.
+- After the Foundry compatibility correction: shared tests 208 passed; solution
+  build zero warnings/errors; scoped infrastructure validation rerun OVERALL PASS.
+  Existing static role mappings are unchanged; live resource-scoped Key Vault,
+  Cosmos, AcrPull, and Cognitive Services OpenAI User roles were also confirmed.
+- Live pre-correction checks already verified 400 input validation, 403 foreign
+  origin rejection, 413 request-size limit, blocked generic config access, and
+  sanitized 502 for a deliberately invalid PAT. Container logs confirmed the
+  Linux Copilot runtime started; successful Copilot authentication remains untested.
+- Ran the skill's `validate-deployment.ps1 -Scope group -ResourceGroup
+  az-radar-vnet-rg -Template infra\ai-settings-rollout.bicep -Parameters
+  <session-files>\ai-settings.parameters.json -Subscription
+  5e22addc-6168-4683-afd0-789a121ca5d3`.
+- Scoped validation helper: OVERALL PASS (CLI/auth, Bicep build, ARM validation,
+  what-if). Structured what-if changes only JobHost app settings; every other
+  resource is Ignore. No resource creates or deletes.
+- Applicable policy assignment query returned no assignments.
+- ACR run `cjs`: API blue Succeeded,
+  `sha256:0fb7acc470734d1ac277e241b12bd2939e19678728506e0679e1624e659799c0`.
+- ACR run `cjt`: JobHost green Succeeded,
+  `sha256:dbf6b9fdf04d2ddd168a2694f4ef6c34d2a5ac7718360cd3f562ebba442e8691`.
+- Native Linux assets and CLI/SDK license notices verified in both image builds.
+  Registry restored to public Disabled/default Deny/export disabled/admin false.
+- Earlier run `cjr` failed because queue-ID capture restored the firewall too
+  soon. Corrected the build orchestration; both replacement builds succeeded.
+- The first scoped deployment failed before either image was changed: ARM
+  rejected `listApplicationSettings` on the site resource, despite preflight
+  validation passing. Listing the child directly creates an ARM self-dependency.
+  Corrected the scoped template to accept a secure snapshot of current settings,
+  captured immediately before updating, and merge only the vault URI.
+  No existing setting values are written to repository files or deployment logs.
+  Corrected-template validation rerun: OVERALL PASS (Bicep/ARM/what-if); the
+  secure snapshot contains all 22 existing settings. Image builds and static
+  role mappings are unchanged and remain verified.
+- Build commands: `az acr build --registry azrxon32oitl5v66 --file
+  Dockerfile.api --image az-radar-api:blue --no-wait --no-logs -o json .`
+  and the corresponding `Dockerfile.jobhost` / `az-radar-jobhost:green`.
+  Queried each exact run ID with `az acr task show-run` until Succeeded.
+
+### Role assignment verification
+
+Status: Verified (static code review). This scoped template adds no role grants.
+Existing shared API/JobHost UAMI uses resource-scoped Key Vault Secrets Officer
+for secret version writes/reads, Cosmos DB Built-in Data Contributor for profiles,
+jobs and schedules, and AcrPull for images. Reviewed the mappings in
+`src\Dispatching\infra\main.bicep`, `infra\modules\cosmos-rbac.bicep`, and
+`infra\modules\container-registry.bicep`; `infra\modules\web-app.bicep` retains
+managed identity image pulls and Always On. Live role checks follow deployment.
+
+The scoped `infra\ai-settings-rollout.bicep` only merges the existing vault URI
+into JobHost app settings. It preserves all other settings and does not redeploy
+the main infrastructure or the demo dispatch stack.
+
+- Updated provider PRD with explicitly approved PAT-first/write-only/no-auth scope.
+- Added provider settings/test UI, dedicated rate-limited/size-bounded API,
+  isolated SDK runtime, versioned Key Vault credentials, conditional Foundry
+  resolution, immutable Cosmos profiles, and nonsecret job/chain snapshots.
+- Shared tests: 208 passed (14 new provider/profile-pinning/Foundry compatibility cases).
+- Solution build: passed, zero warnings/errors; local SDK is preview but target
+  runtime remains .NET 8.
+- API test project contains no discoverable tests; do not report it as passing tests.
+- Frontend production build, type-check, and changed-file ESLint passed.
+- Actual .NET 8 SDK/native runtime startup passed with an isolated home and
+  deliberately invalid test token; no inference or ambient user credentials.
+- NuGet restore succeeded for pinned SDK 1.0.22, CLI/runtime 1.0.98 (GitHub
+  releases October 14). Native assets copied into real application publish output.
+- Dockerfiles assert Linux native assets and retain CLI/SDK license notices.
+- Existing API/JobHost both use UAMI principal `1d009d7d-59a6-489e-929d-2b1a6fe6f97b`,
+  already Key Vault Secrets Officer on the reused vault. No new role grant needed.
+- JobHost currently lacks vault URI app setting: wire the existing URI during
+  scoped rollout. Canonical `infra\main.bicep` already supplies it to both apps.
+- Existing images: API green (deploy blue), JobHost blue (deploy green).
+- Both Always On true. Registry public Disabled/default Deny/export disabled.
+- Functional scope: automated provider/service and UI compilation checks complete;
+  Azure-dependent UI/inference checks will run against the deployed containers.
+  Live successful Copilot inference remains dependent on user-provided PAT.
+
+### Current deployment and live verification
+
+The corrected API green (`cju`) and JobHost blue (`cjv`) images are deployed.
+Both Always On settings and UAMI private image pulls remain enabled. The worker
+remains Running with public networking Disabled; ACR is public Disabled/default
+Deny/export disabled/admin false. All 22 original worker app settings were
+preserved; only the existing private vault URI was added.
+
+Live role verification passed: shared API/JobHost principal has resource-scoped
+Key Vault Secrets Officer, AcrPull, Cosmos DB Built-in Data Contributor, and
+Cognitive Services OpenAI User. Queried `az role assignment list --scope
+<resource-id> --assignee-object-id <principal-id>` and the Cosmos SQL role list.
+
+Completed checks:
+
+- Foundry real API inference, verified Save / Apply and reload, test-without-save,
+  stale ETag 412, 6/minute limiter 429, and passive health endpoint.
+- Rendered UI: Foundry default and Test button, Copilot selector, empty write-only
+  password field, permission hints, and Save disabled when no PAT is configured.
+- Input validation 400, foreign-origin 403, body-size 413, reserved generic config
+  rejection, and invalid-token 502 without leaking credentials or SDK exceptions.
+- One-time Foundry chain `b68daa5e517f566a7c39ccf9ea99da2fe9e7d66d73a98f963db7e4ff342f5975`:
+  primary and post-job succeeded with actual LLM query-generation diagnostics,
+  the same saved profile, and correct parent linkage. No duplicate occurrence.
+- Real Copilot API test: GPT-5.4 returned the requested marker, HTTP 200,
+  14,215 ms inference latency. This initial test did not save the supplied PAT.
+- The user then explicitly approved Key Vault storage, one scheduled Copilot
+  test, and leaving Copilot active. Save / Apply succeeded; a second inference
+  succeeded with no PAT in the request, proving server-side vault reuse.
+- Rendered UI reloaded the saved Copilot selection, showed only the configured
+  marker with an empty password input, and completed a real Copilot inference.
+
+Pending final check: scheduled Copilot Blast Radius job in schedule
+`6307bbc5e70dcb46c487dc80b295162e3bc52afe48787d389d878427ba2ab8fe`.
+It uses the saved immutable Copilot profile and should complete without a browser
+session or submitted PAT. Retain the diagnostic job history, remove only the
+temporary test schedule definitions after completion, and keep Copilot active
+as explicitly requested.
+
+The first Copilot scan checked all 73 items but finished partial: 34 ARG queries
+succeeded, 38 items were skipped, and one item remained unresolved. Six initial
+ARG requests contained explanatory prose; retries repaired five, while prose
+around a SKIP response caused the remaining partial result. Authentication,
+Key Vault reuse, pinned execution and background inference worked.
+
+Corrected query generation to request and validate a JSON envelope containing an
+executable `query` or explicit null; prose/invalid schema fails visibly instead
+of being executed or silently treated as a skip. The retry prompt follows this
+same response contract. Added six targeted regression cases; shared suite now
+214 passed. The user explicitly approved deploying this correction and running
+one additional scheduled Copilot scan, leaving Copilot active. Build opposite
+tags API blue / JobHost green and complete fresh validation before rollout.
+
+Live page: https://azr-api-x8c5i2.azurewebsites.net/ai-settings
+
+Do not roll back to the first AI images (`cjs`/`cjt`), which contain the Foundry
+output-cap regression. If a rollback is required, drain active jobs and use the
+known-good pre-AI image digests recorded in the previous schedules rollout,
+rather than assuming an overwritten color tag is a known-good version.
+
+---
+
+## Previous schedules rollout
+
+> **Previous status:** Deployed and verified - JobHost schedules rollout (2026-11-03)
 
 ## Current rollout
 

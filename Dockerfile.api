@@ -20,6 +20,13 @@ RUN dotnet restore src/AzRadar.Api/AzRadar.Api.csproj --source "$NUGET_SOURCE"
 COPY src/AzRadar.Shared/ src/AzRadar.Shared/
 COPY src/AzRadar.Api/ src/AzRadar.Api/
 RUN dotnet publish src/AzRadar.Api/AzRadar.Api.csproj --no-restore -c Release -o /app/publish
+RUN test -x /app/publish/runtimes/linux-x64/native/copilot \
+    && test -f /app/publish/runtimes/linux-x64/native/runtime.node \
+    && mkdir -p /app/publish/third-party \
+    && find src/AzRadar.Shared/obj -path '*copilot-cli*/LICENSE.md' -exec cp {} /app/publish/third-party/Copilot-CLI-LICENSE.md \; \
+    && test -s /app/publish/third-party/Copilot-CLI-LICENSE.md \
+    && curl -fsSL https://raw.githubusercontent.com/github/copilot-sdk/v1.0.22/LICENSE \
+       -o /app/publish/third-party/GitHub.Copilot.SDK-LICENSE
 
 # --- Stage 3: Runtime ---
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime

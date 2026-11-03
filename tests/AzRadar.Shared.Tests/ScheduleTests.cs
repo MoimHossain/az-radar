@@ -216,6 +216,27 @@ public class ScheduleTests
         Assert.Equal("opaque-token", Assert.Single(context.Barriers).SessionToken);
     }
 
+    [Fact]
+    public async Task Provider_revision_is_pinned_across_primary_and_post_job()
+    {
+        var profiles = new Mock<IAiProfileStore>();
+        var active = new AiProviderProfile { Id = "ai-profile-first" };
+        profiles.Setup(x => x.GetActiveAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new AiProfileState(active, "etag"));
+        var f = new Fixture(profiles.Object);
+        await f.Tick();
+        await f.Tick();
+        var primary = Assert.Single(f.Jobs).Value;
+        Assert.Equal("ai-profile-first", primary.AiProfileId);
+        active = new AiProviderProfile { Id = "ai-profile-second" };
+        primary.Status = CrawlJobStatus.Completed;
+        primary.Outcome = "succeeded";
+        await f.Tick();
+        await f.Tick();
+        Assert.Equal(2, f.Jobs.Count);
+        Assert.All(f.Jobs.Values, job => Assert.Equal("ai-profile-first", job.AiProfileId));
+    }
+
     private static ScheduleRequest Request() => new()
     {
         Name = "Nightly", LocalDate = "2026-11-03", LocalTime = "00:00",
@@ -236,7 +257,7 @@ public class ScheduleTests
         public readonly Dictionary<string, CrawlJob> Jobs = [];
         public bool FailNextCreateAcknowledgement;
         private readonly ScheduleCoordinator _coordinator;
-        public Fixture()
+        public Fixture(IAiProfileStore? profiles = null)
         {
             var mock = new Mock<ICosmosDbService>();
             mock.Setup(db => db.GetCrawlJobAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -252,7 +273,7 @@ public class ScheduleTests
                     }
                     return Task.FromResult(job);
                 });
-            _coordinator = new(Store, mock.Object, Clock);
+            _coordinator = new(Store, mock.Object, Clock, profiles);
         }
         public Task Tick() => _coordinator.ReconcileAsync("test");
     }

@@ -392,7 +392,37 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface AiSettings {
+  provider: "foundry" | "github-copilot";
+  copilotModel: string;
+  patConfigured: boolean;
+  endpoint: string;
+  deployment: string;
+  profileId: string;
+  eTag: string | null;
+}
+
+export interface AiSettingsRequest {
+  provider: AiSettings["provider"];
+  copilotModel: string;
+  pat?: string;
+  prompt?: string;
+  eTag?: string | null;
+}
+
+export interface AiTestResult {
+  provider: string;
+  model: string;
+  reply: string;
+  latencyMs: number;
+}
+
 export const api = {
+  getAiSettings: () => apiFetch<AiSettings>("/api/ai-settings"),
+  testAiSettings: (request: AiSettingsRequest) =>
+    apiFetch<AiTestResult>("/api/ai-settings/test", { method: "POST", body: JSON.stringify(request) }),
+  saveAiSettings: (request: AiSettingsRequest) =>
+    apiFetch<AiSettings>("/api/ai-settings", { method: "PUT", body: JSON.stringify(request) }),
   getJobTypes: () => apiFetch<string[]>("/api/job-types"),
   getSchedules: (continuation?: string) =>
     apiFetch<SchedulePage<JobSchedule>>(`/api/schedules${continuation ? `?continuation=${encodeURIComponent(continuation)}` : ""}`),

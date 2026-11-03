@@ -180,6 +180,7 @@ const navSections: NavSection[] = [
   {
     title: "Settings",
     items: [
+      { path: "/ai-settings", label: "AI settings", icon: <SettingsRegular /> },
       { path: "/watchlist", label: "Service Watchlist", icon: <SettingsRegular /> },
       { path: "/repo-watchlist", label: "Repository Watchlist", icon: <BranchRegular /> },
       { path: "/blast-radius-config", label: "Blast Radius Config", icon: <PlugConnectedRegular /> },

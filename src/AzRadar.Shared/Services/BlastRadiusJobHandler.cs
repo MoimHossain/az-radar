@@ -273,7 +273,8 @@ public class BlastRadiusJobHandler : IJobHandler
             Affected Services: {string.Join(", ", item.Analysis.AffectedServices)}
             Affected Resource Types: {string.Join(", ", item.Analysis.AffectedResourceTypes)}
 
-            Return only the corrected KQL or SKIP.
+            Correct the query if possible, otherwise indicate that the item cannot be queried precisely.
+            Follow the outer query generator's JSON response contract.
             """;
 
         return await _llmAnalyzer.GenerateResourceGraphQueryAsync(

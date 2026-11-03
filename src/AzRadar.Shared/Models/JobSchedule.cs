@@ -43,6 +43,8 @@ public class JobSchedule
 
 public class ScheduleRun
 {
+    public string? AiProfileId { get; set; }
+    public AiProviderProfile? AiProfileSnapshot { get; set; }
     public string Id { get; set; } = "";
     public string ScheduleId { get; set; } = "";
     public string Kind { get; set; } = "run";

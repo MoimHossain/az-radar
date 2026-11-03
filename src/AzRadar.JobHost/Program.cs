@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection(CosmosDbSettings.SectionName));
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
 builder.Services.Configure<GitHubSettings>(builder.Configuration.GetSection(GitHubSettings.SectionName));
+builder.Services.Configure<AzureDevOpsWikiSettings>(builder.Configuration.GetSection(AzureDevOpsWikiSettings.SectionName));
 builder.Services.Configure<ServiceHealthProvisioningSettings>(
     builder.Configuration.GetSection(ServiceHealthProvisioningSettings.SectionName));
 builder.Services.Configure<ServiceHealthEventHubSettings>(

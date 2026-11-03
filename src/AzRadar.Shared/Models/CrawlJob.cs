@@ -52,6 +52,8 @@ public class CrawlJob
     public DateTimeOffset? ScheduledFor { get; set; }
     public int? BarrierPages { get; set; }
     public bool Retryable { get; set; }
+    public string? AiProfileId { get; set; }
+    public AiProviderProfile? AiProfileSnapshot { get; set; }
 
     [JsonPropertyName("_etag")]
     public string? ETag { get; set; }

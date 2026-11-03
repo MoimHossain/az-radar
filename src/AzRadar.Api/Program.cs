@@ -8,11 +8,18 @@ using AzRadar.Shared.Services;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddFixedWindowLimiter("ai-management", limiter =>
+    {
+        limiter.PermitLimit = 6;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+    });
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         context.Request.Path.StartsWithSegments("/api/schedules") && context.Request.Method != "GET"
             ? RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -22,7 +29,7 @@ builder.Services.AddRateLimiter(options =>
                 })
             : RateLimitPartition.GetNoLimiter("other"));
     options.OnRejected = async (context, ct) =>
-        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Too many schedule changes. Retry in a minute." }, ct);
+        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Too many requests. Retry in a minute." }, ct);
 });
 
 // Configuration
@@ -57,6 +64,24 @@ await app.Services.GetRequiredService<IScheduleStore>().InitializeAsync();
 
 app.UseCors();
 app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/ai-settings"))
+    {
+        if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } size)
+            size.MaxRequestBodySize = 16_384;
+        if (!app.Environment.IsDevelopment() && context.Request.Headers.Origin.ToString() is { Length: > 0 } origin &&
+            (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
+             !string.Equals(uri.Authority, context.Request.Host.Value, StringComparison.OrdinalIgnoreCase)))
+        {
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsJsonAsync(new { error = "Cross-origin AI settings requests are not allowed." });
+            return;
+        }
+    }
+    await next(context);
+});
+app.MapAiSettings();
 
 // Serve static frontend files from /wwwroot
 var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
@@ -74,52 +99,22 @@ app.MapGet("/api/health", () => Results.Ok(new
     supportsSchedules = true
 }));
 
-// --- LLM connectivity check ---
-// Performs a minimal chat completion so a deployment can verify the app can
-// reach the configured Azure OpenAI endpoint (e.g. via a private endpoint)
-// and authenticate with its managed identity. Returns 503 on failure.
-app.MapGet("/api/health/llm", async (OpenAI.Chat.ChatClient chat, IOptions<OpenAiSettings> openAiOptions) =>
+// Passive configuration status; paid inference is an explicit AI settings test.
+app.MapGet("/api/health/llm", async (AiSettingsService settings, CancellationToken ct) =>
 {
-    var settings = openAiOptions.Value;
-    var sw = System.Diagnostics.Stopwatch.StartNew();
-    try
+    var configuration = await settings.GetAsync(ct);
+    var configured = configuration.Provider == AiProviderProfile.Foundry
+        ? !string.IsNullOrWhiteSpace(configuration.Endpoint) : configuration.PatConfigured;
+    return Results.Json(new
     {
-        var messages = new List<OpenAI.Chat.ChatMessage>
-        {
-            new OpenAI.Chat.UserChatMessage("Reply with the single word: OK")
-        };
-        var response = await chat.CompleteChatAsync(messages);
-        sw.Stop();
-        var reply = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : string.Empty;
-        return Results.Ok(new
-        {
-            status = "healthy",
-            llm = "reachable",
-            endpoint = settings.Endpoint,
-            deployment = settings.DeploymentName,
-            reply,
-            latencyMs = sw.ElapsedMilliseconds,
-            timestamp = DateTimeOffset.UtcNow
-        });
-    }
-    catch (Exception ex)
-    {
-        sw.Stop();
-        return Results.Json(new
-        {
-            status = "unhealthy",
-            llm = "unreachable",
-            endpoint = settings.Endpoint,
-            deployment = settings.DeploymentName,
-            error = ex.Message,
-            latencyMs = sw.ElapsedMilliseconds,
-            timestamp = DateTimeOffset.UtcNow
-        }, statusCode: 503);
-    }
+        status = configured ? "configured" : "not-configured", provider = configuration.Provider,
+        llm = "not-tested", configuration.Endpoint, configuration.Deployment,
+        timestamp = DateTimeOffset.UtcNow
+    }, statusCode: configured ? 200 : 503);
 });
 
 // --- CrawlJob endpoints ---
-app.MapPost("/api/crawl-jobs", async (CreateCrawlJobRequest request, ICosmosDbService db) =>
+app.MapPost("/api/crawl-jobs", async (CreateCrawlJobRequest request, ICosmosDbService db, IAiProfileStore profiles) =>
 {
     var validation = ScheduleRecurrence.ValidateTemplate(new ScheduledJobTemplate
         { JobType = request.JobType, SkipLlmAnalysis = request.SkipLlmAnalysis });
@@ -133,6 +128,8 @@ app.MapPost("/api/crawl-jobs", async (CreateCrawlJobRequest request, ICosmosDbSe
         SkipLlmAnalysis = request.SkipLlmAnalysis,
         Status = CrawlJobStatus.Pending
     };
+    job.AiProfileSnapshot = (await profiles.GetActiveAsync()).Profile;
+    job.AiProfileId = job.AiProfileSnapshot.Id;
     var created = await db.CreateCrawlJobAsync(job);
     return Results.Created($"/api/crawl-jobs/{created.Id}", created);
 });
@@ -255,7 +252,8 @@ app.MapDelete("/api/schedules/{id}", async (string id, HttpRequest http, ISchedu
     return await store.SaveAsync(schedule, ct: ct) ? Results.Ok(new { deleted = true }) :
         Results.Json(new { error = "Schedule changed. Refresh and retry." }, statusCode: 412);
 });
-app.MapPost("/api/schedules/{id}/run-now", async (string id, HttpRequest http, IScheduleStore store, CancellationToken ct) =>
+app.MapPost("/api/schedules/{id}/run-now", async (string id, HttpRequest http, IScheduleStore store,
+    IAiProfileStore profiles, CancellationToken ct) =>
 {
     if (!Guid.TryParse(http.Headers["Idempotency-Key"], out var key))
         return Results.BadRequest(new { error = "A UUID Idempotency-Key header is required." });
@@ -267,6 +265,8 @@ app.MapPost("/api/schedules/{id}/run-now", async (string id, HttpRequest http, I
     if (schedule.ActiveRunId is not null) return Results.Conflict(new { error = "This schedule already has an active chain." });
     var now = DateTimeOffset.UtcNow;
     var run = ScheduleCoordinator.NewRun(schedule, runId, now, now, "manual");
+    run.AiProfileSnapshot = (await profiles.GetActiveAsync(ct)).Profile;
+    run.AiProfileId = run.AiProfileSnapshot.Id;
     schedule.ActiveRunId = runId;
     ScheduleRecurrence.SetWake(schedule, now.AddSeconds(-30));
     return await store.SaveAsync(schedule, run, createRun: true, ct) ? Results.Ok(run) :
@@ -296,6 +296,8 @@ app.MapPost("/api/schedules/{id}/runs/{runId}/retry",
     var now = DateTimeOffset.UtcNow;
     var recovery = ScheduleCoordinator.NewRun(schedule, recoveryId, now, now, "retry");
     recovery.Configuration = original.Configuration;
+    recovery.AiProfileId = original.AiProfileId;
+    recovery.AiProfileSnapshot = original.AiProfileSnapshot;
     recovery.Revision = original.Revision;
     recovery.RetryOfRunId = original.Id;
     recovery.PostJobId = original.Configuration.PostJob is null ? null : ScheduleRecurrence.StableId(recovery.Id, "post");
@@ -1139,6 +1141,8 @@ app.MapGet("/api/calendar/undated", async (ICosmosDbService db) =>
 // --- AppConfig endpoints ---
 app.MapGet("/api/config/{key}", async (string key, ICosmosDbService db) =>
 {
+    if (key.StartsWith("ai-", StringComparison.OrdinalIgnoreCase))
+        return Results.BadRequest(new { error = "Use the dedicated AI settings API." });
     var config = await db.GetAppConfigAsync(key);
     if (config is null) return Results.NotFound();
 
@@ -1167,6 +1171,8 @@ app.MapGet("/api/crawl-jobs/{id}/diagnostics", async (string id, ICosmosDbServic
 
 app.MapPut("/api/config/{key}", async (string key, UpdateConfigRequest request, ICosmosDbService db) =>
 {
+    if (key.StartsWith("ai-", StringComparison.OrdinalIgnoreCase))
+        return Results.BadRequest(new { error = "Use the dedicated AI settings API." });
     var config = new AppConfig
     {
         Id = key,

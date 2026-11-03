@@ -1,3 +1,5 @@
+using AzRadar.Shared.Models;
+
 namespace AzRadar.Shared.Services;
 
 public sealed class JobExecutionContext : IDisposable
@@ -5,12 +7,15 @@ public sealed class JobExecutionContext : IDisposable
     private static readonly AsyncLocal<JobExecutionContext?> Ambient = new();
     private readonly JobExecutionContext? _previous = Ambient.Value;
     public static bool IsScheduled => Ambient.Value?.Scheduled == true;
+    public static AiProviderProfile? Profile => Ambient.Value?._profile;
+    private readonly AiProviderProfile? _profile;
     public bool Scheduled { get; }
     public List<JobReadBarrier> Barriers { get; } = [];
 
-    public JobExecutionContext(bool scheduled)
+    public JobExecutionContext(bool scheduled, AiProviderProfile? profile = null)
     {
         Scheduled = scheduled;
+        _profile = profile;
         Ambient.Value = this;
     }
 

@@ -33,6 +33,11 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<ICosmosDbService, CosmosDbService>();
         services.AddSingleton<IScheduleStore, CosmosScheduleStore>();
+        services.AddSingleton<IAiProfileStore, CosmosAiProfileStore>();
+        services.AddSingleton<ICopilotCredentialStore, CopilotCredentialStore>();
+        services.AddSingleton<ICopilotCompletion, CopilotCompletion>();
+        services.AddSingleton<IAiCompletionService, AiCompletionService>();
+        services.AddSingleton<AiSettingsService>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ScheduleCoordinator>();
         services.AddSingleton<JobExecutionGate>();
@@ -59,6 +64,7 @@ public static class ServiceCollectionExtensions
             var client = new AzureOpenAIClient(new Uri(settings.Endpoint), credential);
             return client.GetChatClient(settings.DeploymentName);
         });
+        services.AddSingleton(sp => new Lazy<ChatClient>(() => sp.GetRequiredService<ChatClient>()));
         services.AddSingleton<ILlmAnalyzer, LlmAnalyzerService>();
         services.AddSingleton<JobHeartbeatRunner>();
 
