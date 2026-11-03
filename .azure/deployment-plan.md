@@ -1,6 +1,6 @@
 # Azure Deployment Plan
 
-> **Status:** Ready for Validation - strict query response contract correction (2026-11-03)
+> **Status:** Validated - strict query response contract correction (2026-11-03)
 
 ## AI settings rollout - initial plan
 
@@ -87,7 +87,21 @@ Foundry resources, Azure API keys, or unrelated dispatch changes.
 
 Fresh Azure validation on 2026-11-03:
 
-- Final corrected images: run `cju` API green Succeeded,
+- Strict-query-contract release: run `cjw` API blue Succeeded,
+  `sha256:2e624acfcb96a4cef58343e35e3000aae8f3a20e7090ffb72ededb0816097930`;
+  run `cjx` JobHost green Succeeded,
+  `sha256:7567b77bc152f26fe2485badf853252f286c1b26a2a2f19a5c225da1bc39ee4a`.
+  Registry lockdown verified after both builds.
+- This correction changes application images only. Reused the passing same-day
+  ARM/scoped what-if, policy, and static/live role proof: the scoped template,
+  role definitions and infrastructure are unchanged and will not be redeployed.
+- Final shared suite: 214 passed; solution build: zero warnings/errors.
+  Changed analyzer/test formatting checks passed. The broader existing Blast
+  Radius handler formatting check reports pre-existing single-line initializer
+  violations outside the changed retry-prompt lines; these are left unchanged.
+  Both real Copilot JSON-envelope prototypes passed (query and explicit null),
+  including the previously unresolved unscannable-feature scenario.
+- Earlier Foundry-corrected images: run `cju` API green Succeeded,
   `sha256:31f1788cccb01e0a997bd53735ba805b803a622c9da03aa390e202336c3d2ac4`;
   run `cjv` JobHost blue Succeeded,
   `sha256:1f51f45b1e13e40167bdb6c50d72c081ea3168393e314af3566040521b005465`.
@@ -99,7 +113,8 @@ Fresh Azure validation on 2026-11-03:
 - Live pre-correction checks already verified 400 input validation, 403 foreign
   origin rejection, 413 request-size limit, blocked generic config access, and
   sanitized 502 for a deliberately invalid PAT. Container logs confirmed the
-  Linux Copilot runtime started; successful Copilot authentication remains untested.
+  Linux Copilot runtime started. Subsequent successful authentication/inference
+  and vault reuse are documented in the live verification below.
 - Ran the skill's `validate-deployment.ps1 -Scope group -ResourceGroup
   az-radar-vnet-rg -Template infra\ai-settings-rollout.bicep -Parameters
   <session-files>\ai-settings.parameters.json -Subscription
@@ -148,7 +163,8 @@ the main infrastructure or the demo dispatch stack.
 - Added provider settings/test UI, dedicated rate-limited/size-bounded API,
   isolated SDK runtime, versioned Key Vault credentials, conditional Foundry
   resolution, immutable Cosmos profiles, and nonsecret job/chain snapshots.
-- Shared tests: 208 passed (14 new provider/profile-pinning/Foundry compatibility cases).
+- Shared tests: 214 passed, including provider/profile-pinning, Foundry
+  compatibility, and strict Resource Graph JSON-contract cases.
 - Solution build: passed, zero warnings/errors; local SDK is preview but target
   runtime remains .NET 8.
 - API test project contains no discoverable tests; do not report it as passing tests.
@@ -160,17 +176,17 @@ the main infrastructure or the demo dispatch stack.
 - Dockerfiles assert Linux native assets and retain CLI/SDK license notices.
 - Existing API/JobHost both use UAMI principal `1d009d7d-59a6-489e-929d-2b1a6fe6f97b`,
   already Key Vault Secrets Officer on the reused vault. No new role grant needed.
-- JobHost currently lacks vault URI app setting: wire the existing URI during
-  scoped rollout. Canonical `infra\main.bicep` already supplies it to both apps.
-- Existing images: API green (deploy blue), JobHost blue (deploy green).
+- The scoped rollout added JobHost's vault URI app setting. Canonical
+  `infra\main.bicep` already supplies it to both apps.
+- Strict-contract images: API blue and JobHost green.
 - Both Always On true. Registry public Disabled/default Deny/export disabled.
 - Functional scope: automated provider/service and UI compilation checks complete;
   Azure-dependent UI/inference checks will run against the deployed containers.
-  Live successful Copilot inference remains dependent on user-provided PAT.
+  Live successful Copilot inference used the explicitly authorized supplied PAT.
 
 ### Current deployment and live verification
 
-The corrected API green (`cju`) and JobHost blue (`cjv`) images are deployed.
+The strict-contract API blue (`cjw`) and JobHost green (`cjx`) images are deployed.
 Both Always On settings and UAMI private image pulls remain enabled. The worker
 remains Running with public networking Disabled; ACR is public Disabled/default
 Deny/export disabled/admin false. All 22 original worker app settings were
@@ -200,11 +216,11 @@ Completed checks:
 - Rendered UI reloaded the saved Copilot selection, showed only the configured
   marker with an empty password input, and completed a real Copilot inference.
 
-Pending final check: scheduled Copilot Blast Radius job in schedule
+First scheduled Copilot Blast Radius check:
 `6307bbc5e70dcb46c487dc80b295162e3bc52afe48787d389d878427ba2ab8fe`.
-It uses the saved immutable Copilot profile and should complete without a browser
-session or submitted PAT. Retain the diagnostic job history, remove only the
-temporary test schedule definitions after completion, and keep Copilot active
+It used the saved immutable Copilot profile without a browser session or
+submitted PAT. Retain completed one-time schedules and diagnostic job history
+for inspection; no recurring test schedules were created. Keep Copilot active
 as explicitly requested.
 
 The first Copilot scan checked all 73 items but finished partial: 34 ARG queries
@@ -218,8 +234,17 @@ executable `query` or explicit null; prose/invalid schema fails visibly instead
 of being executed or silently treated as a skip. The retry prompt follows this
 same response contract. Added six targeted regression cases; shared suite now
 214 passed. The user explicitly approved deploying this correction and running
-one additional scheduled Copilot scan, leaving Copilot active. Build opposite
-tags API blue / JobHost green and complete fresh validation before rollout.
+one additional scheduled Copilot scan, leaving Copilot active. Fresh validation
+completed, then the opposite tags API blue / JobHost green were deployed.
+Both apps are responsive/Running with Always On and managed-identity image pulls;
+worker public access remains Disabled. Live resource-scoped role checks passed
+again after rollout. Supplied-PAT absence checks passed for tracked source and
+the latest commit diff without printing the credential.
+
+The approved second one-time schedule is
+`158c5bbae6f2630f3d48d346d6a05976fb9b755f1ea46c677f81864745dcd859`.
+Its occurrence has been admitted once and its background job is running with
+the saved immutable Copilot profile. Final scan outcome is still being observed.
 
 Live page: https://azr-api-x8c5i2.azurewebsites.net/ai-settings
 

@@ -73,7 +73,7 @@ the behavior, and the two-minute request deadline still applies.
 
 Verification completed on the deployed application:
 
-- Shared suite: 208 passed; solution build: zero warnings/errors; frontend
+- Shared suite: 214 passed; solution build: zero warnings/errors; frontend
   type-check, changed-file lint, and production build passed.
 - Real Foundry inference passed through both the API and rendered UI. Test-only
   semantics, verified settings persistence, stale-update rejection, request-size
@@ -85,8 +85,13 @@ Verification completed on the deployed application:
   resubmitting it. The rendered UI reloaded the Copilot selection and showed only
   a configured marker with an empty password field.
 - Copilot is now active at the user's explicit request. One scheduled Copilot
-  Blast Radius job is being verified; its final outcome is recorded in the
-  deployment plan. No PAT values are included in this repository.
+  Blast Radius scan checked all 73 items but finished partial because verbose
+  model output was submitted as KQL. Query generation now requires a validated
+  JSON envelope with an executable query or explicit null; invalid output is
+  never silently treated as a skip. Six regression cases cover this contract.
+  The correction is deployed and an explicitly approved second scheduled scan
+  is being verified; its final outcome is recorded in the deployment plan.
+  No PAT values are included in this repository.
 
 ## 1. Executive assessment
 
