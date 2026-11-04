@@ -146,13 +146,15 @@ app.MapGet("/api/crawl-jobs/{id}", async (string id, ICosmosDbService db) =>
     return job is null ? Results.NotFound() : Results.Ok(job);
 });
 
-app.MapDelete("/api/crawl-jobs/{id}", async (string id, ICosmosDbService db) =>
+app.MapDelete("/api/crawl-jobs/{id}", async (string id, bool? force, CrawlJobDeletionService deletion, CancellationToken ct) =>
 {
-    var job = await db.GetCrawlJobAsync(id);
-    if (job?.ScheduleId is not null || job?.Status == CrawlJobStatus.Processing)
-        return Results.Conflict(new { error = "Scheduled and running jobs are retained for reliable execution/history." });
-    var deleted = await db.DeleteCrawlJobAsync(id);
-    return deleted ? Results.NoContent() : Results.NotFound();
+    var result = await deletion.DeleteAsync(id, force == true, ct);
+    return result.Status switch
+    {
+        CrawlJobDeletionStatus.Deleted => Results.NoContent(),
+        CrawlJobDeletionStatus.NotFound => Results.NotFound(),
+        _ => Results.Conflict(new { error = result.Error, forceDeleteAllowed = result.ForceDeleteAllowed })
+    };
 });
 
 // --- Durable schedules ---

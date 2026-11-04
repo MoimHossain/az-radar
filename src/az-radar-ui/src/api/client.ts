@@ -378,6 +378,15 @@ export interface ServiceHealthDeliveryIntent {
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+export class CrawlJobDeleteError extends Error {
+  readonly forceDeleteAllowed: boolean;
+
+  constructor(message: string, forceDeleteAllowed: boolean) {
+    super(message);
+    this.forceDeleteAllowed = forceDeleteAllowed;
+  }
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -455,9 +464,14 @@ export const api = {
       body: JSON.stringify({ jobType, skipLlmAnalysis }),
     }),
 
-  deleteCrawlJob: (id: string) =>
-    fetch(`${API_BASE}/api/crawl-jobs/${id}`, { method: "DELETE" }).then((r) => {
-      if (!r.ok && r.status !== 404) throw new Error(`Delete failed: ${r.status}`);
+  deleteCrawlJob: (id: string, force = false) =>
+    fetch(`${API_BASE}/api/crawl-jobs/${id}${force ? "?force=true" : ""}`, { method: "DELETE" }).then(async (r) => {
+      if (!r.ok && r.status !== 404) {
+        const body = await r.json().catch(() => null) as
+          | { error?: string; forceDeleteAllowed?: boolean }
+          | null;
+        throw new CrawlJobDeleteError(body?.error || `Delete failed: ${r.status}`, body?.forceDeleteAllowed === true);
+      }
     }),
 
   getFeedItems: (source?: string, limit = 50) => {

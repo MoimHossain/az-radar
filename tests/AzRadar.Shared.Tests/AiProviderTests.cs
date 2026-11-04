@@ -92,6 +92,8 @@ public class AiProviderTests
         fixture.Active.CopilotModel = "new-model";
         fixture.Credentials.Setup(x => x.GetAsync("old-version", It.IsAny<CancellationToken>()))
             .ReturnsAsync("github_pat_old");
+        fixture.Copilot.Setup(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("{}");
         using var context = new JobExecutionContext(true, new()
         {
             Provider = AiProviderProfile.Copilot,
@@ -115,6 +117,77 @@ public class AiProviderTests
         Assert.Equal("pat_required", error.Code);
         fixture.Copilot.Verify(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Explanation before JSON\n{\"query\":null}")]
+    [InlineData("```json\n{\"query\":null}\n```")]
+    [InlineData("[]")]
+    public async Task CopilotRepairsInvalidJsonWithoutAcceptingProse(string invalid)
+    {
+        var fixture = new Fixture();
+        using var context = new JobExecutionContext(true, new()
+        {
+            Provider = AiProviderProfile.Copilot,
+            PatVersion = "version"
+        });
+        fixture.Credentials.Setup(x => x.GetAsync("version", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("github_pat_test");
+        fixture.Copilot.SetupSequence(x => x.CompleteAsync("github_pat_test", "gpt-5.4", It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invalid)
+            .ReturnsAsync("""{"query":null}""");
+
+        var response = await fixture.Completion.CompleteAsync("system", "original prompt", true);
+
+        Assert.Equal("""{"query":null}""", response);
+        fixture.Copilot.Verify(x => x.CompleteAsync("github_pat_test", "gpt-5.4", It.IsAny<string>(),
+            It.Is<string>(p => p.Contains("original prompt") && p.Contains(invalid)),
+            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(2, fixture.Copilot.Invocations.Count);
+    }
+
+    [Fact]
+    public async Task CopilotFormatRepairIsBoundedAndNeverBecomesSuccessfulSkip()
+    {
+        var fixture = new Fixture();
+        using var context = new JobExecutionContext(true, new()
+        {
+            Provider = AiProviderProfile.Copilot,
+            PatVersion = "version"
+        });
+        fixture.Credentials.Setup(x => x.GetAsync("version", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("github_pat_test");
+        fixture.Copilot.Setup(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("SKIP");
+
+        var error = await Assert.ThrowsAsync<AiProviderException>(() =>
+            fixture.Completion.CompleteAsync("system", "prompt", true));
+
+        Assert.Equal("invalid_response", error.Code);
+        Assert.Equal(3, fixture.Copilot.Invocations.Count);
+    }
+
+    [Fact]
+    public async Task CopilotOperationalFailureDoesNotTriggerFormatRepair()
+    {
+        var fixture = new Fixture();
+        using var context = new JobExecutionContext(true, new()
+        {
+            Provider = AiProviderProfile.Copilot,
+            PatVersion = "version"
+        });
+        fixture.Credentials.Setup(x => x.GetAsync("version", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("github_pat_test");
+        fixture.Copilot.Setup(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AiProviderException("inference_failed", "Unavailable"));
+
+        var error = await Assert.ThrowsAsync<AiProviderException>(() =>
+            fixture.Completion.CompleteAsync("system", "prompt", true));
+
+        Assert.Equal("inference_failed", error.Code);
+        Assert.Single(fixture.Copilot.Invocations);
     }
 
     [Fact]

@@ -1,6 +1,152 @@
 # Azure Deployment Plan
 
-> **Status:** Validated - strict query response contract correction (2026-11-03)
+> **Status:** Deployed and verified - confirmed job deletion API/UI update (2026-11-04)
+
+## Confirmed job deletion rollout - 2026-11-04
+
+Approved scope: the user explicitly requested deployment of the API/UI deletion
+fix to the existing `az-radar-vnet-rg`, after investigating a separate customer
+Foundry failure. MODIFY existing .NET API/Shared services and FluentUI page; use
+the existing AZCLI blue/green recipe. No new resources, plans, capacity, role
+grants, or infrastructure deployment. Subscription remains
+`5e22addc-6168-4683-afd0-789a121ca5d3`, Central US.
+
+Deploy API/UI only: current API green -> build/deploy blue. Leave JobHost blue,
+its running jobs, dispatch stack, network isolation, private UAMI image pulls,
+and registry lockdown unchanged. Restore the committed Always On setting if
+overnight governance changed it, after the reproduction finishes. The user subsequently
+requested Foundry activation for reproduction; preserve that selected Foundry
+profile through this deployment, not the previously selected Copilot profile.
+
+Behavior: ordinary completed manual jobs delete normally. Finished scheduled
+jobs explain retention and require explicit Force delete. Deletion retains
+schedule/run history, generated items and diagnostics. Running jobs and
+unfinished chains remain protected, with visible errors. Conditional ETag deletes
+prevent a concurrent claim/update from deleting a changed job. The reported
+live job must NOT be deleted as a deployment smoke test without separate approval.
+
+Completed application checks:
+- Targeted deletion and scheduler suite: 35 passed.
+- Solution build: zero warnings/errors.
+- Frontend production build/type-check and changed-file ESLint passed.
+- Real headless-browser checks against local mock data passed: explanation,
+  cancel without forced deletion, explicit `force=true`, successful row removal,
+  visible active-run/concurrency errors, normal manual deletion unchanged.
+  No live records were deleted. The test-owned browser profile was removed.
+
+Customer reproduction: screenshot errors match the pre-Copilot scheduling
+revision. That revision added failure checks without changing Foundry request
+options; previous fallback analysis could conceal provider errors. No customer
+logs/access are available, so the exact customer cause is unconfirmed.
+Our API Foundry GPT-5.1 inference succeeded, and Foundry was explicitly activated.
+Both bounded one-time Azure Updates/MS Learn -> Blast Radius chains succeeded
+with the same pinned Foundry profile. Azure Updates checked 10,022 catalog
+records, including 121 successful analyses discarded by watchlist matching.
+MS Learn checked 48 records and retained 23 new items. Both post-jobs checked
+80 items: 48 successful ARG queries and 32 explicit non-queryable skips each.
+The MS Learn post-job had one initial ARG parser error, then the existing
+bounded LLM query repair succeeded on attempt two; no queryable item was lost.
+The customer's fatal LLM errors were not reproduced on our current Foundry
+GPT-5.1 build. This does not establish the cause on their older deployment.
+Both one-time schedules now have null nextDueAt/activeRunId, with one occurrence
+each. Keep their history; no recurring test was added. Foundry remains selected.
+
+Validation/deployment steps:
+- [x] All validation checks pass.
+  - [x] Core validation: CLI, authentication, Bicep compilation, scoped ARM
+        validation and what-if. Use the existing settings-preserving scoped
+        template as validation only; do not deploy it.
+  - [x] Docker build: API blue through ACR Tasks, existing npm lockfile and
+        Dockerfile native/runtime license assertions.
+  - [x] Azure Policy validation: fresh inherited assignment query returned [].
+- [x] Approved existing target and API-only scope.
+- [x] Application build, focused tests, lint, and mock UI verification.
+- [x] Fresh Azure context, policy, static role and scoped infrastructure checks.
+- [x] API blue ACR build and native packaging proof; restore registry restrictions.
+- [x] Complete azure-validate and record Section 7 proof.
+- [x] Complete Foundry reproduction before executing the approved API-only rollout.
+- [x] Deploy through azure-deploy; verify readiness, selected Foundry profile,
+      visible deletion protection, unchanged worker and registry restrictions.
+
+### Section 7: confirmed deletion validation proof
+
+Application commands and actual results are recorded above. Core helper
+`validate-deployment.ps1 -Scope group -ResourceGroup az-radar-vnet-rg
+-Template infra\ai-settings-rollout.bicep -Parameters <temporary secure snapshot>
+-Subscription 5e22addc-6168-4683-afd0-789a121ca5d3` passed all five checks.
+The helper's text-line counts include legend/property markers. A separate
+JSON what-if audit found zero creates/deletes and one `Modify` at the existing
+JobHost appsettings `properties` object, with secure current settings supplied
+unchanged. This opaque settings preview is NOT an infrastructure deployment
+plan; the template will not be deployed. Temporary settings snapshots were
+removed explicitly after validation. The image rollout uses a minimal API
+configuration PATCH only.
+
+Static RBAC review: no role changes required. The API UAMI already receives
+resource-scoped AcrPull (`infra/modules/container-registry.bicep:119-129`),
+Cosmos SQL Data Contributor (`infra/modules/cosmos-rbac.bicep:15-30`), Key Vault
+Secrets Officer (`src/Dispatching/infra/main.bicep:404-412`), and the Foundry
+resource's OpenAI User role (`infra/modules/openai.bicep:149-160`). Conditional
+Cosmos item deletion uses the same existing data-plane role as normal deletion.
+Live role bindings will be checked after deployment.
+
+API-only ACR Tasks build `cj11` succeeded:
+`azrxon32oitl5v66.azurecr.io/az-radar-api:blue`,
+digest `sha256:b54a0eb7fe9e6a7348b7937a3878f81d028f786bab44cad9df7987d232a1da90`.
+The existing npm lockfile was verified. The Dockerfile's executable native
+Copilot/runtime and license assertions passed as part of the build.
+Registry post-build state was read back: public Disabled, default Deny,
+export disabled, admin false. Neither live image pointer was changed by the build.
+
+Fresh context confirmed the same subscription, RG and Central US; API is green,
+JobHost blue, and both use managed-identity image pulls. No inherited policy
+assignments were returned at the RG scope.
+
+Operational drift: both sites' Always On had changed to false. Resource
+Change Analysis confirms application actor
+`a1a9c5b6-7a4f-4288-89ab-6805873f65d1` changed true -> false on both sites at
+2026-11-03 23:37:19 UTC. The actor resolves to
+MCAPSGovernance-AutomationApp. After both reproduction chains finished and no
+pending/processing jobs remained, Always On was restored to true on both apps,
+matching `infra/modules/web-app.bicep`. This is not proof of the customer's LLM
+failure. The automation/permissions were not changed; a governance exemption
+is still required to prevent the overnight drift recurring.
+
+### Post-deployment verification - 2026-11-04
+
+Approved application-only deployment completed through azure-deploy. Minimal
+ARM configuration PATCH switched API green -> blue and restored Always On.
+The API was restarted. JobHost image remains blue; only its drifted Always On
+setting was restored. No infrastructure templates were deployed.
+
+At `2026-11-04T07:14:37Z`, live API health and the new UI bundle
+`/assets/index-UaQc8XaO.js` were verified at
+https://azr-api-x8c5i2.azurewebsites.net.
+An actual Foundry GPT-5.1 inference returned `FOUNDRY_OK` in 1,258 ms.
+Provider/profile remained Foundry /
+`ai-profile-11bad3ddd63240aca50195047c5281cb`.
+
+The deployed UI passed real headless-browser explanation, cancel, force-query
+flag, row removal, active-run error, concurrency error, and normal manual-delete
+checks. All browser API calls were intercepted with isolated mock data.
+Live backend probes used a confirmed nonexistent random ID: invalid force
+binding returned 400, and valid force reached the deletion service and returned
+404. No real job records were deleted. The reported `bac919a4...` job was read
+back as completed with succeeded run history and remains untouched.
+The isolated browser profile was removed.
+
+Canonical ARM readback verified both apps Running with Always On true, the
+expected attached UAMI, managed-identity image pulls and VNet image-pull routing.
+Worker public access remains Disabled; its image/app settings were not changed.
+Registry remains public Disabled/default Deny/export disabled/admin false.
+Live resource-scoped AcrPull, Key Vault Secrets Officer, Cognitive Services
+OpenAI User, and Cosmos SQL Data Contributor assignments were all confirmed
+for API UAMI principal `1d009d7d-59a6-489e-929d-2b1a6fe6f97b`.
+No role grants or permission changes were made. Final `git diff --check` passed.
+
+---
+
+> **Previous status:** Deployed and verified - switchable AI providers (2026-11-03)
 
 ## AI settings rollout - initial plan
 
@@ -87,6 +233,20 @@ Foundry resources, Azure API keys, or unrelated dispatch changes.
 
 Fresh Azure validation on 2026-11-03:
 
+- Final format-repair release: `dotnet test tests\AzRadar.Shared.Tests
+  --no-restore` passed 219 tests; `dotnet build AzRadar.slnx --no-restore
+  -p:Platform="Any CPU"` passed with zero warnings/errors; changed-file
+  `dotnet format whitespace ... --verify-no-changes` passed. Real isolated SDK
+  reproduction repaired the exact prose-prefixed failure on attempt two.
+- Final image run `cjy` API green Succeeded,
+  `sha256:7d387f30c7b95da62e5455576ac8722c795f40b7b881f86622c5029ae20b0fe9`;
+  run `cj10` JobHost blue Succeeded,
+  `sha256:389059cfe3f8c4e9cfdd309f3e14a2760d57825f880fe69dc3c2078b03b8e2b4`.
+  Registry lockdown verified after both builds. A transient Azure token-refresh
+  connection error aborted the first queue attempt before any build was queued;
+  its finally block restored restrictions and the retry succeeded.
+- This remains application-only: no infrastructure or role-code diff. The
+  same-day scoped ARM/what-if/policy/static role proof remains applicable.
 - Strict-query-contract release: run `cjw` API blue Succeeded,
   `sha256:2e624acfcb96a4cef58343e35e3000aae8f3a20e7090ffb72ededb0816097930`;
   run `cjx` JobHost green Succeeded,
@@ -95,7 +255,7 @@ Fresh Azure validation on 2026-11-03:
 - This correction changes application images only. Reused the passing same-day
   ARM/scoped what-if, policy, and static/live role proof: the scoped template,
   role definitions and infrastructure are unchanged and will not be redeployed.
-- Final shared suite: 214 passed; solution build: zero warnings/errors.
+- Strict-contract suite: 214 passed; solution build: zero warnings/errors.
   Changed analyzer/test formatting checks passed. The broader existing Blast
   Radius handler formatting check reports pre-existing single-line initializer
   violations outside the changed retry-prompt lines; these are left unchanged.
@@ -163,8 +323,8 @@ the main infrastructure or the demo dispatch stack.
 - Added provider settings/test UI, dedicated rate-limited/size-bounded API,
   isolated SDK runtime, versioned Key Vault credentials, conditional Foundry
   resolution, immutable Cosmos profiles, and nonsecret job/chain snapshots.
-- Shared tests: 214 passed, including provider/profile-pinning, Foundry
-  compatibility, and strict Resource Graph JSON-contract cases.
+- Shared tests: 219 passed, including provider/profile-pinning, Foundry
+  compatibility, strict Resource Graph JSON-contract, and bounded repair cases.
 - Solution build: passed, zero warnings/errors; local SDK is preview but target
   runtime remains .NET 8.
 - API test project contains no discoverable tests; do not report it as passing tests.
@@ -178,7 +338,7 @@ the main infrastructure or the demo dispatch stack.
   already Key Vault Secrets Officer on the reused vault. No new role grant needed.
 - The scoped rollout added JobHost's vault URI app setting. Canonical
   `infra\main.bicep` already supplies it to both apps.
-- Strict-contract images: API blue and JobHost green.
+- Final format-repair images: API green and JobHost blue.
 - Both Always On true. Registry public Disabled/default Deny/export disabled.
 - Functional scope: automated provider/service and UI compilation checks complete;
   Azure-dependent UI/inference checks will run against the deployed containers.
@@ -186,7 +346,7 @@ the main infrastructure or the demo dispatch stack.
 
 ### Current deployment and live verification
 
-The strict-contract API blue (`cjw`) and JobHost green (`cjx`) images are deployed.
+The format-repair API green (`cjy`) and JobHost blue (`cj10`) images are deployed.
 Both Always On settings and UAMI private image pulls remain enabled. The worker
 remains Running with public networking Disabled; ACR is public Disabled/default
 Deny/export disabled/admin false. All 22 original worker app settings were
@@ -243,8 +403,46 @@ the latest commit diff without printing the credential.
 
 The approved second one-time schedule is
 `158c5bbae6f2630f3d48d346d6a05976fb9b755f1ea46c677f81864745dcd859`.
-Its occurrence has been admitted once and its background job is running with
-the saved immutable Copilot profile. Final scan outcome is still being observed.
+Its occurrence was admitted once with the saved immutable Copilot profile, but
+the job failed on the fifth item: Copilot prefixed a valid JSON query object with
+explanatory prose. A bounded, single-item native SDK reproduction confirmed the
+exact failure. No prose was executed as KQL and the schedule did not report success.
+
+Added Copilot-only JSON format repair (at most three attempts total, under the
+existing two-minute deadline). Each rejected response is logged without its raw
+content; only a standalone JSON object can be accepted. Provider/authentication
+failures are not retried as format errors, exhausted repair fails visibly, and
+there is no automatic provider fallback or silent skip. The same saved profile
+and credential are used throughout. Foundry's native JSON mode is unchanged.
+
+The exact-item real SDK reproduction now passes: its initial response contained
+prose, the format-repair response was valid JSON, and query schema validation
+accepted only the repaired query. Five focused cases cover prose/fence/array
+repair, bounded exhaustion, and no retry on operational failure. Shared suite:
+219 passed; solution build: zero warnings/errors; changed-file whitespace checks
+passed. The user explicitly approved one more full scheduled scan after this fix.
+Both alternate images passed validation and are deployed. Fresh rendered UI
+testing again performed real Copilot inference using the saved vault credential,
+with the PAT field empty and only a configured marker. Worker isolation, Always
+On, managed-identity pulls, and all required live data-plane roles passed again.
+
+The approved final one-time schedule is
+`c23eacce35f6901d3af15e75294c0d524bd67b49b3d3a8af78b285b26f83e3ff`.
+Its run succeeded. Job
+`497c1171756e8bc261f8b704ee77f2f08a5f7a8bc6742074084785dcc7a4b5ab`
+completed/succeeded with no error: all 73 items checked, 36 ARG queries succeeded,
+37 explicit non-queryable skips, and one impacted-item result. No ARG query
+errors were recorded and every submitted ARG input began with `resources |`,
+not model prose. The occurrence was admitted once and its profile stayed pinned
+to the saved Copilot profile throughout unattended execution.
+
+Final persisted checks: schedule `nextDueAt` and `activeRunId` are null, so the
+retained one-time test definition has no future or active work. Copilot GPT-5.4
+remains active with the Key Vault credential configured, exactly as requested.
+The browser profile was removed; generated infrastructure JSON is absent.
+The supplied credential is absent from tracked repository content and the
+implementation commit diff. PRD and rollout proof are updated. No further scans
+are authorized or scheduled.
 
 Live page: https://azr-api-x8c5i2.azurewebsites.net/ai-settings
 

@@ -253,11 +253,12 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
-    public async Task<bool> DeleteCrawlJobAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteCrawlJobAsync(string id, CancellationToken cancellationToken = default, string? etag = null)
     {
         try
         {
-            await CrawlJobs.DeleteItemAsync<CrawlJob>(id, new PartitionKey(id), cancellationToken: cancellationToken);
+            await CrawlJobs.DeleteItemAsync<CrawlJob>(id, new PartitionKey(id),
+                new ItemRequestOptions { IfMatchEtag = etag }, cancellationToken);
             return true;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)

@@ -1,6 +1,6 @@
 # PRD and Research Assessment: Switchable Foundry / Copilot Intelligence
 
-> **Status:** Implemented and deployed; final Copilot scheduled-job verification in progress (2026-11-03)
+> **Status:** Implemented, deployed, and live-verified (2026-11-03)
 > **Research date:** 2026-11-03
 > **Product:** AzRadar
 > **Scope:** UI-selectable LLM provider for existing intelligence features
@@ -64,6 +64,14 @@ and denied permission requests. A single-flight limiter and request deadlines
 bound inference; cancellation forcibly stops the owned runtime before releasing
 capacity. Native Linux assets and third-party notices are verified during builds.
 
+Copilot's prompt-only JSON instructions do not guarantee JSON output. Structured
+completions therefore validate a standalone JSON object and can request format
+repair twice, within the same two-minute deadline and pinned profile. Rejected
+prose is never executed as KQL or treated as a successful skip. Exhaustion and
+provider failures remain visible; operational failures are not format-retried.
+Repair may consume additional Copilot usage. A real reproduction of the failing
+retirement now passes after one repair, and focused tests cover these bounds.
+
 Foundry retains its existing managed-identity client and request options.
 Live testing caught an Azure.AI.OpenAI 2.1 compatibility issue: adding
 `MaxOutputTokenCount` causes that SDK to serialize legacy `max_tokens`, rejected
@@ -73,7 +81,7 @@ the behavior, and the two-minute request deadline still applies.
 
 Verification completed on the deployed application:
 
-- Shared suite: 214 passed; solution build: zero warnings/errors; frontend
+- Shared suite: 219 passed; solution build: zero warnings/errors; frontend
   type-check, changed-file lint, and production build passed.
 - Real Foundry inference passed through both the API and rendered UI. Test-only
   semantics, verified settings persistence, stale-update rejection, request-size
@@ -84,14 +92,19 @@ Verification completed on the deployed application:
   approval, the PAT was saved to Key Vault and inference succeeded without
   resubmitting it. The rendered UI reloaded the Copilot selection and showed only
   a configured marker with an empty password field.
-- Copilot is now active at the user's explicit request. One scheduled Copilot
-  Blast Radius scan checked all 73 items but finished partial because verbose
-  model output was submitted as KQL. Query generation now requires a validated
-  JSON envelope with an executable query or explicit null; invalid output is
-  never silently treated as a skip. Six regression cases cover this contract.
-  The correction is deployed and an explicitly approved second scheduled scan
-  is being verified; its final outcome is recorded in the deployment plan.
-  No PAT values are included in this repository.
+- Scheduled testing exposed verbose model output around KQL/JSON. Query generation
+  now validates a JSON envelope with an executable query or explicit null, and
+  bounded format repair addresses noncompliant Copilot responses. Invalid output
+  is never executed as KQL or silently treated as a successful skip.
+- The final approved scheduled Copilot Blast Radius scan succeeded unattended:
+  73 items checked, 36 ARG queries succeeded, 37 explicit non-queryable skips,
+  one impacted-item result, and no query errors. The occurrence was admitted
+  once and retained its saved profile. Its one-time definition has no future
+  occurrence or active run. Detailed evidence, including intermediate failures,
+  is in the deployment plan.
+- Copilot GPT-5.4 remains active at the user's explicit request. Fresh rendered
+  UI inference passed after the final rollout using the saved Key Vault
+  credential, with an empty password field. No PAT values are in this repository.
 
 ## 1. Executive assessment
 

@@ -20,7 +20,7 @@ public interface ICosmosDbService
     /// </summary>
     Task<bool> TryClaimJobAsync(CrawlJob job, CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteCrawlJobAsync(string id, CancellationToken cancellationToken = default);
+    Task<bool> DeleteCrawlJobAsync(string id, CancellationToken cancellationToken = default, string? etag = null);
 
     // FeedItem operations
     Task<FeedItem?> GetFeedItemAsync(string id, CancellationToken cancellationToken = default);

@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<ICosmosDbService, CosmosDbService>();
         services.AddSingleton<IScheduleStore, CosmosScheduleStore>();
+        services.AddSingleton<CrawlJobDeletionService>();
         services.AddSingleton<IAiProfileStore, CosmosAiProfileStore>();
         services.AddSingleton<ICopilotCredentialStore, CopilotCredentialStore>();
         services.AddSingleton<ICopilotCompletion, CopilotCompletion>();

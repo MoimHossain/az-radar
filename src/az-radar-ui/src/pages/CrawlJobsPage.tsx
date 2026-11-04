@@ -37,7 +37,7 @@ import {
 } from "@fluentui/react-icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type CrawlJob, type JobDiagnosticEntry } from "../api/client";
+import { api, CrawlJobDeleteError, type CrawlJob, type JobDiagnosticEntry } from "../api/client";
 
 const useStyles = makeStyles({
   container: {
@@ -199,24 +199,6 @@ function isStaleJob(job: CrawlJob): boolean {
   return job.status === "processing" && job.isStale === true;
 }
 
-/**
- * Missing heartbeats do not prove a worker has stopped; active jobs always need confirmation.
- */
-function isDeletable(job: CrawlJob): boolean {
-  return (
-    job.status === "completed" ||
-    job.status === "failed"
-  );
-}
-
-/**
- * Any job may be force-deleted, but a still-active job (pending/processing)
- * requires explicit confirmation since the JobHost may still be working on it.
- */
-function needsForceConfirm(job: CrawlJob): boolean {
-  return !isDeletable(job);
-}
-
 function formatAge(createdAt: string): string {
   const mins = Math.floor(
     (Date.now() - new Date(createdAt).getTime()) / 60000
@@ -273,7 +255,9 @@ export function CrawlJobsPage() {
   const [selectedJob, setSelectedJob] = useState<CrawlJob | null>(null);
   const [diagnostics, setDiagnostics] = useState<JobDiagnosticEntry[]>([]);
   const [diagLoading, setDiagLoading] = useState(false);
-  const [forceDeleteTarget, setForceDeleteTarget] = useState<CrawlJob | null>(null);
+  const [forceDeleteTarget, setForceDeleteTarget] = useState<{ job: CrawlJob; message: string } | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteNotice, setDeleteNotice] = useState("");
   const [searchParams] = useSearchParams();
   const [linkedJobError, setLinkedJobError] = useState("");
 
@@ -343,14 +327,22 @@ export function CrawlJobsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (job: CrawlJob, force = false) => {
+    const id = job.id;
+    setDeleteError("");
+    setDeleteNotice("");
     setDeleting((prev) => new Set(prev).add(id));
     try {
-      await api.deleteCrawlJob(id);
+      await api.deleteCrawlJob(id, force);
       setJobs((prev) => prev.filter((j) => j.id !== id));
       setSelectedJob((prev) => (prev?.id === id ? null : prev));
+      setDeleteNotice(`Job ${id.substring(0, 8)} deleted. Generated items and diagnostics were kept.`);
     } catch (err) {
-      console.error("Failed to delete job:", err);
+      if (!force && err instanceof CrawlJobDeleteError && err.forceDeleteAllowed) {
+        setForceDeleteTarget({ job, message: err.message });
+      } else {
+        setDeleteError(err instanceof Error ? err.message : "Failed to delete the job. Please try again.");
+      }
     } finally {
       setDeleting((prev) => {
         const next = new Set(prev);
@@ -360,19 +352,11 @@ export function CrawlJobsPage() {
     }
   };
 
-  const requestDelete = (job: CrawlJob) => {
-    if (needsForceConfirm(job)) {
-      setForceDeleteTarget(job);
-    } else {
-      handleDelete(job.id);
-    }
-  };
-
   const confirmForceDelete = async () => {
     if (!forceDeleteTarget) return;
-    const id = forceDeleteTarget.id;
+    const job = forceDeleteTarget.job;
     setForceDeleteTarget(null);
-    await handleDelete(id);
+    await handleDelete(job, true);
   };
 
   const handleSelectJob = useCallback((job: CrawlJob) => {
@@ -400,6 +384,8 @@ export function CrawlJobsPage() {
   return (
     <div className={styles.container}>
       {linkedJobError && <Text role="alert">{linkedJobError}</Text>}
+      {deleteError && <Text role="alert" style={{ color: tokens.colorPaletteRedForeground1 }}>{deleteError}</Text>}
+      {deleteNotice && <Text role="status">{deleteNotice}</Text>}
       <div className={styles.headerRow}>
         <div>
           <Text size={700} weight="bold" block>
@@ -628,11 +614,7 @@ export function CrawlJobsPage() {
                     <TableCell>
                       <div className={styles.actionsCell}>
                         <Tooltip
-                          content={
-                            needsForceConfirm(job)
-                              ? "Force delete job (still active)"
-                              : "Delete job"
-                          }
+                          content="Delete job"
                           relationship="label"
                         >
                           <Button
@@ -646,14 +628,9 @@ export function CrawlJobsPage() {
                             appearance="subtle"
                             size="small"
                             disabled={deleting.has(job.id)}
-                            style={
-                              needsForceConfirm(job)
-                                ? { color: tokens.colorPaletteRedForeground1 }
-                                : undefined
-                            }
                             onClick={(e) => {
                               e.stopPropagation();
-                              requestDelete(job);
+                              void handleDelete(job);
                             }}
                           />
                         </Tooltip>
@@ -840,21 +817,20 @@ export function CrawlJobsPage() {
             <DialogTitle>Force delete this job?</DialogTitle>
             <DialogContent>
               <Text block>
-                This job is still <strong>{forceDeleteTarget?.status}</strong> and was created{" "}
-                {forceDeleteTarget ? formatAge(forceDeleteTarget.createdAt) : ""}. The JobHost may
-                still be processing it.
+                {forceDeleteTarget?.message}
               </Text>
               <Text block style={{ marginTop: 12 }}>
-                Deleting the job record does not stop work already in flight. Any items that run
-                has already written are kept; the job will simply stop reporting progress.
+                This job is <strong>{forceDeleteTarget?.job.status}</strong> and was created{" "}
+                {forceDeleteTarget ? formatAge(forceDeleteTarget.job.createdAt) : ""}.
+                {" "}Deleting the job record cannot be undone.
               </Text>
               {forceDeleteTarget && (
                 <div className={styles.resultSummary} style={{ marginTop: 12 }}>
                   <Text size={200} weight="semibold" block>
-                    {forceDeleteTarget.jobType}
+                    {forceDeleteTarget.job.jobType}
                   </Text>
                   <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                    {forceDeleteTarget.id}
+                    {forceDeleteTarget.job.id}
                   </Text>
                 </div>
               )}
